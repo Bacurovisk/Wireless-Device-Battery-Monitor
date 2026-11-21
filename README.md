@@ -7,6 +7,11 @@ Battery levels of your wireless mouse, headset, keyboard and controller, right o
 <b>Written in Rust 🦀</b>
 </p>
 
+<p align="center">
+<img src="res/screenshot-taskbar.png" width="440" alt="BatteryHub on the taskbar: mouse 86% charging (green bolt), headset 80%"><br>
+<img src="res/screenshot-tooltip.png" width="560" alt="Hover tooltip: device name, level, charge state, connection and warning level">
+</p>
+
 > [!IMPORTANT]
 > **This is a fork of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor)** (the C++ BatteryHub by krisgfx9).
 > This fork rewrites it in Rust. The idea, the look of the taskbar strip and the device protocols all come from the original project, and the credit for them goes to its authors.
