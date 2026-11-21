@@ -270,9 +270,14 @@ pub fn set_tooltip_theme(tip: HWND, dark: bool) {
 /// Runs `poll_devices(rescan)` on a worker thread and posts the result to `hwnd` as `msg`
 /// (LPARAM = Box<Vec<DeviceStatus>> raw pointer; the receiver must take it back with `take_result`).
 pub fn poll_async(hwnd: HWND, msg: u32, rescan: bool) {
+    run_async(hwnd, msg, move || crate::device::poll_devices(rescan));
+}
+
+/// Runs `read` on a worker thread and posts its result to `hwnd` as `msg` (see `take_result`).
+pub fn run_async(hwnd: HWND, msg: u32, read: impl FnOnce() -> Vec<DeviceStatus> + Send + 'static) {
     let h = hwnd.0 as usize;
     std::thread::spawn(move || {
-        let devices = crate::device::poll_devices(rescan);
+        let devices = read();
         let ptr = Box::into_raw(Box::new(devices));
         unsafe {
             if PostMessageW(Some(HWND(h as *mut c_void)), msg, WPARAM(0), LPARAM(ptr as isize)).is_err() {

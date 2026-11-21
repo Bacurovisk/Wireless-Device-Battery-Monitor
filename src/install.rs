@@ -412,3 +412,22 @@ mod tests {
         assert!(super::file_version(std::path::Path::new(r"C:\does\not\exist.exe")).is_none());
     }
 }
+
+#[cfg(test)]
+mod registry_tests {
+    use super::*;
+
+    #[test]
+    fn create_write_read_delete() {
+        let path = r"Software\BatteryHub-Test-Registry";
+        let k = create(HKCU, path).expect("create");
+        assert!(k.set_dword("D", 7), "set_dword");
+        assert!(k.set_string("S", "abc"), "set_string");
+        drop(k);
+        let r = open(HKCU, path, false).expect("open");
+        assert_eq!(r.get("S").as_deref(), Some("abc"));
+        assert_eq!(r.get("D").as_deref(), Some("0x00000007"));
+        drop(r);
+        assert!(delete_tree(HKCU, path));
+    }
+}

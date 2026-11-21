@@ -81,8 +81,9 @@ The original C++ BatteryHub (`Program Files\BatteryHub`, `HKCU\Software\Wireless
   - *Refresh when a device connects or disconnects* (default on). It reads again about 1.5 s after a USB receiver, cable or HID device is plugged in or removed, after a Bluetooth device connects or disconnects (checked every 4 s), and after the PC wakes up.
   - *Exit*.
 
-**When a device goes away**
-- Receiver or cable unplugged: the device disappears at once.
+**When a device comes or goes**
+- Receiver or cable unplugged: the device disappears at once (also when a device-change message is missed: every read checks whether the set of HID devices changed).
+- A device switched on or woken up behind a receiver that stays plugged in (e.g. a headset dongle) is not a device change for Windows; such receivers are checked again every 10 s, so the device shows up within seconds.
 - Receiver still plugged in but the mouse / keyboard sleeps: it stays, dimmed, with its last level.
 - Bluetooth device (AirPods, headphones, controllers) disconnected from this PC: it disappears at once. AirPods are shown only while connected to this PC, not while they are just nearby or connected to a phone.
 

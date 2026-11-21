@@ -80,6 +80,37 @@ fn open_raw(path: &str, access: u32, overlapped: bool) -> Option<HANDLE> {
     }
 }
 
+/// Paths of all present HID interfaces (sorted). Cheap: SetupAPI only, no device is opened - used
+/// to notice that a device was plugged in or removed between two reads.
+pub fn interface_paths() -> Vec<String> {
+    let mut out = Vec::new();
+    unsafe {
+        let guid = HidD_GetHidGuid();
+        let Ok(di) = SetupDiGetClassDevsW(Some(&guid), PCWSTR::null(), None, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE) else {
+            return out;
+        };
+        let mut ifd = SP_DEVICE_INTERFACE_DATA { cbSize: size_of::<SP_DEVICE_INTERFACE_DATA>() as u32, ..Default::default() };
+        let mut i = 0;
+        while SetupDiEnumDeviceInterfaces(di, None, &guid, i, &mut ifd).is_ok() {
+            i += 1;
+            let mut need = 0u32;
+            let _ = SetupDiGetDeviceInterfaceDetailW(di, &ifd, None, 0, Some(&mut need), None);
+            if need == 0 {
+                continue;
+            }
+            let mut buf = vec![0u32; (need as usize).div_ceil(4)];
+            let det = buf.as_mut_ptr() as *mut SP_DEVICE_INTERFACE_DETAIL_DATA_W;
+            (*det).cbSize = size_of::<SP_DEVICE_INTERFACE_DETAIL_DATA_W>() as u32;
+            if SetupDiGetDeviceInterfaceDetailW(di, &ifd, Some(det), need, None, None).is_ok() {
+                out.push(PCWSTR((*det).DevicePath.as_ptr()).to_string().unwrap_or_default());
+            }
+        }
+        let _ = SetupDiDestroyDeviceInfoList(di);
+    }
+    out.sort();
+    out
+}
+
 pub fn enum_hid() -> Vec<HidColl> {
     let mut out = Vec::new();
     unsafe {

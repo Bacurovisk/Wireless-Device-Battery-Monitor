@@ -219,20 +219,48 @@ fn ignored_devices() -> Vec<(u16, u16)> {
 /// HID collections from the last enumeration. Enumerating opens every HID device on the system,
 /// so a periodic battery read reuses this list; it is rebuilt on a rescan (device change, manual
 /// "Refresh devices", start-up) and at least every RESCAN_AFTER.
-static HID_CACHE: std::sync::Mutex<Option<(std::time::Instant, Vec<HidColl>)>> = std::sync::Mutex::new(None);
+static HID_CACHE: std::sync::Mutex<Option<HidCache>> = std::sync::Mutex::new(None);
 const RESCAN_AFTER: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
+struct HidCache {
+    at: std::time::Instant,
+    /// Interface paths present at the last enumeration (sorted).
+    paths: Vec<String>,
+    colls: Vec<HidColl>,
+}
+
+/// The HID collections to read. A cached list is reused only while the set of HID interfaces is
+/// unchanged (a cheap SetupAPI listing, no device opened), so a device plugged in or removed is
+/// picked up by the next read even if the device-change message was missed.
 fn hid_collections(rescan: bool) -> Vec<HidColl> {
     let mut cache = HID_CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    match cache.as_ref() {
-        Some((at, colls)) if !rescan && at.elapsed() < RESCAN_AFTER => colls.clone(),
-        _ => {
-            let colls = hid::enum_hid();
-            *cache = Some((std::time::Instant::now(), colls.clone()));
-            crate::drivers::sdi::forget_containers();
-            colls
+    let paths = hid::interface_paths();
+    if let Some(c) = cache.as_ref() {
+        if !rescan && c.at.elapsed() < RESCAN_AFTER && c.paths == paths {
+            return c.colls.clone();
         }
     }
+    let colls = hid::enum_hid();
+    *cache = Some(HidCache { at: std::time::Instant::now(), paths, colls: colls.clone() });
+    crate::drivers::sdi::forget_containers();
+    colls
+}
+
+/// Quick read of only the given receivers / cables (vid, pid): used to notice soon that a device
+/// behind a plugged-in receiver was switched on or woke up, which Windows does not report.
+/// Bluetooth, BLE and XInput are not touched.
+pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
+    let colls: Vec<HidColl> = hid_collections(false).into_iter().filter(|c| ids.contains(&(c.vid, c.pid))).collect();
+    if colls.is_empty() {
+        return Vec::new();
+    }
+    let mut ctx = PollContext { colls, ..Default::default() };
+    drivers::steelseries::poll(&mut ctx);
+    drivers::logitech::poll(&mut ctx);
+    drivers::razer::poll(&mut ctx);
+    drivers::playstation::poll(&mut ctx);
+    drivers::generic::poll(&mut ctx);
+    ctx.out
 }
 
 /// What to do with a device that was shown before but is missing from the latest read.
@@ -294,7 +322,7 @@ mod missing_tests {
 /// Whether a HID product (vid, pid) was present in the latest device enumeration.
 pub fn hid_present(id: (u16, u16)) -> bool {
     let cache = HID_CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    cache.as_ref().is_some_and(|(_, colls)| colls.iter().any(|c| (c.vid, c.pid) == id))
+    cache.as_ref().is_some_and(|c| c.colls.iter().any(|c| (c.vid, c.pid) == id))
 }
 
 /// Queries every supported device, enumerating them first. Blocking (a second or two); call from a

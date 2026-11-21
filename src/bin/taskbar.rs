@@ -32,12 +32,16 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 const WM_POLL_DONE: u32 = WM_APP + 2;
 const WM_TRAY: u32 = WM_APP + 3;
+const WM_QUICK_DONE: u32 = WM_APP + 4;
 // Not exported by the windows crate's WindowsAndMessaging module.
 const WM_MOUSELEAVE: u32 = 0x02A3;
 const TIMER_POLL: usize = 1;
 const TIMER_PLACE: usize = 2;
 const TIMER_DEVCHANGE: usize = 3;
 const TIMER_BTWATCH: usize = 4;
+const TIMER_QUICK: usize = 5;
+/// How often receivers whose device is off or asleep are checked again.
+const QUICK_MS: u32 = 10_000;
 const WM_DEVICECHANGE_MSG: u32 = 0x0219;
 const DBT_DEVNODES_CHANGED: usize = 0x0007;
 const DBT_DEVICEARRIVAL: usize = 0x8000;
@@ -108,10 +112,16 @@ struct App {
     next_uid: u32,
     /// Last Bluetooth connection signature (connect / disconnect detection).
     bt_sig: u64,
+    /// A device change arrived while a read was running: read again as soon as it finishes.
+    pending_change: bool,
+    /// Receivers / cables (vid, pid) whose device reported "off" in the last read.
+    offline_hw: HashSet<(u16, u16)>,
 }
 
 thread_local! {
     static APP: RefCell<App> = RefCell::new(App::default());
+    /// Receivers being read by the running quick read.
+    static QUICK_IDS: RefCell<Vec<(u16, u16)>> = const { RefCell::new(Vec::new()) };
 }
 
 fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
@@ -830,19 +840,90 @@ impl App {
     // ---- polling -------------------------------------------------------------------------------
 
     fn start_poll(&mut self) {
-        if !self.polling {
-            self.polling = true;
-            // Enumerate the devices again only when something may have changed; a periodic read
-            // reuses the device list and just reads the battery levels.
-            let rescan = !self.scanned || self.devchange || self.forget;
-            self.scanned = true;
-            dbg_log(&format!(
-                "poll started (device change: {}, rescan: {rescan}, interval: {} min)",
-                self.devchange,
-                refresh_minutes()
-            ));
-            ui::poll_async(self.main, WM_POLL_DONE, rescan);
+        if self.polling {
+            // A read (full or quick) is running: if this one is for a device change, do it right
+            // after, instead of losing it.
+            if self.devchange || self.forget {
+                self.pending_change = true;
+            }
+            return;
         }
+        self.polling = true;
+        // Enumerate the devices again only when something may have changed; a periodic read
+        // reuses the device list (and still notices added / removed HID devices).
+        let rescan = !self.scanned || self.devchange || self.forget;
+        self.scanned = true;
+        dbg_log(&format!("poll started (device change: {}, rescan: {rescan}, interval: {} min)", self.devchange, refresh_minutes()));
+        ui::poll_async(self.main, WM_POLL_DONE, rescan);
+    }
+
+    /// Quick read of the receivers whose device is off or asleep (switching a headset on or waking
+    /// a mouse is not a device change for Windows).
+    fn start_quick(&mut self) {
+        if self.polling || !refresh_on_change() {
+            return;
+        }
+        let mut ids: HashSet<(u16, u16)> = self.offline_hw.clone();
+        ids.extend(self.devices.values().filter(|t| t.status.asleep).filter_map(|t| t.status.hw));
+        if ids.is_empty() {
+            return;
+        }
+        self.polling = true;
+        let ids: Vec<(u16, u16)> = ids.into_iter().collect();
+        dbg_log(&format!("quick read of {ids:04X?}"));
+        let ids2 = ids.clone();
+        QUICK_IDS.with(|q| *q.borrow_mut() = ids);
+        ui::run_async(self.main, WM_QUICK_DONE, move || batteryhub::device::poll_hardware(&ids2));
+    }
+
+    /// Merges a quick read: only devices behind the receivers in `ids` are updated or removed.
+    fn on_quick_result(&mut self, fresh: Vec<DeviceStatus>, ids: &[(u16, u16)]) {
+        self.polling = false;
+        let keys: HashSet<String> = fresh.iter().map(|s| s.key.clone()).collect();
+        self.devices.retain(|k, t| {
+            let Some(hw) = t.status.hw else { return true };
+            if !ids.contains(&hw) || keys.contains(k) {
+                return true;
+            }
+            let present = batteryhub::device::hid_present(hw);
+            match batteryhub::device::missing_device(Some(hw), present, t.status.grace_sec, t.seen.elapsed().as_secs(), MIN_GRACE_SEC) {
+                Missing::Remove => false,
+                Missing::Asleep => {
+                    t.status.asleep = true;
+                    true
+                }
+                Missing::Keep => true,
+            }
+        });
+        for id in ids {
+            self.offline_hw.remove(id);
+        }
+        self.merge(fresh);
+        if std::mem::take(&mut self.pending_change) {
+            self.devchange = true;
+            self.start_poll();
+        }
+    }
+
+    /// Adds / updates the devices of a read; devices reporting "off" are removed and their
+    /// receiver is remembered for quick checks.
+    fn merge(&mut self, fresh: Vec<DeviceStatus>) {
+        let now = Instant::now();
+        for s in fresh {
+            if !self.order.contains(&s.key) {
+                self.order.push(s.key.clone());
+            }
+            if !s.connected {
+                if let Some(hw) = s.hw {
+                    self.offline_hw.insert(hw);
+                }
+                self.devices.remove(&s.key);
+                continue;
+            }
+            self.devices.insert(s.key.clone(), Tracked { status: s, seen: now });
+        }
+        self.order.retain(|k| self.devices.contains_key(k));
+        self.paint();
     }
 
     /// Menu refresh: `devices` = full rescan that drops devices that are gone right away;
@@ -884,20 +965,12 @@ impl App {
                 Missing::Keep => true,
             }
         });
-        let now = Instant::now();
-        for s in fresh {
-            if !self.order.contains(&s.key) {
-                self.order.push(s.key.clone());
-            }
-            // A device that reports "off" (headset switched off) disappears right away.
-            if !s.connected {
-                self.devices.remove(&s.key);
-                continue;
-            }
-            self.devices.insert(s.key.clone(), Tracked { status: s, seen: now });
+        self.offline_hw.clear();
+        self.merge(fresh);
+        if std::mem::take(&mut self.pending_change) {
+            self.devchange = true;
+            self.start_poll();
         }
-        self.order.retain(|k| self.devices.contains_key(k));
-        self.paint();
     }
 }
 
@@ -1065,6 +1138,7 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                         a.devchange = true;
                         a.start_poll();
                     }
+                    TIMER_QUICK => a.start_quick(),
                     TIMER_BTWATCH => {
                         // Bluetooth connect / disconnect does not add or remove device nodes, so
                         // Windows sends no device-change message for it: compare a signature.
@@ -1089,6 +1163,12 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                     SetTimer(Some(hwnd), TIMER_DEVCHANGE, 1500, None);
                 }
                 LRESULT(1)
+            }
+            WM_QUICK_DONE => {
+                let devices = ui::take_result(lp);
+                let ids = QUICK_IDS.with(|q| std::mem::take(&mut *q.borrow_mut()));
+                with_app(|a| a.on_quick_result(devices, &ids));
+                LRESULT(0)
             }
             WM_TRAY => {
                 if matches!((lp.0 & 0xFFFF) as u32, WM_RBUTTONUP | WM_CONTEXTMENU) {
@@ -1208,7 +1288,8 @@ fn main() {
         });
         SetTimer(Some(main), TIMER_POLL, refresh_minutes() * 60_000, None);
         SetTimer(Some(main), TIMER_PLACE, 1000, None);
-        SetTimer(Some(main), TIMER_BTWATCH, 4000, None);
+        SetTimer(Some(main), TIMER_BTWATCH, 3000, None);
+        SetTimer(Some(main), TIMER_QUICK, QUICK_MS, None);
 
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
