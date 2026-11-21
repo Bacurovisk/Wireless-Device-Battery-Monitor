@@ -159,7 +159,9 @@ fn paired_apple_audio() -> Vec<AppleDevice> {
             let n = d.name.to_uppercase();
             let looks_apple = n.contains("AIRPODS") || n.contains("BEATS");
             let apple_audio = d.apple && d.pid & 0xFF00 == 0x2000;
-            apple_audio || (d.connected && looks_apple && d.pid == 0)
+            // Shown only while connected to this PC: AirPods in range but connected to a phone,
+            // or lying in their case, keep broadcasting and must not appear here.
+            d.connected && (apple_audio || (looks_apple && d.pid == 0))
         })
         .collect();
     out.sort_by_key(|d| !d.connected);
@@ -292,5 +294,43 @@ pub fn poll(ctx: &mut PollContext) {
             );
         }
         ctx.out.push(s);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A paired-mode proximity message (type 07, length 0x19) for `model`.
+    fn msg(model: u16, status: u8, levels: u8, charge_case: u8) -> Vec<u8> {
+        let mut d = vec![0x07, 0x19, 0x01, model as u8, (model >> 8) as u8, status, levels, charge_case];
+        d.resize(27, 0);
+        d
+    }
+
+    #[test]
+    fn airpods_pro_2_left_broadcasting() {
+        // Left bud broadcasts (status bit 5): left 90%, right 80%, case 50%, case charging.
+        let a = parse(&msg(0x2014, 0x20, 0x89, 0x45)).unwrap();
+        assert_eq!((a.left, a.right, a.case), (90, 80, 50));
+        assert!(!a.left_chg && !a.right_chg && a.case_chg);
+    }
+
+    #[test]
+    fn unknown_values_and_single_battery_models() {
+        // Right bud broadcasts, other side unknown (15).
+        let a = parse(&msg(0x2014, 0x00, 0xF7, 0x0F)).unwrap();
+        assert_eq!((a.left, a.right, a.case), (-1, 70, -1));
+        // AirPods Max: one battery in the low nibble, charging bit 0.
+        let m = parse(&msg(0x200A, 0x00, 0x06, 0x90)).unwrap();
+        assert!(m.single);
+        assert_eq!(m.left, 60);
+        assert!(m.left_chg);
+    }
+
+    #[test]
+    fn rejects_other_messages() {
+        assert!(parse(&[0x10, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05]).is_none()); // nearby-info, not proximity
+        assert!(parse(&msg(0x1234, 0x20, 0x89, 0x45)).is_none()); // not an audio model
     }
 }

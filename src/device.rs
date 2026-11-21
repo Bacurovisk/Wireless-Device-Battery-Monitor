@@ -68,6 +68,10 @@ pub struct DeviceStatus {
     /// Keep showing the last value this long if the device stops answering.
     pub grace_sec: u32,
     pub vid: u16,
+    /// The USB / HID product (vid, pid) the device is read through - its receiver, cable or BT HID
+    /// link - or None when it is not read over HID (Bluetooth properties, BLE broadcasts, XInput).
+    /// When that hardware is gone, the device is gone too (not "asleep").
+    pub hw: Option<(u16, u16)>,
 }
 
 impl Default for DeviceStatus {
@@ -87,6 +91,7 @@ impl Default for DeviceStatus {
             millivolts: 0,
             grace_sec: 0,
             vid: 0,
+            hw: None,
         }
     }
 }
@@ -228,6 +233,68 @@ fn hid_collections(rescan: bool) -> Vec<HidColl> {
             colls
         }
     }
+}
+
+/// What to do with a device that was shown before but is missing from the latest read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Missing {
+    /// Gone: unplugged receiver / cable, or a Bluetooth / BLE / XInput device that disconnected.
+    Remove,
+    /// Its receiver is still there and the device sleeps: keep the last value, dimmed.
+    Asleep,
+    /// Its hardware is still there and it missed one answer: keep the last value as it was.
+    Keep,
+}
+
+/// Decides about a device missing from a read. `hw` is the hardware it is read through and
+/// `hw_present` whether that hardware is still plugged in; `age_sec` is the time since it last
+/// answered. Bluetooth / BLE / XInput devices (no `hw`) are only reported while connected, so a
+/// missing one has disconnected.
+pub fn missing_device(hw: Option<(u16, u16)>, hw_present: bool, grace_sec: u32, age_sec: u64, min_grace_sec: u64) -> Missing {
+    if hw.is_none() || !hw_present {
+        return Missing::Remove;
+    }
+    if grace_sec > 0 && age_sec < grace_sec as u64 {
+        Missing::Asleep
+    } else if age_sec < min_grace_sec {
+        Missing::Keep
+    } else {
+        Missing::Remove
+    }
+}
+
+#[cfg(test)]
+mod missing_tests {
+    use super::*;
+    const RX: Option<(u16, u16)> = Some((0x046D, 0xC543));
+
+    #[test]
+    fn unplugged_receiver_removes_at_once() {
+        assert_eq!(missing_device(RX, false, 1800, 5, 150), Missing::Remove);
+    }
+
+    #[test]
+    fn sleeping_mouse_on_a_plugged_receiver_is_asleep() {
+        assert_eq!(missing_device(RX, true, 1800, 120, 150), Missing::Asleep);
+        assert_eq!(missing_device(RX, true, 1800, 1801, 150), Missing::Remove);
+    }
+
+    #[test]
+    fn one_missed_answer_keeps_the_value_briefly() {
+        assert_eq!(missing_device(RX, true, 0, 60, 150), Missing::Keep);
+        assert_eq!(missing_device(RX, true, 0, 151, 150), Missing::Remove);
+    }
+
+    #[test]
+    fn bluetooth_devices_disappear_when_disconnected() {
+        assert_eq!(missing_device(None, false, 300, 1, 150), Missing::Remove);
+    }
+}
+
+/// Whether a HID product (vid, pid) was present in the latest device enumeration.
+pub fn hid_present(id: (u16, u16)) -> bool {
+    let cache = HID_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    cache.as_ref().is_some_and(|(_, colls)| colls.iter().any(|c| (c.vid, c.pid) == id))
 }
 
 /// Queries every supported device, enumerating them first. Blocking (a second or two); call from a

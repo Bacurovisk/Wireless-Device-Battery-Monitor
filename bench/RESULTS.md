@@ -4,6 +4,15 @@ Measured on 2026-11-21 on Windows 11 (build 26300), x64, with the same devices c
 
 Each program was sampled every 2 s with [`measure.ps1`](measure.ps1), which reports the numbers Task Manager shows. "Steady" means after start-up (t ≥ 30 s).
 
+## RAM as Task Manager shows it
+
+Task Manager's default "Memory" column is the **private working set**: memory that belongs to the program alone and is in RAM right now. Measured with the `\Process(*)\Working Set - Private` counter, 30 samples over 60 s for each program (measured one after the other, default settings):
+
+| | **Rust** | C++ 1.1.0 |
+|---|---:|---:|
+| Private working set, average | **0.76 MB** | 4.15 MB |
+| Private working set, max (during a read) | **1.39 MB** | 4.29 MB |
+
 ## Result
 
 | | **Rust v1.0** | C++ 1.1.0 | Difference |

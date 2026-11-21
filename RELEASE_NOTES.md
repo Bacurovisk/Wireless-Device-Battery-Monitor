@@ -1,29 +1,30 @@
-# BatteryHub v1.0 (Rust)
+# BatteryHub v1.0.1 (Rust)
 
-First release of this fork of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor), rewritten in **Rust** 🦀. All credit for the original idea, look and device protocols goes to the original project.
+An ultra-lightweight Rust implementation of BatteryHub for Windows, a fork of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor). All credit for the original idea, look and device protocols goes to the original project.
 
 ## Download
 
 | File | |
 |---|---|
-| `BatteryHub-Taskbar-Setup-v1.0.exe` | Setup: Install / Update / Uninstall |
+| `BatteryHub-Taskbar-Setup-v1.0.1.exe` | Setup: Install / Update / Uninstall |
 | `SHA256SUMS.txt` | Checksum |
 
-Run the setup and choose **Install**, **Update** or **Uninstall**. Before showing the options, it checks what is already installed and shows where every file is. No administrator rights are needed. It does not touch the original C++ BatteryHub.
+Already on v1.0? Run the new setup and choose **[2] Update**. Your warning levels, refresh options and autostart choice are kept.
 
-## What's included
+## Fixes
 
-- Taskbar strip with an icon and percentage per device. Hover a device for its name and charge state.
-- Right click to:
-  - set each device's red warning level (50 to 5%);
-  - refresh devices or battery levels;
-  - choose the refresh interval (1 / 5 / 10 / 30 min / 1 h);
-  - turn on refresh when a device connects or disconnects;
-  - exit.
-- Green ⚡ while charging, blue ⚡ at 100%, red percentage at or below the warning level.
-- Desktop and Start menu shortcuts, optional autostart.
-- Drivers: Logitech HID++, SteelSeries, Razer, DualShock 4 / DualSense, AirPods / Beats (BLE), Bluetooth (incl. Fast Pair), generic HID, Xbox.
-- Light on resources: compared with the original 1.1.0 on the same PC, 368 KB vs 1,958 KB file, 2.4 MB vs 29.4 MB working set, 3.2 MB vs 5.6 MB private memory, ~0.02 s vs ~0.64 s CPU per minute. See `bench/RESULTS.md`.
-- Tooltip and right-click menu follow the taskbar theme (dark / light).
+- **Unplugging a receiver or cable** now removes its device at once, instead of showing it as "asleep". "Asleep" is used only when the receiver is still plugged in and the device sleeps.
+- **Bluetooth devices disappear right after they disconnect**, and appear right after they connect. Bluetooth connection changes are now detected (checked every 4 s), and HID devices register for Windows' arrival / removal notifications.
+- **AirPods are shown only while connected to this PC**, not while they are just nearby or connected to a phone.
+- **Strip drawing after leaving full screen, DPI / theme changes and Explorer restarts:** the strip is re-rendered when the taskbar changes and recreated reliably after Explorer restarts.
+
+## New
+
+- **Safe fallback:** on a vertical taskbar or an unknown Explorer layout, BatteryHub shows one notification-area icon per device (level drawn in the icon, same tooltip and menu) and returns to the strip when it can.
+- **Tests and CI:** unit tests decode recorded reports (SteelSeries, DualSense / DualShock 4, AirPods, Fast Pair, Logitech) without the hardware; GitHub Actions builds and tests every push.
+
+## Footprint
+
+RAM as Task Manager shows it ("Memory"): **0.8 MB** vs 4.2 MB for the original C++ app on the same PC. Details are in `bench/RESULTS.md`.
 
 Windows may show a SmartScreen warning because the file is not code-signed: click *More info* → *Run anyway*.

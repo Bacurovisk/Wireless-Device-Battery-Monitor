@@ -350,6 +350,7 @@ fn poll_device(ctx: &mut PollContext, pid: u16, shorts: &[HidColl], longs: &[Hid
                 s.kind = guess_kind(&s.name);
             }
             s.vid = 0x046D;
+            s.hw = Some((0x046D, pid));
             ctx.out.push(s);
             any = true;
         }
@@ -386,5 +387,39 @@ pub fn poll(ctx: &mut PollContext) {
         if any {
             ctx.claim(vid, pid);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn li_ion_curve_end_points_and_order() {
+        assert_eq!(li_ion_percent(4300), 100);
+        assert_eq!(li_ion_percent(3400), 0);
+        assert_eq!(li_ion_percent(3811), 50);
+        let mut last = 101;
+        for mv in (3400..4300).rev().step_by(25) {
+            let p = li_ion_percent(mv);
+            assert!(p <= last, "curve must not rise as the voltage falls");
+            last = p;
+        }
+    }
+
+    #[test]
+    fn headset_curves() {
+        assert_eq!(headset_percent(0x0AB5, 4200), 100); // G733
+        assert_eq!(headset_percent(0x0AB5, 3300), 0);
+        assert_eq!(headset_percent(0x0A66, 3850), 50); // G533
+    }
+
+    #[test]
+    fn receiver_collections_group_by_physical_device() {
+        let a = HidColl { path: r"\\?\hid#vid_046d&pid_c547&mi_02&col01#8&2a2b3c4d&0&0000#{guid}".into(), ..Default::default() };
+        let b = HidColl { path: r"\\?\hid#vid_046d&pid_c547&mi_02&col02#8&2a2b3c4d&0&0001#{guid}".into(), ..Default::default() };
+        let other = HidColl { path: r"\\?\hid#vid_046d&pid_c547&mi_02&col01#8&99999999&0&0000#{guid}".into(), ..Default::default() };
+        assert_eq!(physical_key(&a), physical_key(&b));
+        assert_ne!(physical_key(&a), physical_key(&other));
     }
 }

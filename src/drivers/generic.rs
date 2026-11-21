@@ -125,6 +125,6 @@ pub fn poll(ctx: &mut PollContext) {
             percent: pct,
             ..Default::default()
         };
-        ctx.add(s, c.vid, c.pid);
+        ctx.add(DeviceStatus { hw: Some((c.vid, c.pid)), ..s }, c.vid, c.pid);
     }
 }

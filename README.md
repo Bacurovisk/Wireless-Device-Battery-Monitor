@@ -1,10 +1,14 @@
 <p align="center"><img src="res/batteryhub.png" width="112" alt="BatteryHub icon"></p>
 
-<h1 align="center">BatteryHub v1.0</h1>
+<h1 align="center">BatteryHub v1.0.1</h1>
 
 <p align="center">
-Battery levels of your wireless mouse, headset, keyboard and controller, right on the Windows taskbar.<br>
-<b>Written in Rust 🦀</b>
+<b>An ultra-lightweight Rust implementation of BatteryHub for Windows.</b><br>
+Battery levels of your wireless mouse, headset, keyboard and controller, right on the taskbar. Under 1 MB of RAM.
+</p>
+
+<p align="center">
+<a href="../../actions/workflows/ci.yml"><img src="../../actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
 <p align="center">
@@ -23,7 +27,7 @@ Developed by [@ferloom](https://github.com/ferloom) with the help of Claude (AI)
 
 ## Download
 
-Get **`BatteryHub-Taskbar-Setup-v1.0.exe`** from the [**latest release**](../../releases/latest).
+Get **`BatteryHub-Taskbar-Setup-v1.0.1.exe`** from the [**latest release**](../../releases/latest).
 
 It shows `🎧 27%  🖱 32%` right on the taskbar, next to the clock. It runs in the background, refreshes on its own and can start with Windows. It does not interfere with the original C++ BatteryHub if you have that installed too.
 
@@ -69,24 +73,30 @@ The original C++ BatteryHub (`Program Files\BatteryHub`, `HKCU\Software\Wireless
 - Shows one icon and percentage per device. The look follows the original: Segoe Fluent Icons, Segoe UI Variable text and ClearType, adapting to light and dark mode and DPI.
 - Tooltip and menu colours follow the taskbar (dark or light).
 - **Hover** over a device: a tooltip shows its name, level and charge state (charging, fully charged or on battery), the connection and its warning level.
-- Left click does nothing.
+- Left click does nothing (on purpose: the strip stays out of the way); everything is in the right-click menu.
 - **Right click** opens this menu:
   - one submenu per device (name, level and state) with *Red warning at or below* 50 / 40 / 30 / 20 / 15 / 10 / 5%;
   - *Refresh devices* (full rescan, forgets devices that are gone) and *Refresh battery levels*;
   - *Refresh battery every* 1 minute / 5 / 10 / 30 minutes / 1 hour (default 1 minute);
-  - *Refresh when a device connects or disconnects* (default on). It reads again about 2.5 s after a USB receiver, cable or Bluetooth device appears or disappears, and after the PC wakes up. A device that disconnected disappears right away.
+  - *Refresh when a device connects or disconnects* (default on). It reads again about 1.5 s after a USB receiver, cable or HID device is plugged in or removed, after a Bluetooth device connects or disconnects (checked every 4 s), and after the PC wakes up.
   - *Exit*.
+
+**When a device goes away**
+- Receiver or cable unplugged: the device disappears at once.
+- Receiver still plugged in but the mouse / keyboard sleeps: it stays, dimmed, with its last level.
+- Bluetooth device (AirPods, headphones, controllers) disconnected from this PC: it disappears at once. AirPods are shown only while connected to this PC, not while they are just nearby or connected to a phone.
 
 The settings are saved in `HKCU\Software\BatteryHub\Taskbar`: `Thresholds` (per device), `RefreshMinutes` and `RefreshOnDeviceChange`. Optional gap from the clock (DWORD, pixels): `TaskbarOffset`.
 
 ## Memory and CPU vs. the original
 
-Measured on the same PC with the same devices, each program running on its own with default settings (details and raw samples in [bench/RESULTS.md](bench/RESULTS.md)):
+Measured on the same PC with the same devices and default settings (details and raw samples in [bench/RESULTS.md](bench/RESULTS.md)):
 
-| | **BatteryHub (Rust) 1.0** | BatteryHub (C++) 1.1.0 |
+| | **BatteryHub (Rust)** | BatteryHub (C++) 1.1.0 |
 |---|---:|---:|
+| **RAM in Task Manager** ("Memory" column = private working set) | **0.8 MB** | 4.2 MB |
 | Program file size | **368 KB** | 1,958 KB |
-| Working set (steady) | **2.4 MB** | 29.4 MB |
+| Working set incl. shared system DLLs (steady) | **2.4 MB** | 29.4 MB |
 | Working set during a read (peak) | **17.8 MB** | 29.8 MB |
 | Private memory (steady) | **3.2 MB** | 5.6 MB |
 | Handles / threads | **229 / 10** | 392 / 15 |
@@ -95,6 +105,24 @@ Measured on the same PC with the same devices, each program running on its own w
 How it gets there: Bluetooth LE listening only while reading, a cached device list (full rescan only when a device connects or disconnects), Bluetooth-only enumeration, Xbox input APIs loaded only when a controller is present, and memory handed back to Windows after each read. Details are in [bench/RESULTS.md](bench/RESULTS.md).
 
 The original does more: about 100 drivers, battery history, an updater and more options. Part of the gap is that this fork has fewer features.
+
+## Taskbar compatibility
+
+The strip is a small layered window placed inside the taskbar, left of the notification area, the same technique the original uses. It depends on Explorer's window layout, so the program checks it every second and falls back safely:
+
+| Situation | What BatteryHub does |
+|---|---|
+| Windows 11 / Windows 10 / ExplorerPatcher horizontal taskbar | Strip next to the clock (on the Windows 10 layout, the task buttons are narrowed so they never slide under it) |
+| Explorer restarts | Detects the new taskbar and recreates the strip |
+| Taskbar height, DPI or theme changes (e.g. after leaving a full-screen game) | Re-renders the strip for the new size and colours |
+| Vertical taskbar, unknown Explorer layout, or the strip cannot be placed for 3 s | **Falls back to one notification-area icon per device** (level drawn in the icon, same tooltip and menu), and returns to the strip once the taskbar can host it again |
+
+## Testing
+
+- **Unit tests** (`cargo test --lib`) decode recorded device reports without the hardware: SteelSeries Arctis Nova status blocks, DualSense / DualShock 4 input reports, AirPods proximity broadcasts, Google Fast Pair battery fields, Logitech voltage curves and receiver grouping. They also cover the rules for when a device is removed or shown as asleep, warning levels, colours and menu ids.
+- The **setup** has its own tests (autostart matching never touches the original app, version comparison).
+- **CI** ([GitHub Actions](.github/workflows/ci.yml)) runs all tests and builds the program and the setup on every push.
+- Memory / CPU are measured with [bench/measure.ps1](bench/measure.ps1).
 
 ## Supported devices
 
@@ -119,7 +147,7 @@ Requirements: Rust (stable, MSVC toolchain) and Visual Studio Build Tools with t
 .\build-release.ps1
 ```
 
-This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.0.exe` plus `SHA256SUMS.txt`.
+This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.0.1.exe` plus `SHA256SUMS.txt`.
 
 | Path | Contents |
 |---|---|
@@ -128,6 +156,7 @@ This builds the program, then the setup with the program embedded (`installer/`,
 | `installer/` | The setup (`src/setup.rs`) |
 | `res/` | Icon (`make_icon.py` draws it), manifest, resource script |
 | `bench/` | Memory / CPU measurement script and results |
+| `.github/workflows/ci.yml` | CI: tests and builds on every push |
 | `examples/list.rs` | Console diagnostics: `cargo run --example list -- --dump --ble` |
 
 ## License

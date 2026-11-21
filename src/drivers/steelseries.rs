@@ -95,6 +95,11 @@ fn nova_pro_wireless(d: &HidDev, pid: u16) -> Option<DeviceStatus> {
 /// Nova family: 00 B0 -> status block; layout depends on the model.
 fn nova_family(d: &HidDev, pid: u16) -> Option<DeviceStatus> {
     let r = write_read(d, &[0x00, 0xB0], 1000).filter(|r| r.len() >= 7)?;
+    Some(decode_nova(pid, &r))
+}
+
+/// Decodes the Nova family's 00 B0 status block (layout depends on the model). `r` has >= 7 bytes.
+fn decode_nova(pid: u16, r: &[u8]) -> DeviceStatus {
     let mut s;
     if [0x220E, 0x2212, 0x2216, 0x2236].contains(&pid) {
         s = headset(pid, "SteelSeries Arctis 7+");
@@ -130,7 +135,7 @@ fn nova_family(d: &HidDev, pid: u16) -> Option<DeviceStatus> {
     if !s.connected {
         s.percent = -1;
     }
-    Some(s)
+    s
 }
 
 // ---- mice --------------------------------------------------------------------------------------
@@ -319,12 +324,44 @@ pub fn poll(ctx: &mut PollContext) {
                 if s.via == "USB cable" {
                     *dup = s;
                     dup.vid = vid;
+                    dup.hw = Some((vid, pid));
                 }
                 ctx.claim(vid, pid);
             } else {
-                ctx.add(s, vid, pid);
+                ctx.add(DeviceStatus { hw: Some((vid, pid)), ..s }, vid, pid);
             }
             break;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 00 B0 replies recorded from an Arctis Nova 3P Wireless (1038:2269).
+    #[test]
+    fn nova_3p_on_battery() {
+        let s = decode_nova(0x2269, &[0xB0, 0x03, 0x00, 27, 0x00, 0x00, 0x00, 0x00]);
+        assert!(s.connected && !s.charging);
+        assert_eq!(s.percent, 27);
+        assert_eq!(s.name, "SteelSeries Arctis Nova 3P Wireless");
+    }
+
+    #[test]
+    fn nova_3p_charging_and_switched_off() {
+        let s = decode_nova(0x2269, &[0xB0, 0x03, 0x00, 64, 0x01, 0x00, 0x00]);
+        assert!(s.charging);
+        assert_eq!(s.percent, 64);
+        let off = decode_nova(0x2269, &[0xB0, 0x02, 0x00, 64, 0x00, 0x00, 0x00]);
+        assert!(!off.connected);
+        assert_eq!(off.percent, -1);
+    }
+
+    #[test]
+    fn nova_7_discrete_levels() {
+        // Nova 7 (2202) reports 0..4 steps.
+        let s = decode_nova(0x2202, &[0xB0, 0x00, 0x03, 0x03, 0x00, 0x00, 0x00]);
+        assert_eq!(s.percent, 75);
     }
 }

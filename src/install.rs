@@ -380,3 +380,35 @@ impl Key {
         self.values().into_iter().find(|(n, _, _)| n.eq_ignore_ascii_case(name)).map(|v| v.2)
     }
 }
+
+/// Product version from an exe's version resource ("1.0.1"), if it has one.
+pub fn file_version(path: &std::path::Path) -> Option<String> {
+    use windows::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, VS_FIXEDFILEINFO};
+    let name = HSTRING::from(path.as_os_str());
+    unsafe {
+        let size = GetFileVersionInfoSizeW(&name, None);
+        if size == 0 {
+            return None;
+        }
+        let mut data = vec![0u8; size as usize];
+        GetFileVersionInfoW(&name, None, size, data.as_mut_ptr().cast()).ok()?;
+        let mut info: *mut core::ffi::c_void = std::ptr::null_mut();
+        let mut len = 0u32;
+        if !VerQueryValueW(data.as_ptr().cast(), windows::core::w!("\\"), &mut info, &mut len).as_bool() || info.is_null() {
+            return None;
+        }
+        let f = &*(info as *const VS_FIXEDFILEINFO);
+        Some(format!("{}.{}.{}", f.dwProductVersionMS >> 16, f.dwProductVersionMS & 0xFFFF, f.dwProductVersionLS >> 16))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn reads_the_version_resource_of_an_exe() {
+        let windir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".into());
+        let v = super::file_version(&std::path::Path::new(&windir).join(r"System32\notepad.exe"));
+        assert!(v.is_some_and(|v| v.split('.').count() == 3));
+        assert!(super::file_version(std::path::Path::new(r"C:\does\not\exist.exe")).is_none());
+    }
+}

@@ -179,3 +179,21 @@ pub fn stop_watcher() {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fast_pair_battery_field() {
+        // version 0, then a type-3 field of length 3: left 85, right 80 charging, case unknown.
+        let b = parse_fast_pair(&[0x00, 0x33, 85, 0x80 | 80, 0x7F]).unwrap();
+        assert_eq!((b.left, b.right, b.case), (85, 80, -1));
+        assert!(!b.left_chg && b.right_chg);
+        // An account-key field before the battery field is skipped.
+        let b = parse_fast_pair(&[0x00, 0x20, 0xAA, 0xBB, 0x13, 40]).unwrap();
+        assert_eq!(b.left, 40);
+        // Discoverable-mode model id only: no battery.
+        assert!(parse_fast_pair(&[0x12, 0x34, 0x56]).is_none());
+    }
+}

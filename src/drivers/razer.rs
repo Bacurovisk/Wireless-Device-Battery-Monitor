@@ -133,7 +133,7 @@ pub fn poll(ctx: &mut PollContext) {
                 e.charging |= s.charging;
                 ctx.claim(vid, pid);
             } else {
-                ctx.add(s, vid, pid);
+                ctx.add(DeviceStatus { hw: Some((vid, pid)), ..s }, vid, pid);
             }
             break;
         }

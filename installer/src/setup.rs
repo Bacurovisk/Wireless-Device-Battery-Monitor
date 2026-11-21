@@ -110,8 +110,9 @@ struct State {
 fn read_state(ed: &Edition) -> State {
     let key = inst::open(HKCU, ed.settings_key, false);
     let dir = key.as_ref().and_then(|k| k.get("InstallLocation")).map(PathBuf::from).unwrap_or_else(|| ed.default_dir());
-    let version = key.as_ref().and_then(|k| k.get("Version"));
     let exe = dir.join(ed.exe);
+    // The version saved at install time, else the one in the program file's version resource.
+    let version = key.as_ref().and_then(|k| k.get("Version")).or_else(|| inst::file_version(&exe));
     let exe_exists = exe.exists();
     let autostart = ed.run_value.and_then(|v| inst::open(HKCU, inst::RUN_KEY, false).and_then(|k| k.get(v)));
     let running = unsafe {

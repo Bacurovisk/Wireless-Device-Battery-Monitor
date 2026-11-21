@@ -93,6 +93,24 @@ struct Found {
     connected: bool,
 }
 
+/// A hash of which Bluetooth devices are connected right now. Connecting or disconnecting a
+/// Bluetooth device (e.g. AirPods) does not add or remove device nodes, so Windows sends no
+/// device-change message; comparing this signature every few seconds catches it instead.
+pub fn connection_signature() -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for e in ["BTHENUM", "BTHLE"] {
+        let Some(set) = DevSet::present(Some(e)) else { continue };
+        for n in set.nodes() {
+            if n.instance_id.starts_with("BTHENUM\\DEV_") || n.instance_id.starts_with("BTHLE\\DEV_") {
+                n.instance_id.hash(&mut h);
+                n.boolean(&IS_CONNECTED).hash(&mut h);
+            }
+        }
+    }
+    h.finish()
+}
+
 pub fn poll(ctx: &mut PollContext) {
     // Only the Bluetooth enumerators: listing every device node on the system (all classes) was the
     // most expensive part of a periodic read.
