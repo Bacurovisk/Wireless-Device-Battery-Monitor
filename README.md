@@ -31,7 +31,7 @@ Developed by [@ferloom](https://github.com/ferloom) with the help of Claude (AI)
 
 ## Contents
 
-[Download](#download) · [Features](#features) · [Using it](#using-it) · [Setup](#setup-install--update--uninstall) · [Resource usage vs. the original](#resource-usage-vs-the-original) · [Taskbar compatibility](#taskbar-compatibility) · [Supported devices](#supported-devices) · [Testing](#testing) · [Building](#building-from-source) · [License](#license)
+[Download](#download) · [Problem with a new version?](#problem-with-a-new-version-downgrade-and-report-it) · [Features](#features) · [Using it](#using-it) · [Setup](#setup-install--update--uninstall) · [Resource usage vs. the original](#resource-usage-vs-the-original) · [Taskbar compatibility](#taskbar-compatibility) · [Supported devices](#supported-devices) · [Testing](#testing) · [Building](#building-from-source) · [License](#license)
 
 ## Download
 
@@ -41,6 +41,22 @@ Get **`BatteryHub-Taskbar-Setup-v1.1.exe`** from the [**latest release**](../../
 - Already installed? Use *Check for updates...* in the right-click menu, or run the new setup and choose **[2] Update**.
 - It does not interfere with the original C++ BatteryHub if you have that installed too.
 - Windows may show a SmartScreen warning because the file is not code-signed: *More info* → *Run anyway*.
+
+## Problem with a new version? Downgrade and report it
+
+If something breaks after an update, you can always go back to an older version by hand:
+
+1. Open [**Releases**](../../releases) and download the setup of an earlier version (e.g. `BatteryHub-Taskbar-Setup-v1.0.1.1.exe`).
+2. Run it. It finds the newer version you have installed and offers **[1] Reinstall**: choose it, and it replaces the program with its own (older) version. Your warning levels, refresh options and autostart choice are kept.
+
+*Check for updates* never offers an older version, so the downgrade stays in place until you update again. Versions before v1.1 do not have *Check for updates*; to come back later, run the newer setup and choose **[2] Update**.
+
+**Please also report the problem** in [**Issues**](../../issues/new) so it can be fixed in the next version. It helps to include:
+
+- the version that has the problem and the one that works (both are shown at the top of the setup window);
+- Windows version and taskbar (Windows 11, Windows 10, ExplorerPatcher: normal or small taskbar);
+- your devices (e.g. "Logitech PRO 2 LIGHTSPEED on its receiver", "AirPods over Bluetooth");
+- what happened and what you expected, ideally with a screenshot of the taskbar.
 
 ## Features
 
