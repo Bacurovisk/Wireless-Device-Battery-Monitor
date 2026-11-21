@@ -47,7 +47,7 @@ Get **`BatteryHub-Taskbar-Setup-v1.1.exe`** from the [**latest release**](../../
 If something breaks after an update, you can always go back to an older version by hand:
 
 1. Open [**Releases**](../../releases) and download the setup of an earlier version (e.g. `BatteryHub-Taskbar-Setup-v1.0.1.1.exe`).
-2. Run it. It finds the newer version you have installed and offers **[1] Reinstall**: choose it, and it replaces the program with its own (older) version. Your warning levels, refresh options and autostart choice are kept.
+2. Run it. It finds the newer version you have installed and offers **[1] Reinstall**: choose it, and it replaces the program with its own (older) version. Your warning levels and refresh options are kept; it asks again whether BatteryHub should start with Windows.
 
 *Check for updates* never offers an older version, so the downgrade stays in place until you update again. Versions before v1.1 do not have *Check for updates*; to come back later, run the newer setup and choose **[2] Update**.
 
