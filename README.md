@@ -12,6 +12,8 @@ Battery levels of your wireless mouse, headset, keyboard and controller, right o
 > This fork rewrites it in Rust. The idea, the look of the taskbar strip and the device protocols all come from the original project, and the credit for them goes to its authors.
 > It is not an official release of the original. For the full device list (about 100 drivers), use the original.
 
+Developed by [@ferloom](https://github.com/ferloom) with the help of Claude (AI).
+
 ---
 
 ## Download
