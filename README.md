@@ -9,7 +9,7 @@ Battery levels of your wireless mouse, headset, keyboard and controller, right o
 
 <p align="center">
 <img src="res/screenshot-taskbar.png" width="440" alt="BatteryHub on the taskbar: mouse 86% charging (green bolt), headset 80%"><br>
-<img src="res/screenshot-tooltip.png" width="560" alt="Hover tooltip: device name, level, charge state, connection and warning level">
+<img src="res/screenshot-tooltip.png" width="430" alt="Hover tooltip: device name, level, charge state, connection and warning level">
 </p>
 
 > [!IMPORTANT]
