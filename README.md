@@ -1,10 +1,10 @@
 <p align="center"><img src="res/batteryhub.png" width="112" alt="BatteryHub icon"></p>
 
-<h1 align="center">BatteryHub v1.0.1.1</h1>
+<h1 align="center">BatteryHub v1.1</h1>
 
 <p align="center">
 <b>An ultra-lightweight Rust implementation of BatteryHub for Windows.</b><br>
-Battery levels of your wireless mouse, headset, keyboard and controller, right on the taskbar. Under 1 MB of RAM.
+Battery levels of your wireless mouse, headset, keyboard and controller, right on the taskbar. About 0.2 MB of RAM when idle.
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@ Developed by [@ferloom](https://github.com/ferloom) with the help of Claude (AI)
 
 ## Download
 
-Get **`BatteryHub-Taskbar-Setup-v1.0.1.1.exe`** from the [**latest release**](../../releases/latest).
+Get **`BatteryHub-Taskbar-Setup-v1.1.exe`** from the [**latest release**](../../releases/latest).
 
 It shows `🎧 27%  🖱 32%` right on the taskbar, next to the clock. It runs in the background, refreshes on its own and can start with Windows. It does not interfere with the original C++ BatteryHub if you have that installed too.
 
@@ -46,6 +46,8 @@ Then it offers:
 | **[1] Install** (or **Reinstall**) | always | Installs to the folder below, creates desktop and Start menu shortcuts and asks *"Add to Windows autostart? [Y/n]"*. Logs every block written (with CRC-32 check) and every file and registry entry it creates. |
 | **[2] Update** | when an older version is installed | Replaces the program and keeps your settings and autostart choice. Restarts the program if it was running. |
 | **[3] Uninstall** | when installed | Stops the program and checks every autostart location (HKCU/HKLM Run, RunOnce, Task Manager startup state, Startup folder) for entries that start it, then removes them along with the shortcuts, files and settings. Lists everything it removed. |
+
+When it is done, the setup thanks you, links to the project (a star helps!) and closes itself after 5 seconds; on an error it stays open so you can read what happened.
 
 No administrator rights are needed (per-user install). Command line for scripts: `/install`, `/update`, `/uninstall`, `/S` (silent), `/autostart=yes|no`, `/nolaunch`.
 
@@ -79,6 +81,7 @@ The original C++ BatteryHub (`Program Files\BatteryHub`, `HKCU\Software\Wireless
   - *Refresh devices* (full rescan, forgets devices that are gone) and *Refresh battery levels*;
   - *Refresh battery every* 1 minute / 5 / 10 / 30 minutes / 1 hour (default 1 minute);
   - *Refresh when a device connects or disconnects* (default on). It reads again about 1.5 s after a USB receiver, cable or HID device is plugged in or removed, after a Bluetooth device connects or disconnects (checked every 4 s), and after the PC wakes up.
+  - *Check for updates...*: asks GitHub for the latest release. Either "No new updates", or "A new update is available: v1.1 -> v1.5 - update now?". On *Yes* the setup is downloaded, verified against the release's SHA-256 checksum and started; it closes the running program, updates it and starts it again (settings and autostart are kept).
   - *Exit*.
 
 **When a device comes or goes**
@@ -95,7 +98,8 @@ Measured on the same PC with the same devices and default settings (details and 
 
 | | **BatteryHub (Rust)** | BatteryHub (C++) 1.1.0 |
 |---|---:|---:|
-| **RAM in Task Manager** ("Memory" column = private working set) | **0.8 MB** | 4.2 MB |
+| **RAM in Task Manager, idle** ("Memory" column = private working set) | **0.2 MB** | 4.2 MB |
+| RAM in Task Manager, briefly during a battery read | up to 1.5 MB | 4.3 MB |
 | Program file size | **368 KB** | 1,958 KB |
 | Working set incl. shared system DLLs (steady) | **2.4 MB** | 29.4 MB |
 | Working set during a read (peak) | **17.8 MB** | 29.8 MB |
@@ -103,7 +107,7 @@ Measured on the same PC with the same devices and default settings (details and 
 | Handles / threads | **229 / 10** | 392 / 15 |
 | CPU time per minute | **~0.02 s** | ~0.64 s |
 
-How it gets there: Bluetooth LE listening only while reading, a cached device list (full rescan only when a device connects or disconnects), Bluetooth-only enumeration, Xbox input APIs loaded only when a controller is present, and memory handed back to Windows after each read. Details are in [bench/RESULTS.md](bench/RESULTS.md).
+How it gets there: memory that is only needed for a moment (a read, a Bluetooth check) is handed back to Windows right after it, settings are cached instead of read from the registry every second, Bluetooth LE listening runs only while reading, a cached device list (full rescan only when a device connects or disconnects), Bluetooth-only enumeration, Xbox input APIs loaded only when a controller is present, and memory handed back to Windows after each read. Details are in [bench/RESULTS.md](bench/RESULTS.md).
 
 The original does more: about 100 drivers, battery history, an updater and more options. Part of the gap is that this fork has fewer features.
 
@@ -121,6 +125,7 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 ## Testing
 
 - **Unit tests** (`cargo test --lib`) decode recorded device reports without the hardware: SteelSeries Arctis Nova status blocks, DualSense / DualShock 4 input reports, AirPods proximity broadcasts, Google Fast Pair battery fields, Logitech voltage curves and receiver grouping. They also cover the rules for when a device is removed or shown as asleep, warning levels, colours and menu ids.
+- The **update check** is tested on a recorded GitHub release answer (version, setup and checksum URLs) and a known SHA-256 value.
 - The **setup** has its own tests (autostart matching never touches the original app, version comparison).
 - **CI** ([GitHub Actions](.github/workflows/ci.yml)) runs all tests and builds the program and the setup on every push.
 - Memory / CPU are measured with [bench/measure.ps1](bench/measure.ps1).
@@ -148,7 +153,7 @@ Requirements: Rust (stable, MSVC toolchain) and Visual Studio Build Tools with t
 .\build-release.ps1
 ```
 
-The version is set in the `VERSION` file (it can have four parts, e.g. `1.0.1.1`). This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.0.1.1.exe` plus `SHA256SUMS.txt`.
+The version is set in the `VERSION` file (it can have four parts, e.g. `1.0.1.1`; currently `1.1`). This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.1.exe` plus `SHA256SUMS.txt`.
 
 | Path | Contents |
 |---|---|

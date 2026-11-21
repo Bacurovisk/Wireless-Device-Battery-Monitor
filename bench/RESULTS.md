@@ -4,7 +4,18 @@ Measured on 2026-11-21 on Windows 11 (build 26300), x64, with the same devices c
 
 Each program was sampled every 2 s with [`measure.ps1`](measure.ps1), which reports the numbers Task Manager shows. "Steady" means after start-up (t ≥ 30 s).
 
-## RAM as Task Manager shows it
+## RAM as Task Manager shows it (v1.1)
+
+v1.1 hands memory back to Windows after every periodic job (battery read, Bluetooth check every 3 s, receiver check every 10 s) and caches its settings instead of reading the registry every second. Private working set of v1.1, sampled every second for 90 s after start-up:
+
+| | v1.0.1.1 | **v1.1** |
+|---|---:|---:|
+| Median | 1.12 MB | **0.20 MB** |
+| Average | 1.05 MB | **0.21 MB** |
+| 90th percentile | - | **0.21 MB** |
+| Max (briefly, during a full read) | 1.36 MB | 1.52 MB |
+
+## RAM as Task Manager shows it (v1.0.1)
 
 Task Manager's default "Memory" column is the **private working set**: memory that belongs to the program alone and is in RAM right now. Measured with the `\Process(*)\Working Set - Private` counter, 30 samples over 60 s for each program (measured one after the other, default settings):
 

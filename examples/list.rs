@@ -1,5 +1,14 @@
 //! Console diagnostic: prints every detected device (and with --dump every HID collection).
 fn main() {
+    if std::env::args().any(|a| a == "--update") {
+        println!("this build: {}", batteryhub::install::VERSION);
+        let c = batteryhub::update::check();
+        println!("{c:?}");
+        if let (batteryhub::update::Check::Available(r), true) = (&c, std::env::args().any(|a| a == "--download")) {
+            println!("downloaded and verified: {:?}", batteryhub::update::download(r));
+        }
+        return;
+    }
     if std::env::args().any(|a| a == "--dump") {
         print!("{}", batteryhub::device::dump_hid_collections());
     }

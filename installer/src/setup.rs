@@ -616,6 +616,25 @@ fn uninstall(ed: &Edition, log: &Log, st: &State) -> bool {
     true
 }
 
+/// Thank-you note with a link to star the project, then the window closes by itself after 5 s.
+fn goodbye(log: &Log, silent: bool) {
+    println!();
+    log.banner("THANK YOU");
+    println!("  Thanks for your trust in BatteryHub!");
+    println!("  If you like it, please give the project a star on GitHub - it really helps:");
+    println!("  https://github.com/{}", batteryhub::update::REPO);
+    println!();
+    if silent {
+        return;
+    }
+    for left in (1..=5).rev() {
+        print!("\r  This window closes in {left} s...  ");
+        let _ = std::io::stdout().flush();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    println!();
+}
+
 // ---- entry point -------------------------------------------------------------------------------
 
 pub fn run(ed: Edition, payload: &'static [u8]) {
@@ -727,10 +746,13 @@ pub fn run(ed: Edition, payload: &'static [u8]) {
             log.error("Setup did not complete. See the messages above.");
         }
     }
-    if !o.silent {
-        log.pause();
-    }
-    if !ok {
+    if ok {
+        goodbye(&log, o.silent);
+    } else {
+        // Keep the window open on an error, so the messages above can be read.
+        if !o.silent {
+            log.pause();
+        }
         std::process::exit(1);
     }
 }

@@ -9,6 +9,7 @@ pub mod hid;
 pub mod install;
 pub mod settings;
 pub mod ui;
+pub mod update;
 pub mod util;
 
 pub use device::{poll_all_devices, DeviceKind, DeviceStatus};

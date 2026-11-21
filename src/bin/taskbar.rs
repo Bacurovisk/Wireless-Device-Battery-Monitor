@@ -33,6 +33,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 const WM_POLL_DONE: u32 = WM_APP + 2;
 const WM_TRAY: u32 = WM_APP + 3;
 const WM_QUICK_DONE: u32 = WM_APP + 4;
+const WM_UPDATE_CHECKED: u32 = WM_APP + 5;
+const WM_UPDATE_DOWNLOADED: u32 = WM_APP + 6;
 // Not exported by the windows crate's WindowsAndMessaging module.
 const WM_MOUSELEAVE: u32 = 0x02A3;
 const TIMER_POLL: usize = 1;
@@ -63,6 +65,7 @@ const MIN_GRACE_SEC: u64 = 150;
 const ID_EXIT: usize = 1;
 const ID_REFRESH_DEVICES: usize = 2;
 const ID_REFRESH_LEVELS: usize = 3;
+const ID_CHECK_UPDATES: usize = 4;
 
 pub const MAIN_CLASS: windows::core::PCWSTR = w!("BatteryHub.Taskbar.Main");
 const STRIP_CLASS: windows::core::PCWSTR = w!("BatteryHub.Taskbar.Strip");
@@ -116,6 +119,10 @@ struct App {
     pending_change: bool,
     /// Receivers / cables (vid, pid) whose device reported "off" in the last read.
     offline_hw: HashSet<(u16, u16)>,
+    /// Light taskbar theme and the optional extra gap (TaskbarOffset), read once and again only
+    /// when Windows reports a settings change - not from the registry every second.
+    light: bool,
+    offset: u32,
 }
 
 thread_local! {
@@ -302,7 +309,7 @@ impl App {
         self.painted_for = self.render_target();
         let s = self.scale();
         let px = |v: f32| (v * s).round() as i32;
-        let light = ui::taskbar_is_light();
+        let light = self.light;
         // Same colours, fonts and spacing as the original C++ widget.
         let fg = if light { rgb(0, 0, 0) } else { rgb(255, 255, 255) };
         let red = ui::low_color(light);
@@ -473,7 +480,7 @@ impl App {
         let mut client = RECT::default();
         unsafe {
             let _ = GetClientRect(self.taskbar, &mut client);
-            (client.bottom - client.top, GetDpiForWindow(self.taskbar), ui::taskbar_is_light())
+            (client.bottom - client.top, GetDpiForWindow(self.taskbar), self.light)
         }
     }
 
@@ -623,7 +630,7 @@ impl App {
 
     /// One icon per device with its level drawn in it; the tooltip is the same as on the strip.
     fn sync_tray(&mut self) {
-        let light = ui::taskbar_is_light();
+        let light = self.light;
         let normal = if light { rgb(20, 20, 20) } else { rgb(255, 255, 255) };
         let size = unsafe { windows::Win32::UI::HiDpi::GetSystemMetricsForDpi(SM_CXSMICON, windows::Win32::UI::HiDpi::GetDpiForSystem()) };
         let devices = self.visible();
@@ -715,8 +722,8 @@ impl App {
             let _ = ScreenToClient(self.taskbar, &mut p);
             let mut left = p.x - self.size.cx - (2.0 * self.scale()) as i32;
             // Optional extra gap (DPI-independent px), e.g. to sit next to another taskbar widget.
-            if let Some(off) = batteryhub::util::reg_get_dword(SETTINGS_KEY, "TaskbarOffset") {
-                left -= (off as f32 * self.scale()) as i32;
+            if self.offset > 0 {
+                left -= (self.offset as f32 * self.scale()) as i32;
             }
             let mut client = RECT::default();
             let _ = GetClientRect(self.taskbar, &mut client);
@@ -819,7 +826,7 @@ impl App {
             }
             self.tip_for = Some(key);
             // Same colours as the taskbar (re-checked each time, the theme can change at any time).
-            ui::set_tooltip_theme(self.tip, !ui::taskbar_is_light());
+            ui::set_tooltip_theme(self.tip, !self.light);
             let mut text: Vec<u16> = self.tip_text(key).encode_utf16().chain(std::iter::once(0)).collect();
             let mut ti = tool_info(self.main, &mut text);
             SendMessageW(self.tip, TTM_UPDATETIPTEXTW, None, Some(LPARAM(&mut ti as *mut _ as isize)));
@@ -874,7 +881,11 @@ impl App {
         // reuses the device list (and still notices added / removed HID devices).
         let rescan = !self.scanned || self.devchange || self.forget;
         self.scanned = true;
-        dbg_log(&format!("poll started (device change: {}, rescan: {rescan}, interval: {} min)", self.devchange, refresh_minutes()));
+        dbg_log(&format!(
+            "poll started (device change: {}, rescan: {rescan}, interval: {} min)",
+            self.devchange,
+            refresh_minutes()
+        ));
         ui::poll_async(self.main, WM_POLL_DONE, rescan);
     }
 
@@ -889,7 +900,12 @@ impl App {
         ids.extend(self.devices.values().filter(|t| t.status.asleep).filter_map(|t| t.status.hw));
         // Headsets on a 2.4 GHz dongle are switched off and on all the time, and the dongle stays
         // plugged in, so Windows reports nothing: check them too (one short status report each).
-        ids.extend(self.devices.values().filter(|t| t.status.kind == DeviceKind::Headset).filter_map(|t| t.status.hw));
+        ids.extend(
+            self.devices
+                .values()
+                .filter(|t| t.status.kind == DeviceKind::Headset)
+                .filter_map(|t| t.status.hw),
+        );
         if ids.is_empty() {
             return;
         }
@@ -999,6 +1015,124 @@ impl App {
     }
 }
 
+impl App {
+    /// Re-reads the taskbar theme and TaskbarOffset (start-up and WM_SETTINGCHANGE only).
+    fn refresh_settings(&mut self) {
+        self.light = ui::taskbar_is_light();
+        self.offset = batteryhub::util::reg_get_dword(SETTINGS_KEY, "TaskbarOffset").unwrap_or(0);
+    }
+}
+
+// ---- check for updates ---------------------------------------------------------------------
+
+/// A check or download is running (the menu item is greyed out meanwhile).
+static UPDATE_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+const UPDATE_TITLE: windows::core::PCWSTR = w!("BatteryHub - Check for updates");
+
+/// Runs `work` on a worker thread and posts its boxed result to `hwnd` as `msg`.
+fn post_from_thread<T: Send + 'static>(hwnd: HWND, msg: u32, work: impl FnOnce() -> T + Send + 'static) {
+    let h = hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let ptr = Box::into_raw(Box::new(work()));
+        unsafe {
+            if PostMessageW(Some(HWND(h as *mut c_void)), msg, WPARAM(0), LPARAM(ptr as isize)).is_err() {
+                drop(Box::from_raw(ptr));
+            }
+        }
+    });
+}
+
+fn check_for_updates(main: HWND) {
+    if UPDATE_BUSY.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    post_from_thread(main, WM_UPDATE_CHECKED, batteryhub::update::check);
+}
+
+fn message(owner: HWND, text: &str, style: MESSAGEBOX_STYLE) -> MESSAGEBOX_RESULT {
+    unsafe {
+        let _ = SetForegroundWindow(owner);
+        MessageBoxW(
+            Some(owner),
+            &windows::core::HSTRING::from(text),
+            UPDATE_TITLE,
+            style | MB_SETFOREGROUND | MB_TOPMOST,
+        )
+    }
+}
+
+fn on_update_checked(main: HWND, check: batteryhub::update::Check) {
+    use batteryhub::install::{label_of, version_label};
+    use batteryhub::update::Check;
+    trim_memory();
+    match check {
+        Check::UpToDate { latest } => {
+            UPDATE_BUSY.store(false, std::sync::atomic::Ordering::Relaxed);
+            message(
+                main,
+                &format!(
+                    "No new updates.\n\nYou have the latest version ({}).\nLatest release on GitHub: {}.",
+                    version_label(),
+                    label_of(&latest)
+                ),
+                MB_OK | MB_ICONINFORMATION,
+            );
+        }
+        Check::Failed(e) => {
+            UPDATE_BUSY.store(false, std::sync::atomic::Ordering::Relaxed);
+            message(
+                main,
+                &format!(
+                    "Could not check for updates:\n{e}\n\nNew versions are also on GitHub:\nhttps://github.com/{}/releases",
+                    batteryhub::update::REPO
+                ),
+                MB_OK | MB_ICONWARNING,
+            );
+        }
+        Check::Available(r) => {
+            let text = format!(
+                "A new update is available:\n\n        {}  ->  {}\n\nDo you want to update now?\n\nThe setup is downloaded from GitHub, checked against the release's SHA-256 checksum and started; it keeps your settings and autostart.",
+                version_label(),
+                label_of(&r.version)
+            );
+            if message(main, &text, MB_YESNO | MB_ICONQUESTION) == IDYES {
+                post_from_thread(main, WM_UPDATE_DOWNLOADED, move || batteryhub::update::download(&r));
+            } else {
+                UPDATE_BUSY.store(false, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+    }
+}
+
+fn on_update_downloaded(main: HWND, result: Result<std::path::PathBuf, String>) {
+    UPDATE_BUSY.store(false, std::sync::atomic::Ordering::Relaxed);
+    trim_memory();
+    match result {
+        // The setup closes this program (and starts the new version) itself.
+        Ok(setup) => {
+            if let Err(e) = std::process::Command::new(&setup).arg("/update").spawn() {
+                message(
+                    main,
+                    &format!("Could not start the setup:\n{e}\n\n{}", setup.display()),
+                    MB_OK | MB_ICONWARNING,
+                );
+            }
+        }
+        Err(e) => {
+            message(main, &format!("The update could not be downloaded:\n{e}"), MB_OK | MB_ICONWARNING);
+        }
+    }
+}
+
+/// Hands memory that was only needed for a moment (a read, a Bluetooth check, a render) back to
+/// Windows, so between those moments the program keeps well under 1 MB resident. Pages it needs
+/// again come back from the standby list (soft faults), which costs microseconds.
+fn trim_memory() {
+    unsafe {
+        let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+    }
+}
+
 /// Battery refresh interval in minutes (menu choice, default 1 minute).
 fn refresh_minutes() -> u32 {
     batteryhub::util::reg_get_dword(SETTINGS_KEY, "RefreshMinutes")
@@ -1006,9 +1140,20 @@ fn refresh_minutes() -> u32 {
         .unwrap_or(1)
 }
 
-/// Refresh when a device connects or disconnects (default on).
+/// Refresh when a device connects or disconnects (default on). Read from the registry once and
+/// cached (it is checked every few seconds); the menu updates the cache when it is toggled.
+static ON_CHANGE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(2); // 2 = not read yet
+
 fn refresh_on_change() -> bool {
-    batteryhub::util::reg_get_dword(SETTINGS_KEY, "RefreshOnDeviceChange").unwrap_or(1) != 0
+    use std::sync::atomic::Ordering;
+    match ON_CHANGE.load(Ordering::Relaxed) {
+        2 => {
+            let on = batteryhub::util::reg_get_dword(SETTINGS_KEY, "RefreshOnDeviceChange").unwrap_or(1) != 0;
+            ON_CHANGE.store(on as u8, Ordering::Relaxed);
+            on
+        }
+        v => v != 0,
+    }
 }
 
 fn save_dword(name: &str, value: u32) {
@@ -1089,6 +1234,14 @@ unsafe fn show_menu() {
             w!("Refresh when a device connects or disconnects"),
         );
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+        let busy = UPDATE_BUSY.load(std::sync::atomic::Ordering::Relaxed);
+        let label = if busy { "Checking for updates..." } else { "Check for updates..." };
+        let _ = AppendMenuW(
+            menu,
+            MF_STRING | if busy { MF_GRAYED } else { MF_ENABLED },
+            ID_CHECK_UPDATES,
+            &windows::core::HSTRING::from(label),
+        );
         let _ = AppendMenuW(menu, MF_STRING, ID_EXIT, w!("Exit"));
         let mut pt = POINT::default();
         let _ = GetCursorPos(&mut pt);
@@ -1116,8 +1269,11 @@ unsafe fn show_menu() {
             ID_REFRESH_LEVELS => {
                 with_app(|a| a.manual_refresh(false));
             }
+            ID_CHECK_UPDATES => check_for_updates(main),
             ID_ON_CHANGE => {
-                save_dword("RefreshOnDeviceChange", if refresh_on_change() { 0 } else { 1 });
+                let on = !refresh_on_change();
+                save_dword("RefreshOnDeviceChange", on as u32);
+                ON_CHANGE.store(on as u8, std::sync::atomic::Ordering::Relaxed);
             }
             id if (ID_INTERVAL_BASE..ID_INTERVAL_BASE + INTERVALS.len()).contains(&id) => {
                 let minutes = INTERVALS[id - ID_INTERVAL_BASE].0;
@@ -1167,7 +1323,7 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                 with_app(|a| a.on_result(devices));
                 // Hand pages used only during the read (enumeration, Bluetooth, fonts) back to
                 // Windows until the next read, instead of keeping them resident for a minute or more.
-                let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+                trim_memory();
                 LRESULT(0)
             }
             WM_TIMER => {
@@ -1188,6 +1344,7 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                                 a.bt_sig = sig;
                                 SetTimer(Some(hwnd), TIMER_DEVCHANGE, 1500, None);
                             }
+                            trim_memory();
                         }
                     }
                     _ => a.tick(),
@@ -1208,6 +1365,17 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                 let devices = ui::take_result(lp);
                 let ids = QUICK_IDS.with(|q| std::mem::take(&mut *q.borrow_mut()));
                 with_app(|a| a.on_quick_result(devices, &ids));
+                trim_memory();
+                LRESULT(0)
+            }
+            WM_UPDATE_CHECKED => {
+                let check = *Box::from_raw(lp.0 as *mut batteryhub::update::Check);
+                on_update_checked(hwnd, check);
+                LRESULT(0)
+            }
+            WM_UPDATE_DOWNLOADED => {
+                let result = *Box::from_raw(lp.0 as *mut Result<std::path::PathBuf, String>);
+                on_update_downloaded(hwnd, result);
                 LRESULT(0)
             }
             WM_TRAY => {
@@ -1223,7 +1391,10 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                 LRESULT(1)
             }
             WM_SETTINGCHANGE | WM_DISPLAYCHANGE => {
-                with_app(|a| a.paint()); // light/dark taskbar or DPI changed
+                with_app(|a| {
+                    a.refresh_settings(); // light/dark taskbar
+                    a.paint(); // or DPI changed
+                });
                 LRESULT(0)
             }
             WM_DESTROY => {
@@ -1264,7 +1435,8 @@ fn main() {
     unsafe {
         let _mutex = CreateMutexW(None, true, w!("Local\\BatteryHub.Taskbar"));
         // One instance only (diagnostic runs with BH_DEBUG may start a second one for testing).
-        if GetLastError() == ERROR_ALREADY_EXISTS && std::env::var_os("BH_DEBUG").is_none() {
+        let second_ok = std::env::var_os("BH_DEBUG").is_some() || std::env::var_os("BH_SECOND_INSTANCE").is_some();
+        if GetLastError() == ERROR_ALREADY_EXISTS && !second_ok {
             return;
         }
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -1319,6 +1491,7 @@ fn main() {
         with_app(|a| {
             a.main = main;
             a.taskbar_created = taskbar_created;
+            a.refresh_settings();
             a.create_tooltip();
             // BH_FORCE_FALLBACK (diagnostics): start with notification-area icons. Otherwise the
             // fallback is decided by tick() after FALLBACK_AFTER_TICKS, so a taskbar that is not

@@ -26,9 +26,14 @@ pub const STARTUP_APPROVED_KEY: &str = r"Software\Microsoft\Windows\CurrentVersi
 /// Parent of the settings key (removed when empty).
 pub const ROOT_KEY: &str = r"Software\BatteryHub";
 
-/// "v1.0" for version "1.0.0".
+/// "v1.0" for this build's version "1.0.0".
 pub fn version_label() -> String {
-    let mut parts: Vec<&str> = VERSION.split('.').collect();
+    label_of(VERSION)
+}
+
+/// "v1.5" for "1.5.0", "v1.0.1.1" for "1.0.1.1".
+pub fn label_of(version: &str) -> String {
+    let mut parts: Vec<&str> = version.trim_start_matches('v').split('.').collect();
     while parts.len() > 2 && parts.last() == Some(&"0") {
         parts.pop();
     }
