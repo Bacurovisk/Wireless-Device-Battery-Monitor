@@ -13,7 +13,7 @@ use std::time::Instant;
 use batteryhub::device::Missing;
 use batteryhub::settings;
 use batteryhub::ui::{self, rgb, split};
-use batteryhub::DeviceStatus;
+use batteryhub::{DeviceKind, DeviceStatus};
 use windows::core::w;
 use windows::Win32::Foundation::{GetLastError, COLORREF, ERROR_ALREADY_EXISTS, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -857,7 +857,8 @@ impl App {
         ui::poll_async(self.main, WM_POLL_DONE, rescan);
     }
 
-    /// Quick read of the receivers whose device is off or asleep (switching a headset on or waking
+    /// Quick read of headset dongles and of receivers whose device is off or asleep (switching a
+    /// headset on / off or waking
     /// a mouse is not a device change for Windows).
     fn start_quick(&mut self) {
         if self.polling || !refresh_on_change() {
@@ -865,6 +866,9 @@ impl App {
         }
         let mut ids: HashSet<(u16, u16)> = self.offline_hw.clone();
         ids.extend(self.devices.values().filter(|t| t.status.asleep).filter_map(|t| t.status.hw));
+        // Headsets on a 2.4 GHz dongle are switched off and on all the time, and the dongle stays
+        // plugged in, so Windows reports nothing: check them too (one short status report each).
+        ids.extend(self.devices.values().filter(|t| t.status.kind == DeviceKind::Headset).filter_map(|t| t.status.hw));
         if ids.is_empty() {
             return;
         }

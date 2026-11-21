@@ -16,7 +16,7 @@ Already on v1.0? Run the new setup and choose **[2] Update**. Your warning level
 - **Unplugging a receiver or cable** now removes its device at once, instead of showing it as "asleep". "Asleep" is used only when the receiver is still plugged in and the device sleeps.
 - **Bluetooth devices disappear right after they disconnect**, and appear right after they connect. Bluetooth connection changes are now detected (checked every 4 s), and HID devices register for Windows' arrival / removal notifications.
 - **A device change during a running read is no longer lost**, and every read notices added / removed HID devices on its own.
-- **Headsets / mice switched on behind a plugged-in receiver show up within ~10 s** (those receivers are checked more often), instead of at the next minute.
+- **Headsets switched on or off on a 2.4 GHz dongle, and mice waking up behind a receiver, show within ~10 s** (those receivers are checked more often), instead of at the next minute.
 - **AirPods are shown only while connected to this PC**, not while they are just nearby or connected to a phone.
 - **Strip drawing after leaving full screen, DPI / theme changes and Explorer restarts:** the strip is re-rendered when the taskbar changes and recreated reliably after Explorer restarts.
 
