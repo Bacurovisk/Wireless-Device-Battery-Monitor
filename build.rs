@@ -4,6 +4,11 @@
 mod resources;
 
 fn main() {
-    let dir = std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("res");
+    // The app version lives in the VERSION file (Cargo versions cannot have four parts).
+    let root = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let version = std::fs::read_to_string(root.join("VERSION")).unwrap().trim().to_string();
+    println!("cargo:rerun-if-changed=VERSION");
+    println!("cargo:rustc-env=BH_VERSION={version}");
+    let dir = root.join("res");
     resources::embed(&dir, "BatteryHub - battery levels of wireless devices");
 }

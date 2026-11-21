@@ -1,6 +1,6 @@
 <p align="center"><img src="res/batteryhub.png" width="112" alt="BatteryHub icon"></p>
 
-<h1 align="center">BatteryHub v1.0.1</h1>
+<h1 align="center">BatteryHub v1.0.1.1</h1>
 
 <p align="center">
 <b>An ultra-lightweight Rust implementation of BatteryHub for Windows.</b><br>
@@ -27,7 +27,7 @@ Developed by [@ferloom](https://github.com/ferloom) with the help of Claude (AI)
 
 ## Download
 
-Get **`BatteryHub-Taskbar-Setup-v1.0.1.exe`** from the [**latest release**](../../releases/latest).
+Get **`BatteryHub-Taskbar-Setup-v1.0.1.1.exe`** from the [**latest release**](../../releases/latest).
 
 It shows `🎧 27%  🖱 32%` right on the taskbar, next to the clock. It runs in the background, refreshes on its own and can start with Windows. It does not interfere with the original C++ BatteryHub if you have that installed too.
 
@@ -114,7 +114,7 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Situation | What BatteryHub does |
 |---|---|
 | Windows 11 / Windows 10 / ExplorerPatcher horizontal taskbar | Strip next to the clock (on the Windows 10 layout, the task buttons are narrowed so they never slide under it) |
-| Explorer restarts | Detects the new taskbar and recreates the strip |
+| Explorer restarts | Detects the new taskbar and recreates the strip (exactly one: stray strip windows are cleaned up every second) |
 | Taskbar height, DPI or theme changes (e.g. after leaving a full-screen game) | Re-renders the strip for the new size and colours |
 | Vertical taskbar, unknown Explorer layout, or the strip cannot be placed for 3 s | **Falls back to one notification-area icon per device** (level drawn in the icon, same tooltip and menu), and returns to the strip once the taskbar can host it again |
 
@@ -148,7 +148,7 @@ Requirements: Rust (stable, MSVC toolchain) and Visual Studio Build Tools with t
 .\build-release.ps1
 ```
 
-This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.0.1.exe` plus `SHA256SUMS.txt`.
+The version is set in the `VERSION` file (it can have four parts, e.g. `1.0.1.1`). This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.0.1.1.exe` plus `SHA256SUMS.txt`.
 
 | Path | Contents |
 |---|---|

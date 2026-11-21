@@ -1,4 +1,4 @@
-# Builds BatteryHub and writes the release files (the only files users download) to release\:
+﻿# Builds BatteryHub and writes the release files (the only files users download) to release\:
 #   release\BatteryHub-Taskbar-Setup-v1.0.exe
 #   release\SHA256SUMS.txt
 # cargo prints progress on stderr, so failures are detected through exit codes.
@@ -19,7 +19,7 @@ $env:BH_PAYLOAD_DIR = $release
 cargo build --release --manifest-path installer\Cargo.toml
 if ($LASTEXITCODE) { throw 'setup build failed' }
 
-$version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+$version = (Get-Content VERSION -Raw).Trim()
 $label = 'v' + ($version -replace '\.0$', '')
 Remove-Item release -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory release | Out-Null

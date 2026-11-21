@@ -1,4 +1,4 @@
-# BatteryHub v1.0.1 (Rust)
+# BatteryHub v1.0.1.1 (Rust)
 
 An ultra-lightweight Rust implementation of BatteryHub for Windows, a fork of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor). All credit for the original idea, look and device protocols goes to the original project.
 
@@ -6,27 +6,26 @@ An ultra-lightweight Rust implementation of BatteryHub for Windows, a fork of [k
 
 | File | |
 |---|---|
-| `BatteryHub-Taskbar-Setup-v1.0.1.exe` | Setup: Install / Update / Uninstall |
+| `BatteryHub-Taskbar-Setup-v1.0.1.1.exe` | Setup: Install / Update / Uninstall |
 | `SHA256SUMS.txt` | Checksum |
 
-Already on v1.0? Run the new setup and choose **[2] Update**. Your warning levels, refresh options and autostart choice are kept.
+Already installed? Run the new setup and choose **[2] Update**. Your settings and autostart choice are kept.
 
 ## Fixes
 
-- **Unplugging a receiver or cable** now removes its device at once, instead of showing it as "asleep". "Asleep" is used only when the receiver is still plugged in and the device sleeps.
-- **Bluetooth devices disappear right after they disconnect**, and appear right after they connect. Bluetooth connection changes are now detected (checked every 4 s), and HID devices register for Windows' arrival / removal notifications.
-- **A device change during a running read is no longer lost**, and every read notices added / removed HID devices on its own.
-- **Headsets switched on or off on a 2.4 GHz dongle, and mice waking up behind a receiver, show within ~10 s** (those receivers are checked more often), instead of at the next minute.
-- **AirPods are shown only while connected to this PC**, not while they are just nearby or connected to a phone.
-- **Strip drawing after leaving full screen, DPI / theme changes and Explorer restarts:** the strip is re-rendered when the taskbar changes and recreated reliably after Explorer restarts.
+- **Garbled strip after an Explorer restart:** a second, orphaned strip could be left on the taskbar, overlapping the real one and the notification area. Now there is always exactly one strip, and any stray strip window is removed within a second.
+- No notification-area icons flashing up for a moment when the taskbar is not ready yet at sign-in.
+- The setup now also reads a four-part version (e.g. 1.0.1.1) from the installed program.
 
-## New
+## Changes since v1.0 (from v1.0.1)
 
-- **Safe fallback:** on a vertical taskbar or an unknown Explorer layout, BatteryHub shows one notification-area icon per device (level drawn in the icon, same tooltip and menu) and returns to the strip when it can.
-- **Tests and CI:** unit tests decode recorded reports (SteelSeries, DualSense / DualShock 4, AirPods, Fast Pair, Logitech) without the hardware; GitHub Actions builds and tests every push.
+- Unplugged receiver / cable: its device disappears at once instead of showing "asleep".
+- Bluetooth devices disappear / appear right when they disconnect / connect. AirPods are shown only while connected to this PC.
+- Headsets switched on or off on a 2.4 GHz dongle, and mice waking up behind a receiver, show within ~10 s.
+- A device change during a running read is no longer lost.
+- Strip re-rendered after full screen and DPI / theme changes; safe fallback to notification-area icons on a vertical taskbar or an unknown Explorer layout.
+- Unit tests for recorded device reports, and CI.
 
-## Footprint
-
-RAM as Task Manager shows it ("Memory"): **0.8 MB** vs 4.2 MB for the original C++ app on the same PC. Details are in `bench/RESULTS.md`.
+RAM as Task Manager shows it ("Memory"): **0.8 MB** vs 4.2 MB for the original C++ app on the same PC (`bench/RESULTS.md`).
 
 Windows may show a SmartScreen warning because the file is not code-signed: click *More info* → *Run anyway*.

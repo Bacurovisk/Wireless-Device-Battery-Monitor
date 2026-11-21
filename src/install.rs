@@ -18,7 +18,8 @@ pub use windows::Win32::System::Registry::{HKEY_CURRENT_USER as HKCU, HKEY_LOCAL
 use windows::Win32::UI::Shell::{FOLDERID_Desktop, FOLDERID_Programs, IShellLinkW, SHGetKnownFolderPath, ShellLink, KF_FLAG_DEFAULT};
 
 pub const PRODUCT: &str = "BatteryHub";
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// App version from the VERSION file (set by build.rs; may have four parts, e.g. 1.0.1.1).
+pub const VERSION: &str = env!("BH_VERSION");
 pub const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 pub const RUN_ONCE_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\RunOnce";
 pub const STARTUP_APPROVED_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
@@ -381,7 +382,7 @@ impl Key {
     }
 }
 
-/// Product version from an exe's version resource ("1.0.1"), if it has one.
+/// Product version from an exe's version resource ("1.0.1" or "1.0.1.1"), if it has one.
 pub fn file_version(path: &std::path::Path) -> Option<String> {
     use windows::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, VS_FIXEDFILEINFO};
     let name = HSTRING::from(path.as_os_str());
@@ -398,7 +399,15 @@ pub fn file_version(path: &std::path::Path) -> Option<String> {
             return None;
         }
         let f = &*(info as *const VS_FIXEDFILEINFO);
-        Some(format!("{}.{}.{}", f.dwProductVersionMS >> 16, f.dwProductVersionMS & 0xFFFF, f.dwProductVersionLS >> 16))
+        let v = format!(
+            "{}.{}.{}.{}",
+            f.dwProductVersionMS >> 16,
+            f.dwProductVersionMS & 0xFFFF,
+            f.dwProductVersionLS >> 16,
+            f.dwProductVersionLS & 0xFFFF
+        );
+        // "1.0.1.0" -> "1.0.1"; a fourth part is kept when set ("1.0.1.1").
+        Some(v.strip_suffix(".0").map(str::to_string).unwrap_or(v))
     }
 }
 
@@ -408,7 +417,7 @@ mod tests {
     fn reads_the_version_resource_of_an_exe() {
         let windir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".into());
         let v = super::file_version(&std::path::Path::new(&windir).join(r"System32\notepad.exe"));
-        assert!(v.is_some_and(|v| v.split('.').count() == 3));
+        assert!(v.is_some_and(|v| v.split('.').count() >= 3));
         assert!(super::file_version(std::path::Path::new(r"C:\does\not\exist.exe")).is_none());
     }
 }

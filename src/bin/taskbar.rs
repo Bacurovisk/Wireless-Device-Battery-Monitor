@@ -489,6 +489,9 @@ impl App {
                 && IsWindow(Some(self.taskbar)).as_bool()
                 && GetParent(self.strip).is_ok_and(|p| p == self.taskbar);
             if !alive {
+                if is_our_strip(self.strip) {
+                    let _ = DestroyWindow(self.strip);
+                }
                 self.strip = HWND::default();
                 let Ok(taskbar) = FindWindowW(w!("Shell_TrayWnd"), None) else {
                     dbg_log("no Shell_TrayWnd");
@@ -542,6 +545,23 @@ impl App {
         true
     }
 
+    /// Destroys any other strip window of this process on the taskbar (only `self.strip` may exist).
+    fn remove_orphan_strips(&self) {
+        unsafe {
+            let mut after: Option<HWND> = None;
+            while let Ok(h) = FindWindowExW(Some(self.taskbar), after, STRIP_CLASS, None) {
+                if h.0.is_null() {
+                    break;
+                }
+                after = Some(h);
+                if h != self.strip && is_our_strip(h) {
+                    dbg_log(&format!("removing orphaned strip {h:?}"));
+                    let _ = DestroyWindow(h);
+                }
+            }
+        }
+    }
+
     /// Switches between the taskbar strip and notification-area icons.
     fn set_fallback(&mut self, on: bool) {
         if self.fallback == on {
@@ -570,6 +590,7 @@ impl App {
             return;
         }
         if self.ensure_strip() {
+            self.remove_orphan_strips();
             self.fail_ticks = 0;
             if self.fallback {
                 self.set_fallback(false);
@@ -996,6 +1017,21 @@ fn save_dword(name: &str, value: u32) {
     }
 }
 
+/// A strip window created by this process (a handle that outlived Explorer may have been reused by
+/// someone else's window, which must never be destroyed).
+fn is_our_strip(h: HWND) -> bool {
+    unsafe {
+        if h.0.is_null() || !IsWindow(Some(h)).as_bool() {
+            return false;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(h, Some(&mut pid));
+        let mut class = [0u16; 64];
+        let n = GetClassNameW(h, &mut class) as usize;
+        pid == std::process::id() && String::from_utf16_lossy(&class[..n]) == "BatteryHub.Taskbar.Strip"
+    }
+}
+
 fn tool_info(owner: HWND, text: &mut [u16]) -> TTTOOLINFOW {
     TTTOOLINFOW {
         cbSize: size_of::<TTTOOLINFOW>() as u32,
@@ -1203,10 +1239,11 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
             _ => {
                 let tc = with_app(|a| a.taskbar_created).unwrap_or(0);
                 if tc != 0 && msg == tc {
-                    // Explorer restarted: the strip went with the old taskbar, and fallback icons
-                    // have to be added again.
+                    // Explorer restarted. The 1 s timer may already have put a new strip on the new
+                    // taskbar, so the strip is not thrown away blindly (that left a second, orphaned
+                    // strip behind): tick() keeps a live one and recreates a dead one. Fallback
+                    // icons have to be added again.
                     with_app(|a| {
-                        a.strip = HWND::default();
                         a.last_place = Default::default();
                         a.painted_for = Default::default();
                         a.tray.clear();
@@ -1283,9 +1320,13 @@ fn main() {
             a.main = main;
             a.taskbar_created = taskbar_created;
             a.create_tooltip();
-            // BH_FORCE_FALLBACK (diagnostics): start with notification-area icons.
-            if std::env::var_os("BH_FORCE_FALLBACK").is_some() || !a.ensure_strip() {
+            // BH_FORCE_FALLBACK (diagnostics): start with notification-area icons. Otherwise the
+            // fallback is decided by tick() after FALLBACK_AFTER_TICKS, so a taskbar that is not
+            // ready yet at sign-in does not make icons flash up for a second.
+            if std::env::var_os("BH_FORCE_FALLBACK").is_some() {
                 a.set_fallback(true);
+            } else {
+                a.ensure_strip();
             }
             a.bt_sig = batteryhub::drivers::bluetooth::connection_signature();
             a.start_poll();

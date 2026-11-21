@@ -9,7 +9,10 @@ pub fn embed(res_dir: &std::path::Path, description: &str) {
     println!("cargo:rerun-if-changed={}", ico.display());
     println!("cargo:rerun-if-changed={}", manifest.display());
 
-    let version = std::env::var("CARGO_PKG_VERSION").unwrap();
+    // The app version from the VERSION file next to res/ (may have four parts).
+    let version_file = res_dir.parent().unwrap().join("VERSION");
+    println!("cargo:rerun-if-changed={}", version_file.display());
+    let version = std::fs::read_to_string(&version_file).unwrap().trim().to_string();
     let mut nums: Vec<String> = version.split('.').map(str::to_string).collect();
     nums.resize(4, "0".into());
     let comma = nums.join(",");
