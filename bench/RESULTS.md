@@ -1,8 +1,26 @@
-# Memory and CPU: BatteryHub (Rust) v1.0 vs. original BatteryHub (C++) 1.1.0
+# Memory and CPU: BatteryHub (Rust) vs. original BatteryHub (C++) 1.1.0
 
 Measured on 2026-11-21 on Windows 11 (build 26300), x64, with the same devices connected: Logitech PRO 2 LIGHTSPEED, SteelSeries Arctis Nova 3P receiver and AirPods (Bluetooth). Both programs used their defaults: taskbar strip, battery refresh every minute.
 
 Each program was sampled every 2 s with [`measure.ps1`](measure.ps1), which reports the numbers Task Manager shows. "Steady" means after start-up (t ≥ 30 s).
+
+## Latest: side by side, v1.1 vs. C++ 1.1.0
+
+Both programs running at the same time on the same PC (Windows 11 build 26300, x64), same devices connected (Logitech PRO 2 LIGHTSPEED receiver, SteelSeries Arctis Nova 3P dongle, Bluetooth), default settings (refresh every minute). The C++ app was given 75 s to start (it restarts itself once), then both were sampled every 2 s for 3 minutes with [`compare.ps1`](compare.ps1). Raw samples: [`side-by-side-rust-v1.1.csv`](side-by-side-rust-v1.1.csv), [`side-by-side-cpp-1.1.0.csv`](side-by-side-cpp-1.1.0.csv).
+
+| | **Rust v1.1** | C++ 1.1.0 |
+|---|---:|---:|
+| RAM in Task Manager ("Memory" = private working set), median | **0.20 MB** | 4.66 MB |
+| RAM in Task Manager, average | **0.33 MB** | 4.65 MB |
+| RAM in Task Manager, max | **0.82 MB** | 4.92 MB |
+| Working set incl. shared system DLLs, average | **1.27 MB** | 27.47 MB |
+| Private bytes (commit), average | **4.59 MB** | 5.98 MB |
+| CPU time per minute | **0.11 s** | 0.88 s |
+| Threads (max) | **9** | 15 |
+| Handles (max) | 367 | 375 |
+| Program file | **500 KB** | 1,958 KB |
+
+Handles stayed flat (366 -> 367) over the run, and the Rust process used 16 GDI objects, so there is no leak. Rust v1.1 has more handles than v1.0 (229) because of the newer features: device-change notifications, the hover tooltip and Bluetooth connection checks.
 
 ## RAM as Task Manager shows it (v1.1)
 
