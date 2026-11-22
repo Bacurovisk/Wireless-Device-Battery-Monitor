@@ -132,6 +132,14 @@ fn read_state(ed: &Edition) -> State {
     }
 }
 
+/// Autostart line: where the entry is in the registry (not the program path it starts).
+fn autostart_line(ed: &Edition, st: &State) -> String {
+    match (ed.run_value, &st.autostart) {
+        (Some(v), Some(_)) => format!("on (HKCU\\{}\\{v})", inst::RUN_KEY),
+        _ => "off".into(),
+    }
+}
+
 fn yes_no(b: bool) -> &'static str {
     if b { "yes" } else { "no" }
 }
@@ -195,7 +203,7 @@ fn scan(ed: &Edition, log: &Log) -> State {
     println!("  {:<22} {}", "Start menu shortcut", if st.start_menu { ed.start_menu_shortcut().display().to_string() } else { "(none)".into() });
     println!("  {:<22} HKCU\\{}", "Settings", ed.settings_key);
     if ed.run_value.is_some() {
-        println!("  {:<22} {}", "Autostart", st.autostart.as_deref().unwrap_or("off"));
+        println!("  {:<22} {}", "Autostart", autostart_line(ed, &st));
     }
     println!("  {:<22} {}", "Running now", yes_no(st.running));
     println!(
@@ -739,7 +747,7 @@ pub fn run(ed: Edition, payload: &'static [u8]) {
                 println!("  {:<22} {}", "Desktop shortcut", if after.desktop { ed.desktop_shortcut().display().to_string() } else { "(none)".into() });
                 println!("  {:<22} {}", "Start menu shortcut", if after.start_menu { ed.start_menu_shortcut().display().to_string() } else { "(none)".into() });
                 if ed.run_value.is_some() {
-                    println!("  {:<22} {}", "Autostart", after.autostart.as_deref().unwrap_or("off"));
+                    println!("  {:<22} {}", "Autostart", autostart_line(&ed, &after));
                 }
             }
         } else {

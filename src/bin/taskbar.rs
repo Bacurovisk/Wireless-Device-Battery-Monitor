@@ -42,6 +42,9 @@ const TIMER_PLACE: usize = 2;
 const TIMER_DEVCHANGE: usize = 3;
 const TIMER_BTWATCH: usize = 4;
 const TIMER_QUICK: usize = 5;
+const TIMER_AUTO_UPDATE: usize = 6;
+/// Automatic update check this long after start-up (the network may not be up right at sign-in).
+const AUTO_UPDATE_DELAY_MS: u32 = 20_000;
 /// How often receivers whose device is off or asleep are checked again.
 const QUICK_MS: u32 = 10_000;
 const WM_DEVICECHANGE_MSG: u32 = 0x0219;
@@ -66,6 +69,12 @@ const ID_EXIT: usize = 1;
 const ID_REFRESH_DEVICES: usize = 2;
 const ID_REFRESH_LEVELS: usize = 3;
 const ID_CHECK_UPDATES: usize = 4;
+const ID_REQUEST: usize = 5;
+const ID_AUTOSTART: usize = 6;
+const ID_AUTO_UPDATE: usize = 7;
+/// "Show widget on": ID_MONITORS_BASE + n for n monitors (1 = main monitor only).
+const ID_MONITORS_BASE: usize = 40;
+const MONITORS_MENU_MAX: usize = 6;
 
 pub const MAIN_CLASS: windows::core::PCWSTR = w!("BatteryHub.Taskbar.Main");
 const STRIP_CLASS: windows::core::PCWSTR = w!("BatteryHub.Taskbar.Strip");
@@ -123,6 +132,12 @@ struct App {
     /// when Windows reports a settings change - not from the registry every second.
     light: bool,
     offset: u32,
+    /// Copies of the strip on the taskbars of other monitors ("Show widget on"): (taskbar, strip).
+    mirrors: Vec<(HWND, HWND)>,
+    /// Pixels of the last render, pushed to every mirror as well.
+    pixels: Vec<u32>,
+    /// Strip the tooltip belongs to (the main strip or a mirror).
+    tip_on: HWND,
 }
 
 thread_local! {
@@ -426,6 +441,21 @@ impl App {
             last.1 = w;
         }
         self.size = SIZE { cx: w, cy: h };
+        self.pixels = cv.px;
+        self.push(self.strip);
+        for i in 0..self.mirrors.len() {
+            self.push(self.mirrors[i].1);
+        }
+        self.last_place.2 = -1; // force a reposition with the new width
+        self.place();
+    }
+
+    /// Hands the last render to a strip window (the main strip or a mirror).
+    fn push(&self, strip: HWND) {
+        let (w, h) = (self.size.cx, self.size.cy);
+        if strip.0.is_null() || self.pixels.len() != (w * h) as usize {
+            return;
+        }
         unsafe {
             let screen = GetDC(None);
             let mem = CreateCompatibleDC(Some(screen));
@@ -443,7 +473,7 @@ impl App {
             };
             let mut bits: *mut c_void = std::ptr::null_mut();
             if let Ok(bmp) = CreateDIBSection(Some(mem), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) {
-                std::ptr::copy_nonoverlapping(cv.px.as_ptr(), bits as *mut u32, cv.px.len());
+                std::ptr::copy_nonoverlapping(self.pixels.as_ptr(), bits as *mut u32, self.pixels.len());
                 let ob = SelectObject(mem, HGDIOBJ(bmp.0));
                 let src = POINT::default();
                 let bf = BLENDFUNCTION {
@@ -453,7 +483,7 @@ impl App {
                     AlphaFormat: AC_SRC_ALPHA as u8,
                 };
                 let _ = UpdateLayeredWindow(
-                    self.strip,
+                    strip,
                     Some(screen),
                     None,
                     Some(&self.size),
@@ -469,8 +499,6 @@ impl App {
             let _ = DeleteDC(mem);
             ReleaseDC(None, screen);
         }
-        self.last_place.2 = -1; // force a reposition with the new width
-        self.place();
     }
 
     // ---- taskbar placement ---------------------------------------------------------------------
@@ -521,22 +549,7 @@ impl App {
             if alive {
                 return true;
             }
-            let hinst = GetModuleHandleW(None).unwrap_or_default();
-            let Ok(strip) = CreateWindowExW(
-                WS_EX_LAYERED | WS_EX_NOACTIVATE,
-                STRIP_CLASS,
-                w!(""),
-                WS_CHILD | WS_CLIPSIBLINGS,
-                0,
-                0,
-                1,
-                1,
-                Some(self.taskbar),
-                None,
-                Some(hinst.into()),
-                None,
-            ) else {
-                dbg_log(&format!("CreateWindowExW failed: {:?}", windows::Win32::Foundation::GetLastError()));
+            let Some(strip) = create_strip(self.taskbar) else {
                 return false;
             };
             dbg_log(&format!("strip created {:?} parent {:?}", strip, self.taskbar));
@@ -578,6 +591,7 @@ impl App {
         self.fallback = on;
         if on {
             self.hide_tip();
+            self.drop_mirrors();
             if !self.strip.0.is_null() {
                 unsafe {
                     let _ = ShowWindow(self.strip, SW_HIDE);
@@ -609,10 +623,127 @@ impl App {
             } else {
                 self.place();
             }
+            self.sync_mirrors();
         } else {
             self.fail_ticks += 1;
             if self.fail_ticks >= FALLBACK_AFTER_TICKS {
                 self.set_fallback(true);
+            }
+        }
+    }
+
+    // ---- other monitors ("Show widget on") -----------------------------------------------------
+
+    /// Keeps one copy of the strip on the taskbar of each extra monitor the user chose (left to
+    /// right), next to that taskbar's clock. Taskbars of other monitors exist only when Windows
+    /// shows the taskbar on all displays.
+    fn sync_mirrors(&mut self) {
+        if self.fallback || self.strip.0.is_null() {
+            self.drop_mirrors();
+            return;
+        }
+        let wanted = widget_monitors().saturating_sub(1);
+        let bars: Vec<HWND> = if wanted == 0 { Vec::new() } else { secondary_taskbars().into_iter().take(wanted).collect() };
+        // Drop copies whose taskbar is gone or no longer wanted.
+        let mut keep = Vec::new();
+        for (bar, strip) in std::mem::take(&mut self.mirrors) {
+            let alive = unsafe { bars.contains(&bar) && IsWindow(Some(strip)).as_bool() && GetParent(strip).is_ok_and(|p| p == bar) };
+            if alive {
+                keep.push((bar, strip));
+            } else if is_our_strip(strip) {
+                unsafe {
+                    let _ = DestroyWindow(strip);
+                }
+            }
+        }
+        self.mirrors = keep;
+        for bar in bars {
+            if self.mirrors.iter().any(|m| m.0 == bar) {
+                continue;
+            }
+            let Some(strip) = create_strip(bar) else { continue };
+            dbg_log(&format!("mirror strip {strip:?} on {bar:?}"));
+            self.mirrors.push((bar, strip));
+            self.push(strip);
+        }
+        // Stray copies (e.g. left by an Explorer restart) on any secondary taskbar.
+        for bar in secondary_taskbars() {
+            unsafe {
+                let mut after: Option<HWND> = None;
+                while let Ok(h) = FindWindowExW(Some(bar), after, STRIP_CLASS, None) {
+                    if h.0.is_null() {
+                        break;
+                    }
+                    after = Some(h);
+                    if !self.mirrors.iter().any(|m| m.1 == h) && is_our_strip(h) {
+                        let _ = DestroyWindow(h);
+                    }
+                }
+            }
+        }
+        for i in 0..self.mirrors.len() {
+            let (bar, strip) = self.mirrors[i];
+            self.place_mirror(bar, strip);
+        }
+    }
+
+    fn drop_mirrors(&mut self) {
+        for (_, strip) in std::mem::take(&mut self.mirrors) {
+            if is_our_strip(strip) {
+                unsafe {
+                    let _ = DestroyWindow(strip);
+                }
+            }
+        }
+    }
+
+    /// Places a copy just left of the secondary taskbar's clock (Windows 10 / ExplorerPatcher
+    /// layout), or near its right end when there is no clock window (Windows 11 draws it itself).
+    fn place_mirror(&self, bar: HWND, strip: HWND) {
+        unsafe {
+            let mut br = RECT::default();
+            let _ = GetWindowRect(bar, &mut br);
+            if br.bottom - br.top > br.right - br.left {
+                let _ = ShowWindow(strip, SW_HIDE);
+                return; // vertical
+            }
+            let dpi = GetDpiForWindow(bar);
+            let s = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
+            let right = match FindWindowExW(Some(bar), None, w!("ClockButton"), None) {
+                Ok(clock) if !clock.0.is_null() && IsWindowVisible(clock).as_bool() => {
+                    let mut cr = RECT::default();
+                    let _ = GetWindowRect(clock, &mut cr);
+                    cr.left
+                }
+                _ => br.right - (130.0 * s) as i32,
+            };
+            let mut p = POINT { x: right, y: br.top };
+            let _ = ScreenToClient(bar, &mut p);
+            let mut left = p.x - self.size.cx - (2.0 * s) as i32;
+            if self.offset > 0 {
+                left -= (self.offset as f32 * s) as i32;
+            }
+            let mut client = RECT::default();
+            let _ = GetClientRect(bar, &mut client);
+            let top = ((client.bottom - self.size.cy) / 2).max(0);
+            // Narrow the task buttons so they never slide under the copy.
+            if let Ok(worker) = FindWindowExW(Some(bar), None, w!("WorkerW"), None) {
+                let mut wr = RECT::default();
+                let _ = GetWindowRect(worker, &mut wr);
+                let mut tl = POINT { x: wr.left, y: wr.top };
+                let _ = ScreenToClient(bar, &mut tl);
+                if tl.x + (wr.right - wr.left) > left && left > tl.x {
+                    let _ = MoveWindow(worker, tl.x, tl.y, left - tl.x, wr.bottom - wr.top, true);
+                }
+            }
+            let mut cur = RECT::default();
+            let _ = GetWindowRect(strip, &mut cur);
+            let mut cp = POINT { x: cur.left, y: cur.top };
+            let _ = ScreenToClient(bar, &mut cp);
+            let covered = GetWindow(strip, GW_HWNDPREV).is_ok_and(|h| !h.0.is_null()) || !IsWindowVisible(strip).as_bool();
+            let same = cp.x == left && cp.y == top && cur.right - cur.left == self.size.cx && cur.bottom - cur.top == self.size.cy;
+            if covered || !same {
+                let _ = SetWindowPos(strip, Some(HWND_TOP), left, top, self.size.cx, self.size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
             }
         }
     }
@@ -784,37 +915,41 @@ impl App {
         }
     }
 
-    /// Text shown when hovering a device: name, level and charge state, connection, warning level.
+    /// Text shown when hovering a device, short: "PRO 2 LIGHTSPEED: 96%" (+ charging / asleep).
     fn tip_text(&self, i: usize) -> String {
         let devices = self.visible();
         let Some(d) = devices.get(i) else {
             return "BatteryHub: no devices found".into();
         };
-        let th = settings::threshold(SETTINGS_KEY, &d.key);
-        let mut t = format!("{}\n{}", d.name, d.charge_text());
-        if settings::is_low(d, th) {
-            t += "  -  LOW BATTERY";
-        }
-        if !d.via.is_empty() {
-            t += &format!("\nConnected via {}", d.via);
-        }
-        if !d.detail.is_empty() {
-            t += &format!("\n{}", d.detail);
-        }
-        t += &format!("\nRed warning at {th}% or below (right-click to change)");
-        t
+        let level = d.level();
+        let numeric = level.ends_with('%');
+        let state = if d.asleep {
+            " (asleep)"
+        } else if d.is_full() && numeric {
+            " (full)"
+        } else if d.charging && numeric {
+            " (charging)"
+        } else {
+            ""
+        };
+        format!("{}: {level}{state}", d.name)
     }
 
-    fn hover(&mut self, x: i32) {
+    fn hover(&mut self, on: HWND, x: i32) {
         if self.tip.0.is_null() {
             return;
+        }
+        if on != self.tip_on {
+            self.tip_on = on;
+            self.tracking = false;
+            self.tip_for = None;
         }
         unsafe {
             if !self.tracking {
                 let mut tme = TRACKMOUSEEVENT {
                     cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
                     dwFlags: TME_LEAVE,
-                    hwndTrack: self.strip,
+                    hwndTrack: on,
                     dwHoverTime: 0,
                 };
                 self.tracking = TrackMouseEvent(&mut tme).is_ok();
@@ -840,7 +975,7 @@ impl App {
             let size = SendMessageW(self.tip, TTM_GETBUBBLESIZE, None, Some(LPARAM(&mut ti as *mut _ as isize))).0;
             let (tw, th) = ((size & 0xFFFF) as i32, ((size >> 16) & 0xFFFF) as i32);
             let mut rc = RECT::default();
-            let _ = GetWindowRect(self.strip, &mut rc);
+            let _ = GetWindowRect(on, &mut rc);
             let (from, to) = hit.map(|h| (h.1, h.2)).unwrap_or((0, self.size.cx));
             let cx = rc.left + (from + to) / 2 - tw / 2;
             let cy = rc.top - th - 4;
@@ -1042,10 +1177,14 @@ fn post_from_thread<T: Send + 'static>(hwnd: HWND, msg: u32, work: impl FnOnce()
     });
 }
 
-fn check_for_updates(main: HWND) {
+/// The running check was started automatically: only "a new update is available" is shown.
+static UPDATE_SILENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn check_for_updates(main: HWND, silent: bool) {
     if UPDATE_BUSY.swap(true, std::sync::atomic::Ordering::Relaxed) {
         return;
     }
+    UPDATE_SILENT.store(silent, std::sync::atomic::Ordering::Relaxed);
     post_from_thread(main, WM_UPDATE_CHECKED, batteryhub::update::check);
 }
 
@@ -1065,6 +1204,11 @@ fn on_update_checked(main: HWND, check: batteryhub::update::Check) {
     use batteryhub::install::{label_of, version_label};
     use batteryhub::update::Check;
     trim_memory();
+    let silent = UPDATE_SILENT.swap(false, std::sync::atomic::Ordering::Relaxed);
+    if silent && !matches!(check, Check::Available(_)) {
+        UPDATE_BUSY.store(false, std::sync::atomic::Ordering::Relaxed);
+        return;
+    }
     match check {
         Check::UpToDate { latest } => {
             UPDATE_BUSY.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -1156,10 +1300,73 @@ fn refresh_on_change() -> bool {
     }
 }
 
+/// Check for updates when BatteryHub starts (default off).
+fn auto_update() -> bool {
+    batteryhub::util::reg_get_dword(SETTINGS_KEY, "AutoCheckUpdates").unwrap_or(0) != 0
+}
+
+fn autostart_name() -> &'static str {
+    batteryhub::install::TASKBAR.run_value.unwrap_or("BatteryHub Taskbar")
+}
+
 fn save_dword(name: &str, value: u32) {
     if let Some(k) = batteryhub::install::create(batteryhub::install::HKCU, SETTINGS_KEY) {
         k.set_dword(name, value);
     }
+}
+
+/// Creates a (hidden) strip window as a child of a taskbar.
+fn create_strip(taskbar: HWND) -> Option<HWND> {
+    unsafe {
+        let hinst = GetModuleHandleW(None).unwrap_or_default();
+        let r = CreateWindowExW(
+            WS_EX_LAYERED | WS_EX_NOACTIVATE,
+            STRIP_CLASS,
+            w!(""),
+            WS_CHILD | WS_CLIPSIBLINGS,
+            0,
+            0,
+            1,
+            1,
+            Some(taskbar),
+            None,
+            Some(hinst.into()),
+            None,
+        );
+        if r.is_err() {
+            dbg_log(&format!("CreateWindowExW failed: {:?}", windows::Win32::Foundation::GetLastError()));
+        }
+        r.ok()
+    }
+}
+
+/// Taskbars of the other monitors, left to right.
+fn secondary_taskbars() -> Vec<HWND> {
+    let mut out: Vec<(i32, i32, HWND)> = Vec::new();
+    unsafe {
+        let mut after: Option<HWND> = None;
+        while let Ok(h) = FindWindowExW(None, after, w!("Shell_SecondaryTrayWnd"), None) {
+            if h.0.is_null() {
+                break;
+            }
+            after = Some(h);
+            let mut r = RECT::default();
+            let _ = GetWindowRect(h, &mut r);
+            out.push((r.left, r.top, h));
+        }
+    }
+    out.sort_by_key(|o| (o.0, o.1));
+    out.into_iter().map(|o| o.2).collect()
+}
+
+/// Number of monitors connected right now.
+fn monitor_count() -> usize {
+    unsafe { GetSystemMetrics(SM_CMONITORS).max(1) as usize }
+}
+
+/// "Show widget on": on how many monitors (1 = main monitor only, the default).
+fn widget_monitors() -> usize {
+    batteryhub::util::reg_get_dword(SETTINGS_KEY, "WidgetMonitors").unwrap_or(1).clamp(1, 16) as usize
 }
 
 /// A strip window created by this process (a handle that outlived Explorer may have been reused by
@@ -1226,6 +1433,18 @@ unsafe fn show_menu() {
             }
             let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Refresh battery every"));
         }
+        // On how many monitors the widget is shown; more than are connected cannot be chosen.
+        if let Ok(sub) = CreatePopupMenu() {
+            let count = monitor_count();
+            let current = widget_monitors();
+            for n in 1..=MONITORS_MENU_MAX.max(count) {
+                let label = if n == 1 { "Main monitor".to_string() } else { format!("{n} monitors") };
+                let state = if n > count { MF_GRAYED } else { MF_ENABLED };
+                let check = if n == current.min(count) { MF_CHECKED } else { MF_UNCHECKED };
+                let _ = AppendMenuW(sub, MF_STRING | state | check, ID_MONITORS_BASE + n, &windows::core::HSTRING::from(label));
+            }
+            let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Show widget on"));
+        }
         let on_change = if refresh_on_change() { MF_CHECKED } else { MF_UNCHECKED };
         let _ = AppendMenuW(
             menu,
@@ -1234,6 +1453,11 @@ unsafe fn show_menu() {
             w!("Refresh when a device connects or disconnects"),
         );
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+        let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
+        let _ = AppendMenuW(menu, MF_STRING | check(ui::autostart_enabled(autostart_name())), ID_AUTOSTART, w!("Automatically start with Windows"));
+        let _ = AppendMenuW(menu, MF_STRING | check(auto_update()), ID_AUTO_UPDATE, w!("Automatically check for updates"));
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+        let _ = AppendMenuW(menu, MF_STRING, ID_REQUEST, w!("Request support for a device..."));
         let busy = UPDATE_BUSY.load(std::sync::atomic::Ordering::Relaxed);
         let label = if busy { "Checking for updates..." } else { "Check for updates..." };
         let _ = AppendMenuW(
@@ -1269,7 +1493,31 @@ unsafe fn show_menu() {
             ID_REFRESH_LEVELS => {
                 with_app(|a| a.manual_refresh(false));
             }
-            ID_CHECK_UPDATES => check_for_updates(main),
+            ID_CHECK_UPDATES => check_for_updates(main, false),
+            id if id > ID_MONITORS_BASE && id <= ID_MONITORS_BASE + MONITORS_MENU_MAX.max(monitor_count()) => {
+                save_dword("WidgetMonitors", (id - ID_MONITORS_BASE) as u32);
+                with_app(|a| a.sync_mirrors());
+            }
+            ID_AUTOSTART => {
+                let on = !ui::autostart_enabled(autostart_name());
+                ui::set_autostart(autostart_name(), on);
+                if on {
+                    // A "disabled" state left in Task Manager would keep it from starting.
+                    batteryhub::util::reg_delete_value(batteryhub::install::STARTUP_APPROVED_KEY, autostart_name());
+                }
+            }
+            ID_AUTO_UPDATE => {
+                let on = !auto_update();
+                save_dword("AutoCheckUpdates", on as u32);
+                if on {
+                    message(
+                        main,
+                        "Automatic update check is on.\n\nBatteryHub looks for a new version only when it starts (at sign-in or when you start it), not while it runs. When there is one, it asks you whether to update.",
+                        MB_OK | MB_ICONINFORMATION,
+                    );
+                }
+            }
+            ID_REQUEST => batteryhub::report_window::show(),
             ID_ON_CHANGE => {
                 let on = !refresh_on_change();
                 save_dword("RefreshOnDeviceChange", on as u32);
@@ -1298,7 +1546,7 @@ extern "system" fn strip_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> L
     unsafe {
         match msg {
             WM_MOUSEMOVE => {
-                with_app(|a| a.hover((lp.0 & 0xFFFF) as i16 as i32));
+                with_app(|a| a.hover(hwnd, (lp.0 & 0xFFFF) as i16 as i32));
                 LRESULT(0)
             }
             WM_MOUSELEAVE => {
@@ -1335,6 +1583,10 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                         a.start_poll();
                     }
                     TIMER_QUICK => a.start_quick(),
+                    TIMER_AUTO_UPDATE => {
+                        let _ = KillTimer(Some(hwnd), TIMER_AUTO_UPDATE);
+                        check_for_updates(hwnd, true);
+                    }
                     TIMER_BTWATCH => {
                         // Bluetooth connect / disconnect does not add or remove device nodes, so
                         // Windows sends no device-change message for it: compare a signature.
@@ -1433,6 +1685,12 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
 
 fn main() {
     unsafe {
+        // `--report`: only the "Request support for a device" window (also while BatteryHub runs).
+        if std::env::args().any(|a| a == "--report") {
+            let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+            batteryhub::report_window::run_standalone();
+            return;
+        }
         let _mutex = CreateMutexW(None, true, w!("Local\\BatteryHub.Taskbar"));
         // One instance only (diagnostic runs with BH_DEBUG may start a second one for testing).
         let second_ok = std::env::var_os("BH_DEBUG").is_some() || std::env::var_os("BH_SECOND_INSTANCE").is_some();
@@ -1508,9 +1766,16 @@ fn main() {
         SetTimer(Some(main), TIMER_PLACE, 1000, None);
         SetTimer(Some(main), TIMER_BTWATCH, 3000, None);
         SetTimer(Some(main), TIMER_QUICK, QUICK_MS, None);
+        if auto_update() {
+            SetTimer(Some(main), TIMER_AUTO_UPDATE, AUTO_UPDATE_DELAY_MS, None);
+        }
 
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+            // Tab / Enter / Esc in the "Request support for a device" window.
+            if batteryhub::report_window::pre_translate(&msg) {
+                continue;
+            }
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
