@@ -312,7 +312,7 @@ pub fn issue_body(r: &Request, c: Option<&Candidate>, windows_build: &str, app_v
     for line in tech_summary(c) {
         s += &format!("- {line}\n");
     }
-    s += &format!("- Windows build {windows_build}, BatteryHub v{app_version}\n\n");
+    s += &format!("- Windows build {windows_build}, BatteryHub {app_version}\n\n");
     s += "_Sent from the BatteryHub app (Request support for a device)._\n";
     s
 }
@@ -386,13 +386,13 @@ mod tests {
         let c = roccat();
         let r = Request { model: "ROCCAT Syn Max Air".into(), kind: "headset".into(), name: String::new(), notes: "  works with Swarm ".into() };
         assert_eq!(issue_title(&r, Some(&c)), "Device request: ROCCAT Syn Max Air (1E7D:3A3F)");
-        let body = issue_body(&r, Some(&c), "26300.9974", "1.2");
+        let body = issue_body(&r, Some(&c), "26300.9974", "v1.2");
         assert!(body.starts_with("### Device\nROCCAT Syn Max Air\n\n### Type\nheadset\n\n### Notes\nworks with Swarm\n\n"));
         assert!(body.contains("- IDs: `1E7D:3A3F`\n"));
         assert!(body.contains("`if3 FF00:0001 64/64/0`, `if4 000C:0001 3/0/0`"));
         assert!(body.contains("- USB: HIDClass (HidUsb) x2, MEDIA (usbaudio)\n"));
         assert!(body.contains("- Windows build 26300.9974, BatteryHub v1.2\n"));
-        let none = issue_body(&Request { model: "X".into(), kind: "other".into(), name: "Kris".into(), notes: String::new() }, None, "1.0", "1.2");
+        let none = issue_body(&Request { model: "X".into(), kind: "other".into(), name: "Kris".into(), notes: String::new() }, None, "1.0", "v1.2");
         assert!(!none.contains("### Notes"));
         assert!(none.contains("### Requested by\nKris\n\n"));
         assert!(none.contains("- Device not in the app's list.\n"));
