@@ -2,7 +2,8 @@
 //! install folder, version, files, shortcuts, autostart, running copy and the original C++ BatteryHub.
 //! Every file and registry entry that is created or removed is logged with its full path.
 //!
-//! Command line: /install | /update | /uninstall, /S (silent), /autostart=yes|no, /nolaunch
+//! Command line: /install | /update | /uninstall, /S (silent), /autostart=yes|no, /nolaunch,
+//! /nonotify (no "Update finished" message from the updated program)
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -24,10 +25,11 @@ struct Opts {
     silent: bool,
     autostart: Option<bool>,
     launch: bool,
+    notify: bool,
 }
 
 fn opts() -> Opts {
-    let mut o = Opts { action: None, silent: false, autostart: None, launch: true };
+    let mut o = Opts { action: None, silent: false, autostart: None, launch: true, notify: true };
     for a in std::env::args().skip(1) {
         match a.to_lowercase().as_str() {
             "/install" | "--install" => o.action = Some(Action::Install),
@@ -37,6 +39,7 @@ fn opts() -> Opts {
             "/autostart=yes" | "--autostart" => o.autostart = Some(true),
             "/autostart=no" | "--no-autostart" => o.autostart = Some(false),
             "/nolaunch" | "--no-launch" => o.launch = false,
+            "/nonotify" | "--no-notify" => o.notify = false,
             _ => {}
         }
     }
@@ -536,7 +539,7 @@ fn install(ed: &Edition, payload: &[u8], log: &Log, o: &Opts, st: &State, update
     let start = o.launch && (was_running || o.silent || log.ask(&format!("Start {} now?", ed.name), true));
     if start {
         // The updated program says "Update finished: vOLD -> vNEW" once when it starts.
-        if update && ed.run_value.is_some() {
+        if update && o.notify && ed.run_value.is_some() {
             if let (Some(old), Some(k)) = (&st.version, inst::create(HKCU, ed.settings_key)) {
                 k.set_string("UpdatedFrom", old);
             }

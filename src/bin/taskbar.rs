@@ -80,6 +80,7 @@ const ID_REQUEST: usize = 5;
 const ID_AUTOSTART: usize = 6;
 const ID_AUTO_UPDATE: usize = 7;
 const ID_BACKGROUND: usize = 8;
+const ID_SILENT_UPDATE: usize = 9;
 /// "Show widget on": all monitors, main monitor only, or ID_MONITOR_FIRST + i for one other monitor.
 const ID_MONITOR_ALL: usize = 40;
 const ID_MONITOR_MAIN: usize = 41;
@@ -1292,6 +1293,8 @@ fn post_from_thread<T: Send + 'static>(hwnd: HWND, msg: u32, work: impl FnOnce()
 
 /// The running check was started automatically: only "a new update is available" is shown.
 static UPDATE_SILENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The running download is a silent install: no message boxes, the setup runs without a window.
+static UPDATE_QUIET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn check_for_updates(main: HWND, silent: bool) {
     if UPDATE_BUSY.swap(true, std::sync::atomic::Ordering::Relaxed) {
@@ -1351,6 +1354,11 @@ fn on_update_checked(main: HWND, check: batteryhub::update::Check) {
                 MB_OK | MB_ICONWARNING,
             );
         }
+        // Automatic check with "Install updates silently": download and install, show nothing.
+        Check::Available(r) if silent && silent_install() => {
+            UPDATE_QUIET.store(true, std::sync::atomic::Ordering::Relaxed);
+            post_from_thread(main, WM_UPDATE_DOWNLOADED, move || batteryhub::update::download(&r));
+        }
         Check::Available(r) => {
             let text = format!(
                 "A new update is available:\n\n        {}  ->  {}\n\nDo you want to update now?\n\nThe setup is downloaded from GitHub, checked against the release's SHA-256 checksum and started; it keeps your settings and autostart.",
@@ -1369,6 +1377,15 @@ fn on_update_checked(main: HWND, check: batteryhub::update::Check) {
 fn on_update_downloaded(main: HWND, result: Result<std::path::PathBuf, String>) {
     UPDATE_BUSY.store(false, std::sync::atomic::Ordering::Relaxed);
     trim_memory();
+    if UPDATE_QUIET.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        // No console window (CREATE_NO_WINDOW) and no "Update finished" box afterwards. A failed
+        // download or start is not shown either; the next start tries again.
+        if let Ok(setup) = result {
+            use std::os::windows::process::CommandExt;
+            let _ = std::process::Command::new(&setup).args(["/update", "/S", "/nonotify"]).creation_flags(0x0800_0000).spawn();
+        }
+        return;
+    }
     match result {
         // The setup closes this program (and starts the new version) itself.
         Ok(setup) => {
@@ -1421,6 +1438,11 @@ fn refresh_on_change() -> bool {
 /// Check for updates when BatteryHub starts (default off).
 fn auto_update() -> bool {
     batteryhub::util::reg_get_dword(SETTINGS_KEY, "AutoCheckUpdates").unwrap_or(0) != 0
+}
+
+/// With the automatic check: install a new version in the background without asking (default off).
+fn silent_install() -> bool {
+    batteryhub::util::reg_get_dword(SETTINGS_KEY, "SilentUpdates").unwrap_or(0) != 0
 }
 
 fn autostart_name() -> &'static str {
@@ -1714,6 +1736,12 @@ unsafe fn show_menu() {
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING | check(ui::autostart_enabled(autostart_name())), ID_AUTOSTART, w!("Automatically start with Windows"));
         let _ = AppendMenuW(menu, MF_STRING | check(auto_update()), ID_AUTO_UPDATE, w!("Automatically check for updates"));
+        let _ = AppendMenuW(
+            menu,
+            MF_STRING | check(silent_install()) | if auto_update() { MF_ENABLED } else { MF_GRAYED },
+            ID_SILENT_UPDATE,
+            w!("Install updates silently"),
+        );
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING, ID_REQUEST, w!("Request support for a device..."));
         let busy = UPDATE_BUSY.load(std::sync::atomic::Ordering::Relaxed);
@@ -1812,7 +1840,18 @@ unsafe fn show_menu() {
                 if on {
                     message(
                         main,
-                        "Automatic update check is on.\n\nBatteryHub looks for a new version only when it starts (at sign-in or when you start it), not while it runs. When there is one, it asks you whether to update.",
+                        "Automatic update check is on.\n\nBatteryHub looks for a new version only when it starts (at sign-in or when you start it), not while it runs. When there is one, it asks you whether to update (or, with \"Install updates silently\", installs it in the background).",
+                        MB_OK | MB_ICONINFORMATION,
+                    );
+                }
+            }
+            ID_SILENT_UPDATE => {
+                let on = !silent_install();
+                save_dword("SilentUpdates", on as u32);
+                if on {
+                    message(
+                        main,
+                        "Silent updates are on.\n\nWhen BatteryHub starts and finds a new version, it downloads it from GitHub, checks its SHA-256 checksum and installs it in the background, without asking and without showing anything. Your settings and autostart are kept.",
                         MB_OK | MB_ICONINFORMATION,
                     );
                 }
