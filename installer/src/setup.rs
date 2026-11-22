@@ -282,6 +282,106 @@ fn save_info(ed: &Edition, log: &Log, dir: &Path, created: &mut Vec<String>) {
     }
 }
 
+/// Copy of the setup kept in the install folder: "Uninstall" in Windows Settings runs it.
+const SETUP_COPY: &str = "BatteryHub-Setup.exe";
+
+/// Entry in Settings > Apps (also what winget reads to see the installed version).
+fn apps_key(ed: &Edition) -> String {
+    format!(r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{}", ed.name)
+}
+
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
+/// Keeps a copy of this setup next to the program and registers the app in Settings > Apps.
+fn register_app(ed: &Edition, log: &Log, dir: &Path, exe: &Path, created: &mut Vec<String>) {
+    let setup = dir.join(SETUP_COPY);
+    match std::env::current_exe() {
+        Ok(me) if same_file(&me, &setup) => log.detail(format!("running from {}", setup.display())),
+        Ok(me) => match std::fs::copy(&me, &setup) {
+            Ok(n) => {
+                log.ok(format!("Copied the setup to {} ({})", setup.display(), inst::fmt_bytes(n)));
+                created.push(format!("setup     {}", setup.display()));
+            }
+            Err(e) => {
+                log.warn(format!("Could not copy the setup to {}: {e} (no entry in Settings > Apps)", setup.display()));
+                return;
+            }
+        },
+        Err(e) => {
+            log.warn(format!("Cannot find this setup's own file: {e} (no entry in Settings > Apps)"));
+            return;
+        }
+    }
+    let key = apps_key(ed);
+    log.info(format!("Registering in Settings > Apps: HKCU\\{key}"));
+    let Some(k) = inst::create(HKCU, &key) else {
+        log.warn("Could not create the Settings > Apps entry.");
+        return;
+    };
+    let quoted = format!("\"{}\"", setup.display());
+    for (n, v) in [
+        ("DisplayName", ed.name.to_string()),
+        ("DisplayVersion", inst::VERSION.to_string()),
+        ("Publisher", "ferloom".to_string()),
+        ("DisplayIcon", format!("{},0", exe.display())),
+        ("InstallLocation", dir.display().to_string()),
+        ("UninstallString", format!("{quoted} /uninstall")),
+        ("QuietUninstallString", format!("{quoted} /uninstall /S")),
+        ("URLInfoAbout", format!("https://github.com/{}", batteryhub::update::REPO)),
+        ("HelpLink", format!("https://github.com/{}/issues", batteryhub::update::REPO)),
+    ] {
+        if k.set_string(n, &v) {
+            log.detail(format!("set {n:<20} = {v}"));
+        }
+    }
+    let size = |p: &Path| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+    let size_kb = ((size(exe) + size(&setup)) / 1024) as u32;
+    for (n, v) in [("NoModify", 1u32), ("NoRepair", 1), ("EstimatedSize", size_kb)] {
+        k.set_dword(n, v);
+        log.detail(format!("set {n:<20} = {v}"));
+    }
+    created.push(format!("registry  HKCU\\{key}"));
+}
+
+/// Removes the Settings > Apps entry and the setup copy. When this setup *is* that copy (started
+/// from Settings), it cannot delete itself: a hidden command deletes it a few seconds after exit.
+fn unregister_app(ed: &Edition, log: &Log, dir: &Path, removed: &mut Vec<String>) {
+    let key = apps_key(ed);
+    if inst::open(HKCU, &key, false).is_some() && inst::delete_tree(HKCU, &key) {
+        log.ok(format!("Deleted HKCU\\{key}"));
+        removed.push(format!("registry  HKCU\\{key}"));
+    }
+    let setup = dir.join(SETUP_COPY);
+    if !setup.exists() {
+        return;
+    }
+    let me = std::env::current_exe().ok();
+    if me.as_deref().is_some_and(|m| same_file(m, &setup)) {
+        use std::os::windows::process::CommandExt;
+        let cmd = format!(
+            "ping -n 9 127.0.0.1 >nul & del /f /q \"{}\" & rmdir \"{}\" & rmdir \"{}\"",
+            setup.display(),
+            dir.display(),
+            Edition::root_dir().display()
+        );
+        // CREATE_NO_WINDOW | DETACHED_PROCESS
+        match std::process::Command::new("cmd").arg("/c").raw_arg(&cmd).creation_flags(0x0800_0000 | 0x0000_0008).spawn() {
+            Ok(_) => {
+                log.ok(format!("{} will be deleted a few seconds after this window closes", setup.display()));
+                removed.push(format!("setup     {}", setup.display()));
+            }
+            Err(e) => log.warn(format!("Could not schedule deleting {}: {e}", setup.display())),
+        }
+    } else {
+        remove_file(log, &setup, removed, "setup    ");
+    }
+}
+
 fn make_shortcuts(ed: &Edition, log: &Log, exe: &Path, created: &mut Vec<String>) {
     let start_dir = Edition::start_menu_folder();
     if !start_dir.exists() {
@@ -404,6 +504,7 @@ fn install(ed: &Edition, payload: &[u8], log: &Log, o: &Opts, st: &State, update
 
     log.step("[4/6] Saving install information");
     save_info(ed, log, &dir, &mut created);
+    register_app(ed, log, &dir, &exe, &mut created);
 
     log.step("[5/6] Creating shortcuts (desktop and Start menu)");
     make_shortcuts(ed, log, &exe, &mut created);
@@ -597,6 +698,7 @@ fn uninstall(ed: &Edition, log: &Log, st: &State) -> bool {
 
     log.step("[4/6] Removing program files");
     remove_file(log, &st.exe, &mut removed, "program  ");
+    unregister_app(ed, log, &st.dir, &mut removed);
     remove_dir_if_empty(log, &st.dir, &mut removed);
     remove_dir_if_empty(log, &Edition::root_dir(), &mut removed);
 

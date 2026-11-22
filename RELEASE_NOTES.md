@@ -15,6 +15,8 @@ Already installed? Use *Check for updates...* in the right-click menu (v1.1 and 
 
 - **Position on the taskbar** now moves the widget in 20 px steps (20 to 200 px).
 - **Height on the taskbar:** new menu to move the widget 5 / 10 / 15 px up or down.
+- **Listed in Settings → Apps:** BatteryHub now shows up under *Installed apps* with its version, and *Uninstall* there removes it cleanly. The setup keeps a copy of itself in the program folder for this. This also prepares BatteryHub for winget.
+- **No Visual C++ Redistributable needed:** the program and the setup now start on a clean Windows. Before, they needed `VCRUNTIME140.dll`, which most PCs have but some don't.
 - **Faster automatic update check:** about 2 s after start instead of 20 s. If the network is not up yet (e.g. right after sign-in), it tries again every 15 s, up to 8 times.
 
 ## New in v1.2.2
