@@ -21,9 +21,12 @@ in about <b>0.2 MB of RAM</b>.
 </p>
 
 > [!IMPORTANT]
-> **This is a recode of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor)** (the C++ BatteryHub by krisgfx9), not a fork.
+> **This is a recode of krisgfx9/Wireless-Device-Battery-Monitor** (the C++ BatteryHub by krisgfx9), not a fork and not the original.
 > It rewrites the original in Rust. The idea, the look of the taskbar strip and the device protocols all come from the original project, and the credit for them goes to its authors.
-> It is not an official release of the original. For the full device list (about 100 drivers), use the original.
+>
+> **The original is currently unavailable on GitHub.** On 22 November 2026 the krisgfx9 account was suspended by GitHub, which took the original repository offline with it. According to the original author, no reason was given; they have appealed, so the original may come back. Until then, the original author shares downloads through the project's Discord.
+>
+> This recode is still **not the original**, but it **is supported and will stay supported**: it keeps being developed and updated, with new devices added from [device requests](../../issues).
 
 Developed by [@ferloom](https://github.com/ferloom) with the help of Claude (AI).
 
