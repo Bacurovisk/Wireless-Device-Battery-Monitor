@@ -2008,6 +2008,12 @@ fn main() {
             batteryhub::report_window::run_standalone();
             return;
         }
+        // `--listen VID:PID`: diagnostic recording of a device's HID reports (see listen.rs).
+        let args: Vec<String> = std::env::args().collect();
+        if let Some(i) = args.iter().position(|a| a == "--listen") {
+            batteryhub::listen::run(args.get(i + 1).map(|s| s.as_str()));
+            return;
+        }
         let _mutex = CreateMutexW(None, true, w!("Local\\BatteryHub.Taskbar"));
         // One instance only (diagnostic runs with BH_DEBUG may start a second one for testing).
         let second_ok = std::env::var_os("BH_DEBUG").is_some() || std::env::var_os("BH_SECOND_INSTANCE").is_some();

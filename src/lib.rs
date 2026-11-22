@@ -7,6 +7,7 @@ pub mod device;
 pub mod drivers;
 pub mod hid;
 pub mod install;
+pub mod listen;
 pub mod report;
 pub mod report_window;
 pub mod settings;
