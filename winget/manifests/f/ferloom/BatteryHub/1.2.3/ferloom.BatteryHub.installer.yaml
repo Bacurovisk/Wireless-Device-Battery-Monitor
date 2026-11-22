@@ -20,6 +20,6 @@ AppsAndFeaturesEntries:
 Installers:
 - Architecture: x64
   InstallerUrl: https://github.com/ferloom/Wireless-Device-Battery-Monitor/releases/download/v1.2.3/BatteryHub-Taskbar-Setup-v1.2.3.exe
-  InstallerSha256: 77F95E86989B1285E3BD85242EAC5FF78AD09B49C19740358961E5496D43F5A9
+  InstallerSha256: 0C654DF2A6A50C2858408D6D3FB18DA6BBB78B8346D92800E538149BCBBDC889
 ManifestType: installer
 ManifestVersion: 1.6.0
