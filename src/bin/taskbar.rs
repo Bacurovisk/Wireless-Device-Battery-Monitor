@@ -1633,245 +1633,247 @@ fn dbg_log(msg: &str) {
 
 /// The right-click menu (strip and fallback icons): per-device warning levels, refresh options, exit.
 unsafe fn show_menu() {
-    let (main, devices) = with_app(|a| {
-        a.hide_tip();
-        (a.main, a.visible())
-    })
-    .unwrap_or_default();
-    if let Ok(menu) = CreatePopupMenu() {
-        // One submenu per device: its charge state and the red warning level (50 ... 5%).
-        settings::append_device_menus(menu, &devices, SETTINGS_KEY);
-        if !devices.is_empty() {
+    unsafe {
+        let (main, devices) = with_app(|a| {
+            a.hide_tip();
+            (a.main, a.visible())
+        })
+        .unwrap_or_default();
+        if let Ok(menu) = CreatePopupMenu() {
+            // One submenu per device: its charge state and the red warning level (50 ... 5%).
+            settings::append_device_menus(menu, &devices, SETTINGS_KEY);
+            if !devices.is_empty() {
+                let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+            }
+            let _ = AppendMenuW(menu, MF_STRING, ID_REFRESH_DEVICES, w!("Refresh devices"));
+            let _ = AppendMenuW(menu, MF_STRING, ID_REFRESH_LEVELS, w!("Refresh battery levels"));
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
-        }
-        let _ = AppendMenuW(menu, MF_STRING, ID_REFRESH_DEVICES, w!("Refresh devices"));
-        let _ = AppendMenuW(menu, MF_STRING, ID_REFRESH_LEVELS, w!("Refresh battery levels"));
-        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
-        // How often the battery levels are read, and whether a device change triggers a read.
-        if let Ok(sub) = CreatePopupMenu() {
-            let current = refresh_minutes();
-            for (j, (m, label)) in INTERVALS.iter().enumerate() {
-                let check = if *m == current { MF_CHECKED } else { MF_UNCHECKED };
-                let _ = AppendMenuW(sub, MF_STRING | check, ID_INTERVAL_BASE + j, &windows::core::HSTRING::from(*label));
-            }
-            let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Refresh battery every"));
-        }
-        let on_change = if refresh_on_change() { MF_CHECKED } else { MF_UNCHECKED };
-        let _ = AppendMenuW(
-            menu,
-            MF_STRING | on_change,
-            ID_ON_CHANGE,
-            w!("Refresh when a device connects or disconnects"),
-        );
-        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
-        let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
-        // Look of the widget: plate behind it, position, and which monitors show it.
-        let (choice, offset, background, offset_y) = with_app(|a| (a.choice.clone(), a.offset, a.background, a.offset_y)).unwrap_or_default();
-        let _ = AppendMenuW(
-            menu,
-            MF_STRING | check(background),
-            ID_BACKGROUND,
-            w!("Background behind taskbar text (for translucent taskbars)"),
-        );
-        if let Ok(sub) = CreatePopupMenu() {
-            let mut checked = ID_POSITION_CUSTOM;
-            for (i, px) in POSITION_OFFSETS.iter().enumerate() {
-                let label = if *px == 0 { "Next to the notification area".to_string() } else { format!("{px} px to the left") };
-                let _ = AppendMenuW(sub, MF_STRING, ID_POSITION_FIRST + i, &windows::core::HSTRING::from(label));
-                if *px == offset {
-                    checked = ID_POSITION_FIRST + i;
-                }
-            }
-            if checked == ID_POSITION_CUSTOM {
-                // A value set by hand in the registry (TaskbarOffset).
-                let label = format!("Custom ({offset} px, TaskbarOffset in the registry)");
-                let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_POSITION_CUSTOM, &windows::core::HSTRING::from(label));
-            }
-            let _ = CheckMenuRadioItem(sub, ID_POSITION_FIRST as u32, ID_POSITION_CUSTOM as u32, checked as u32, MF_BYCOMMAND.0);
-            let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Position on the taskbar"));
-        }
-        if let Ok(sub) = CreatePopupMenu() {
-            let mut checked = ID_HEIGHT_CUSTOM;
-            for (i, px) in HEIGHT_OFFSETS.iter().enumerate() {
-                let label = match *px {
-                    0 => "Centred".to_string(),
-                    p if p < 0 => format!("{} px up", -p),
-                    p => format!("{p} px down"),
-                };
-                let _ = AppendMenuW(sub, MF_STRING, ID_HEIGHT_FIRST + i, &windows::core::HSTRING::from(label));
-                if *px == offset_y {
-                    checked = ID_HEIGHT_FIRST + i;
-                }
-            }
-            if checked == ID_HEIGHT_CUSTOM {
-                let label = format!("Custom ({offset_y} px, TaskbarOffsetY in the registry)");
-                let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_HEIGHT_CUSTOM, &windows::core::HSTRING::from(label));
-            }
-            let _ = CheckMenuRadioItem(sub, ID_HEIGHT_FIRST as u32, ID_HEIGHT_CUSTOM as u32, checked as u32, MF_BYCOMMAND.0);
-            let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Height on the taskbar"));
-        }
-        // With more than one monitor: all of them, the main one only, or one other monitor only.
-        let others: Vec<(String, String)> =
-            secondary_taskbars().into_iter().take(ID_MONITOR_GONE - ID_MONITOR_FIRST).map(|b| (monitor_id(b), monitor_label(b))).collect();
-        if !others.is_empty() {
+            // How often the battery levels are read, and whether a device change triggers a read.
             if let Ok(sub) = CreatePopupMenu() {
-                let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_ALL, w!("All monitors"));
-                let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_MAIN, w!("Main monitor only"));
-                let ids: Vec<String> = others.iter().map(|o| o.0.clone()).collect();
-                let checked = match choice.as_str() {
-                    "all" => ID_MONITOR_ALL,
-                    "main" => ID_MONITOR_MAIN,
-                    id => find_monitor(&ids, id).map(|i| ID_MONITOR_FIRST + i).unwrap_or(ID_MONITOR_GONE),
-                };
-                for (i, (_, label)) in others.iter().enumerate() {
-                    let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_FIRST + i, &windows::core::HSTRING::from(format!("{label} only")));
+                let current = refresh_minutes();
+                for (j, (m, label)) in INTERVALS.iter().enumerate() {
+                    let check = if *m == current { MF_CHECKED } else { MF_UNCHECKED };
+                    let _ = AppendMenuW(sub, MF_STRING | check, ID_INTERVAL_BASE + j, &windows::core::HSTRING::from(*label));
                 }
-                if checked == ID_MONITOR_GONE {
-                    let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_MONITOR_GONE, w!("Chosen monitor (not connected, shown on main)"));
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Refresh battery every"));
+            }
+            let on_change = if refresh_on_change() { MF_CHECKED } else { MF_UNCHECKED };
+            let _ = AppendMenuW(
+                menu,
+                MF_STRING | on_change,
+                ID_ON_CHANGE,
+                w!("Refresh when a device connects or disconnects"),
+            );
+            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+            let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
+            // Look of the widget: plate behind it, position, and which monitors show it.
+            let (choice, offset, background, offset_y) = with_app(|a| (a.choice.clone(), a.offset, a.background, a.offset_y)).unwrap_or_default();
+            let _ = AppendMenuW(
+                menu,
+                MF_STRING | check(background),
+                ID_BACKGROUND,
+                w!("Background behind taskbar text (for translucent taskbars)"),
+            );
+            if let Ok(sub) = CreatePopupMenu() {
+                let mut checked = ID_POSITION_CUSTOM;
+                for (i, px) in POSITION_OFFSETS.iter().enumerate() {
+                    let label = if *px == 0 { "Next to the notification area".to_string() } else { format!("{px} px to the left") };
+                    let _ = AppendMenuW(sub, MF_STRING, ID_POSITION_FIRST + i, &windows::core::HSTRING::from(label));
+                    if *px == offset {
+                        checked = ID_POSITION_FIRST + i;
+                    }
                 }
-                let _ = CheckMenuRadioItem(sub, ID_MONITOR_ALL as u32, ID_MONITOR_GONE as u32, checked as u32, MF_BYCOMMAND.0);
-                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Show widget on"));
-            }
-        }
-        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
-        let _ = AppendMenuW(menu, MF_STRING | check(ui::autostart_enabled(autostart_name())), ID_AUTOSTART, w!("Automatically start with Windows"));
-        let _ = AppendMenuW(menu, MF_STRING | check(auto_update()), ID_AUTO_UPDATE, w!("Automatically check for updates"));
-        let _ = AppendMenuW(
-            menu,
-            MF_STRING | check(silent_install()) | if auto_update() { MF_ENABLED } else { MF_GRAYED },
-            ID_SILENT_UPDATE,
-            w!("Install updates silently"),
-        );
-        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
-        let _ = AppendMenuW(menu, MF_STRING, ID_REQUEST, w!("Request support for a device..."));
-        let busy = UPDATE_BUSY.load(std::sync::atomic::Ordering::Relaxed);
-        let label = if busy { "Checking for updates..." } else { "Check for updates..." };
-        let _ = AppendMenuW(
-            menu,
-            MF_STRING | if busy { MF_GRAYED } else { MF_ENABLED },
-            ID_CHECK_UPDATES,
-            &windows::core::HSTRING::from(label),
-        );
-        let _ = AppendMenuW(menu, MF_STRING, ID_EXIT, w!("Exit"));
-        let mut pt = POINT::default();
-        let _ = GetCursorPos(&mut pt);
-        // Menu colours follow the taskbar: dark on a dark taskbar, light on a light one.
-        ui::set_menu_theme(main, !ui::taskbar_is_light());
-        let _ = SetForegroundWindow(main);
-        let cmd = TrackPopupMenu(
-            menu,
-            TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN,
-            pt.x,
-            pt.y,
-            None,
-            main,
-            None,
-        );
-        let _ = PostMessageW(Some(main), WM_NULL, WPARAM(0), LPARAM(0));
-        let _ = DestroyMenu(menu);
-        match cmd.0 as usize {
-            ID_EXIT => {
-                let _ = DestroyWindow(main);
-            }
-            ID_REFRESH_DEVICES => {
-                with_app(|a| a.manual_refresh(true));
-            }
-            ID_REFRESH_LEVELS => {
-                with_app(|a| a.manual_refresh(false));
-            }
-            ID_CHECK_UPDATES => check_for_updates(main, false),
-            ID_BACKGROUND => {
-                with_app(|a| {
-                    a.background = !a.background;
-                    save_dword("WidgetBackground", a.background as u32);
-                    a.paint();
-                });
-            }
-            id if (ID_POSITION_FIRST..ID_POSITION_FIRST + POSITION_OFFSETS.len()).contains(&id) => {
-                let px = POSITION_OFFSETS[id - ID_POSITION_FIRST];
-                if px == 0 {
-                    batteryhub::util::reg_delete_value(SETTINGS_KEY, "TaskbarOffset");
-                } else {
-                    save_dword("TaskbarOffset", px);
+                if checked == ID_POSITION_CUSTOM {
+                    // A value set by hand in the registry (TaskbarOffset).
+                    let label = format!("Custom ({offset} px, TaskbarOffset in the registry)");
+                    let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_POSITION_CUSTOM, &windows::core::HSTRING::from(label));
                 }
-                with_app(|a| {
-                    a.offset = px;
-                    a.last_place = Default::default();
-                    a.place();
-                    a.sync_mirrors();
-                });
+                let _ = CheckMenuRadioItem(sub, ID_POSITION_FIRST as u32, ID_POSITION_CUSTOM as u32, checked as u32, MF_BYCOMMAND.0);
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Position on the taskbar"));
             }
-            id if (ID_HEIGHT_FIRST..ID_HEIGHT_FIRST + HEIGHT_OFFSETS.len()).contains(&id) => {
-                let px = HEIGHT_OFFSETS[id - ID_HEIGHT_FIRST];
-                if px == 0 {
-                    batteryhub::util::reg_delete_value(SETTINGS_KEY, "TaskbarOffsetY");
-                } else {
-                    save_dword("TaskbarOffsetY", px as u32);
+            if let Ok(sub) = CreatePopupMenu() {
+                let mut checked = ID_HEIGHT_CUSTOM;
+                for (i, px) in HEIGHT_OFFSETS.iter().enumerate() {
+                    let label = match *px {
+                        0 => "Centred".to_string(),
+                        p if p < 0 => format!("{} px up", -p),
+                        p => format!("{p} px down"),
+                    };
+                    let _ = AppendMenuW(sub, MF_STRING, ID_HEIGHT_FIRST + i, &windows::core::HSTRING::from(label));
+                    if *px == offset_y {
+                        checked = ID_HEIGHT_FIRST + i;
+                    }
                 }
-                with_app(|a| {
-                    a.offset_y = px;
-                    a.paint();
-                    a.sync_mirrors();
-                });
+                if checked == ID_HEIGHT_CUSTOM {
+                    let label = format!("Custom ({offset_y} px, TaskbarOffsetY in the registry)");
+                    let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_HEIGHT_CUSTOM, &windows::core::HSTRING::from(label));
+                }
+                let _ = CheckMenuRadioItem(sub, ID_HEIGHT_FIRST as u32, ID_HEIGHT_CUSTOM as u32, checked as u32, MF_BYCOMMAND.0);
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Height on the taskbar"));
             }
-            id if id == ID_MONITOR_ALL || id == ID_MONITOR_MAIN || (ID_MONITOR_FIRST..ID_MONITOR_FIRST + others.len()).contains(&id) => {
-                let v = match id {
-                    ID_MONITOR_ALL => "all".to_string(),
-                    ID_MONITOR_MAIN => "main".to_string(),
-                    i => others[i - ID_MONITOR_FIRST].0.clone(),
-                };
-                batteryhub::util::reg_set_string(SETTINGS_KEY, "WidgetMonitor", &v);
-                with_app(|a| {
-                    a.choice = v;
-                    a.sync_mirrors();
-                });
-            }
-            ID_AUTOSTART => {
-                let on = !ui::autostart_enabled(autostart_name());
-                ui::set_autostart(autostart_name(), on);
-                if on {
-                    // A "disabled" state left in Task Manager would keep it from starting.
-                    batteryhub::util::reg_delete_value(batteryhub::install::STARTUP_APPROVED_KEY, autostart_name());
+            // With more than one monitor: all of them, the main one only, or one other monitor only.
+            let others: Vec<(String, String)> =
+                secondary_taskbars().into_iter().take(ID_MONITOR_GONE - ID_MONITOR_FIRST).map(|b| (monitor_id(b), monitor_label(b))).collect();
+            if !others.is_empty() {
+                if let Ok(sub) = CreatePopupMenu() {
+                    let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_ALL, w!("All monitors"));
+                    let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_MAIN, w!("Main monitor only"));
+                    let ids: Vec<String> = others.iter().map(|o| o.0.clone()).collect();
+                    let checked = match choice.as_str() {
+                        "all" => ID_MONITOR_ALL,
+                        "main" => ID_MONITOR_MAIN,
+                        id => find_monitor(&ids, id).map(|i| ID_MONITOR_FIRST + i).unwrap_or(ID_MONITOR_GONE),
+                    };
+                    for (i, (_, label)) in others.iter().enumerate() {
+                        let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_FIRST + i, &windows::core::HSTRING::from(format!("{label} only")));
+                    }
+                    if checked == ID_MONITOR_GONE {
+                        let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_MONITOR_GONE, w!("Chosen monitor (not connected, shown on main)"));
+                    }
+                    let _ = CheckMenuRadioItem(sub, ID_MONITOR_ALL as u32, ID_MONITOR_GONE as u32, checked as u32, MF_BYCOMMAND.0);
+                    let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Show widget on"));
                 }
             }
-            ID_AUTO_UPDATE => {
-                let on = !auto_update();
-                save_dword("AutoCheckUpdates", on as u32);
-                if on {
-                    message(
-                        main,
-                        "Automatic update check is on.\n\nBatteryHub looks for a new version only when it starts (at sign-in or when you start it), not while it runs. When there is one, it asks you whether to update (or, with \"Install updates silently\", installs it in the background).",
-                        MB_OK | MB_ICONINFORMATION,
-                    );
+            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+            let _ = AppendMenuW(menu, MF_STRING | check(ui::autostart_enabled(autostart_name())), ID_AUTOSTART, w!("Automatically start with Windows"));
+            let _ = AppendMenuW(menu, MF_STRING | check(auto_update()), ID_AUTO_UPDATE, w!("Automatically check for updates"));
+            let _ = AppendMenuW(
+                menu,
+                MF_STRING | check(silent_install()) | if auto_update() { MF_ENABLED } else { MF_GRAYED },
+                ID_SILENT_UPDATE,
+                w!("Install updates silently"),
+            );
+            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+            let _ = AppendMenuW(menu, MF_STRING, ID_REQUEST, w!("Request support for a device..."));
+            let busy = UPDATE_BUSY.load(std::sync::atomic::Ordering::Relaxed);
+            let label = if busy { "Checking for updates..." } else { "Check for updates..." };
+            let _ = AppendMenuW(
+                menu,
+                MF_STRING | if busy { MF_GRAYED } else { MF_ENABLED },
+                ID_CHECK_UPDATES,
+                &windows::core::HSTRING::from(label),
+            );
+            let _ = AppendMenuW(menu, MF_STRING, ID_EXIT, w!("Exit"));
+            let mut pt = POINT::default();
+            let _ = GetCursorPos(&mut pt);
+            // Menu colours follow the taskbar: dark on a dark taskbar, light on a light one.
+            ui::set_menu_theme(main, !ui::taskbar_is_light());
+            let _ = SetForegroundWindow(main);
+            let cmd = TrackPopupMenu(
+                menu,
+                TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN,
+                pt.x,
+                pt.y,
+                None,
+                main,
+                None,
+            );
+            let _ = PostMessageW(Some(main), WM_NULL, WPARAM(0), LPARAM(0));
+            let _ = DestroyMenu(menu);
+            match cmd.0 as usize {
+                ID_EXIT => {
+                    let _ = DestroyWindow(main);
                 }
-            }
-            ID_SILENT_UPDATE => {
-                let on = !silent_install();
-                save_dword("SilentUpdates", on as u32);
-                if on {
-                    message(
-                        main,
-                        "Silent updates are on.\n\nWhen BatteryHub starts and finds a new version, it downloads it from GitHub, checks its SHA-256 checksum and installs it in the background, without asking and without showing anything. Your settings and autostart are kept.",
-                        MB_OK | MB_ICONINFORMATION,
-                    );
+                ID_REFRESH_DEVICES => {
+                    with_app(|a| a.manual_refresh(true));
                 }
-            }
-            ID_REQUEST => batteryhub::report_window::show(),
-            ID_ON_CHANGE => {
-                let on = !refresh_on_change();
-                save_dword("RefreshOnDeviceChange", on as u32);
-                ON_CHANGE.store(on as u8, std::sync::atomic::Ordering::Relaxed);
-            }
-            id if (ID_INTERVAL_BASE..ID_INTERVAL_BASE + INTERVALS.len()).contains(&id) => {
-                let minutes = INTERVALS[id - ID_INTERVAL_BASE].0;
-                save_dword("RefreshMinutes", minutes);
-                SetTimer(Some(main), TIMER_POLL, minutes * 60_000, None);
-            }
-            id => {
-                if let Some((dev, level)) = settings::decode_menu_id(id) {
-                    if let Some(d) = devices.get(dev) {
-                        settings::set_threshold(SETTINGS_KEY, &d.key, level);
-                        with_app(|a| a.paint());
+                ID_REFRESH_LEVELS => {
+                    with_app(|a| a.manual_refresh(false));
+                }
+                ID_CHECK_UPDATES => check_for_updates(main, false),
+                ID_BACKGROUND => {
+                    with_app(|a| {
+                        a.background = !a.background;
+                        save_dword("WidgetBackground", a.background as u32);
+                        a.paint();
+                    });
+                }
+                id if (ID_POSITION_FIRST..ID_POSITION_FIRST + POSITION_OFFSETS.len()).contains(&id) => {
+                    let px = POSITION_OFFSETS[id - ID_POSITION_FIRST];
+                    if px == 0 {
+                        batteryhub::util::reg_delete_value(SETTINGS_KEY, "TaskbarOffset");
+                    } else {
+                        save_dword("TaskbarOffset", px);
+                    }
+                    with_app(|a| {
+                        a.offset = px;
+                        a.last_place = Default::default();
+                        a.place();
+                        a.sync_mirrors();
+                    });
+                }
+                id if (ID_HEIGHT_FIRST..ID_HEIGHT_FIRST + HEIGHT_OFFSETS.len()).contains(&id) => {
+                    let px = HEIGHT_OFFSETS[id - ID_HEIGHT_FIRST];
+                    if px == 0 {
+                        batteryhub::util::reg_delete_value(SETTINGS_KEY, "TaskbarOffsetY");
+                    } else {
+                        save_dword("TaskbarOffsetY", px as u32);
+                    }
+                    with_app(|a| {
+                        a.offset_y = px;
+                        a.paint();
+                        a.sync_mirrors();
+                    });
+                }
+                id if id == ID_MONITOR_ALL || id == ID_MONITOR_MAIN || (ID_MONITOR_FIRST..ID_MONITOR_FIRST + others.len()).contains(&id) => {
+                    let v = match id {
+                        ID_MONITOR_ALL => "all".to_string(),
+                        ID_MONITOR_MAIN => "main".to_string(),
+                        i => others[i - ID_MONITOR_FIRST].0.clone(),
+                    };
+                    batteryhub::util::reg_set_string(SETTINGS_KEY, "WidgetMonitor", &v);
+                    with_app(|a| {
+                        a.choice = v;
+                        a.sync_mirrors();
+                    });
+                }
+                ID_AUTOSTART => {
+                    let on = !ui::autostart_enabled(autostart_name());
+                    ui::set_autostart(autostart_name(), on);
+                    if on {
+                        // A "disabled" state left in Task Manager would keep it from starting.
+                        batteryhub::util::reg_delete_value(batteryhub::install::STARTUP_APPROVED_KEY, autostart_name());
+                    }
+                }
+                ID_AUTO_UPDATE => {
+                    let on = !auto_update();
+                    save_dword("AutoCheckUpdates", on as u32);
+                    if on {
+                        message(
+                            main,
+                            "Automatic update check is on.\n\nBatteryHub looks for a new version only when it starts (at sign-in or when you start it), not while it runs. When there is one, it asks you whether to update (or, with \"Install updates silently\", installs it in the background).",
+                            MB_OK | MB_ICONINFORMATION,
+                        );
+                    }
+                }
+                ID_SILENT_UPDATE => {
+                    let on = !silent_install();
+                    save_dword("SilentUpdates", on as u32);
+                    if on {
+                        message(
+                            main,
+                            "Silent updates are on.\n\nWhen BatteryHub starts and finds a new version, it downloads it from GitHub, checks its SHA-256 checksum and installs it in the background, without asking and without showing anything. Your settings and autostart are kept.",
+                            MB_OK | MB_ICONINFORMATION,
+                        );
+                    }
+                }
+                ID_REQUEST => batteryhub::report_window::show(),
+                ID_ON_CHANGE => {
+                    let on = !refresh_on_change();
+                    save_dword("RefreshOnDeviceChange", on as u32);
+                    ON_CHANGE.store(on as u8, std::sync::atomic::Ordering::Relaxed);
+                }
+                id if (ID_INTERVAL_BASE..ID_INTERVAL_BASE + INTERVALS.len()).contains(&id) => {
+                    let minutes = INTERVALS[id - ID_INTERVAL_BASE].0;
+                    save_dword("RefreshMinutes", minutes);
+                    SetTimer(Some(main), TIMER_POLL, minutes * 60_000, None);
+                }
+                id => {
+                    if let Some((dev, level)) = settings::decode_menu_id(id) {
+                        if let Some(d) = devices.get(dev) {
+                            settings::set_threshold(SETTINGS_KEY, &d.key, level);
+                            with_app(|a| a.paint());
+                        }
                     }
                 }
             }

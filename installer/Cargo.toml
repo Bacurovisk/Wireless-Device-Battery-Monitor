@@ -1,7 +1,8 @@
 [package]
 name = "batteryhub-setup"
 version = "1.0.1"
-edition = "2021"
+edition = "2024"
+rust-version = "1.99"
 license = "GPL-3.0-or-later"
 description = "Setup (install / update / uninstall) for BatteryHub"
 

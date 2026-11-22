@@ -1,7 +1,8 @@
 [package]
 name = "batteryhub"
 version = "1.0.1"
-edition = "2021"
+edition = "2024"
+rust-version = "1.99"
 license = "GPL-3.0-or-later"
 description = "BatteryHub in Rust: battery levels of wireless devices on the Windows taskbar"
 default-run = "batteryhub-taskbar"

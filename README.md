@@ -1,6 +1,6 @@
 <p align="center"><img src="res/batteryhub.png" width="112" alt="BatteryHub icon"></p>
 
-<h1 align="center">BatteryHub v1.4</h1>
+<h1 align="center">BatteryHub v1.4.1</h1>
 
 <p align="center">
 <b>An ultra-lightweight Rust implementation of BatteryHub for Windows.</b><br>
@@ -38,7 +38,7 @@ Developed by [@ferloom](https://github.com/ferloom) with the help of Claude (AI)
 
 ## Download
 
-Get **`BatteryHub-Taskbar-Setup-v1.4.exe`** from the [**latest release**](../../releases/latest), run it and choose **[1] Install**.
+Get **`BatteryHub-Taskbar-Setup-v1.4.1.exe`** from the [**latest release**](../../releases/latest), run it and choose **[1] Install**.
 
 - No administrator rights needed (per-user install).
 - Already installed? Use *Check for updates...* in the right-click menu, or run the new setup and choose **[2] Update**.
@@ -206,13 +206,13 @@ Device not shown? Use *Request support for a device...* in the right-click menu 
 
 ## Building from source
 
-Requirements: Rust (stable, MSVC toolchain) and Visual Studio Build Tools with the Windows SDK (`rc.exe` embeds the icon).
+Requirements: Rust 1.99 or newer (stable, MSVC toolchain; the crates use the 2024 edition) and Visual Studio Build Tools with the Windows SDK (`rc.exe` embeds the icon).
 
 ```powershell
 .\build-release.ps1
 ```
 
-This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.4.exe` and `SHA256SUMS.txt`. The version comes from the `VERSION` file (up to four parts, e.g. `1.0.1.1`).
+This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.4.1.exe` and `SHA256SUMS.txt`. The version comes from the `VERSION` file (up to four parts, e.g. `1.0.1.1`).
 
 | Path | Contents |
 |---|---|

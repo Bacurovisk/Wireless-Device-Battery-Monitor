@@ -10,7 +10,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -33,7 +33,7 @@ jobs:
           cargo test --release --manifest-path installer/Cargo.toml
           cargo build --release --manifest-path installer/Cargo.toml
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: BatteryHub-Taskbar-Setup
           path: installer/target/release/BatteryHub-Taskbar-Setup.exe

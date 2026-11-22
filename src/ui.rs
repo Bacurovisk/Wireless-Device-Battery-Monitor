@@ -290,7 +290,7 @@ pub fn run_async(hwnd: HWND, msg: u32, read: impl FnOnce() -> Vec<DeviceStatus> 
 /// # Safety
 /// `lparam` must come from a message posted by `poll_async`.
 pub unsafe fn take_result(lparam: LPARAM) -> Vec<DeviceStatus> {
-    *Box::from_raw(lparam.0 as *mut Vec<DeviceStatus>)
+    unsafe { *Box::from_raw(lparam.0 as *mut Vec<DeviceStatus>) }
 }
 
 // ---- autostart ---------------------------------------------------------------------------------
