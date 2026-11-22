@@ -1,4 +1,4 @@
-# BatteryHub v1.3.1 (Rust)
+# BatteryHub v1.3.2 (Rust)
 
 An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor). All credit for the original idea, look and device protocols goes to the original project.
 
@@ -6,10 +6,14 @@ An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of 
 
 | File | |
 |---|---|
-| `BatteryHub-Taskbar-Setup-v1.3.1.exe` | Setup: Install / Update / Uninstall |
+| `BatteryHub-Taskbar-Setup-v1.3.2.exe` | Setup: Install / Update / Uninstall |
 | `SHA256SUMS.txt` | Checksum |
 
 Already installed? Use *Check for updates...* in the right-click menu (v1.1 and later), or run the new setup and choose **[2] Update**. Your settings and autostart choice are kept.
+
+## New in v1.3.2
+
+- **Attack Shark mice** (e.g. X1) on the Xenta 2.4 GHz receiver (1D57:FA60): battery level and *Charging*, shown as asleep while the mouse is off. Protocol from [Attack Shark Battery KDE](https://gitlab.com/gabriel17166/Attack-Shark-Battery-KDE) by Gabriel Marques Ferrarezi (MIT). Not yet confirmed on hardware under Windows; please report in [#2](https://github.com/ferloom/Wireless-Device-Battery-Monitor/issues/2) whether it works for you.
 
 ## Fixed in v1.3.1
 
