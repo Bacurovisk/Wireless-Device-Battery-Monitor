@@ -1,4 +1,4 @@
-//! BatteryHub (Rust): a fork of github.com/krisgfx9/Wireless-Device-Battery-Monitor (C++, GPL-3.0), rewritten in Rust.
+//! BatteryHub (Rust): a recode of github.com/krisgfx9/Wireless-Device-Battery-Monitor (C++, GPL-3.0), rewritten in Rust.
 //! Shared core used by both editions: device model, Win32 HID layer and the drivers.
 #![cfg(windows)]
 

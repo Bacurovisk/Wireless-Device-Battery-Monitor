@@ -1,6 +1,6 @@
 <p align="center"><img src="res/batteryhub.png" width="112" alt="BatteryHub icon"></p>
 
-<h1 align="center">BatteryHub v1.2.2</h1>
+<h1 align="center">BatteryHub v1.2.3</h1>
 
 <p align="center">
 <b>An ultra-lightweight Rust implementation of BatteryHub for Windows.</b><br>
@@ -35,7 +35,7 @@ Developed by [@ferloom](https://github.com/ferloom) with the help of Claude (AI)
 
 ## Download
 
-Get **`BatteryHub-Taskbar-Setup-v1.2.2.exe`** from the [**latest release**](../../releases/latest), run it and choose **[1] Install**.
+Get **`BatteryHub-Taskbar-Setup-v1.2.3.exe`** from the [**latest release**](../../releases/latest), run it and choose **[1] Install**.
 
 - No administrator rights needed (per-user install).
 - Already installed? Use *Check for updates...* in the right-click menu, or run the new setup and choose **[2] Update**.
@@ -93,10 +93,11 @@ Left click does nothing (on purpose: the strip stays out of the way). **Right cl
 | *Refresh battery every* ▸ | **1 minute** / 5 / 10 / 30 minutes / 1 hour |
 | *Refresh when a device connects or disconnects* | **On** by default; see below |
 | *Background behind taskbar text (for translucent taskbars)* | **Off** by default. A rounded plate in the taskbar's colour behind the widget, so it stays readable on a transparent taskbar (TranslucentTB, Windhawk Taskbar Styler...) |
-| *Position on the taskbar* ▸ | **Next to the notification area** / 40 / 80 / 120 / 160 / 200 px from it, e.g. to make room for another taskbar widget (iCUE, network meters...). Also applies on other monitors. A value set by hand (`TaskbarOffset`) shows as *Custom* |
-| *Show widget on* ▸ | Only with more than one monitor: *All monitors* / **Main monitor only** / *Display 2 (left) only*... The monitor is remembered by its identity, not its number; while it is unplugged the widget is on the main taskbar. Other monitors need *Show my taskbar on all displays* in Windows |
+| *Position on the taskbar* ▸ | **Next to the notification area** or 20 to 200 px to the left of it (in 20 px steps), e.g. to make room for another taskbar widget (iCUE, network meters...). Also applies on other monitors. A value set by hand (`TaskbarOffset`) shows as *Custom* |
+| *Height on the taskbar* ▸ | 5 / 10 / 15 px up, **Centred**, or 5 / 10 / 15 px down. Also applies on other monitors. A value set by hand (`TaskbarOffsetY`) shows as *Custom* |
+| *Show widget on* ▸ | Only with more than one monitor: *All monitors* / **Main monitor only** / *Display 2 (left) only*... The monitor is remembered by its identity, not its number; while it is unplugged the widget is on the main taskbar. Other monitors need *Show my taskbar on all displays* in Windows (taskbars of other programs, e.g. DisplayFusion, are not supported) |
 | *Automatically start with Windows* | Adds or removes BatteryHub's autostart entry (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\BatteryHub Taskbar`) |
-| *Automatically check for updates* | **Off** by default. When on, BatteryHub checks GitHub once, about 20 s after it starts (not while it runs); if there is a new version you get the same question as with *Check for updates...* |
+| *Automatically check for updates* | **Off** by default. When on, BatteryHub checks GitHub once, about 2 s after it starts (not while it runs; if the network is not up yet it tries again every 15 s, up to 8 times); if there is a new version you get the same question as with *Check for updates...* |
 | *Request support for a device...* | Lists every device BatteryHub can see (HID, USB and Bluetooth; vendor-specific and audio devices first). Pick yours, check the name and type, add notes, and *Send* opens a new GitHub issue in your browser, filled in with exactly what the window shows: name, type, your name (optional, the issue is public), notes, vendor / product id, HID and USB interface summary, Windows build. You submit it there (a GitHub account is needed); nothing is sent from the app. *Copy full report* copies the same plus the list of all devices. Also available as `batteryhub-taskbar.exe --report` |
 | *Check for updates...* | "No new updates", or "A new update is available: v1.1 → v1.x - update now?". *Yes* downloads the setup, checks it against the release's SHA-256 checksum and starts it; it updates and restarts BatteryHub, keeping your settings and autostart |
 | *Exit* | Closes BatteryHub |
@@ -136,7 +137,7 @@ Command line for scripts: `/install`, `/update`, `/uninstall`, `/S` (silent), `/
 |---|---|
 | Program | `%LOCALAPPDATA%\Programs\BatteryHub\Taskbar\batteryhub-taskbar.exe` |
 | Shortcuts | Desktop and `Start Menu\Programs\BatteryHub\BatteryHub Taskbar.lnk` |
-| Settings | `HKCU\Software\BatteryHub\Taskbar`: `Thresholds` (per device), `RefreshMinutes`, `RefreshOnDeviceChange`, `TaskbarOffset` (DWORD, gap from the clock in pixels), `WidgetMonitor` (`all`, `main` or a monitor id), `WidgetBackground`, `AutoCheckUpdates` |
+| Settings | `HKCU\Software\BatteryHub\Taskbar`: `Thresholds` (per device), `RefreshMinutes`, `RefreshOnDeviceChange`, `TaskbarOffset` (DWORD, gap from the clock in pixels), `TaskbarOffsetY` (DWORD, up / down shift in pixels, + = down), `WidgetMonitor` (`all`, `main` or a monitor id), `WidgetBackground`, `AutoCheckUpdates` |
 | Autostart | `HKCU\...\Run` → `BatteryHub Taskbar` (if you chose it) |
 
 The original C++ BatteryHub uses different names (`Program Files\BatteryHub`, `HKCU\Software\WirelessBattery`, autostart `WirelessBattery`) and is never touched.
@@ -202,7 +203,7 @@ Requirements: Rust (stable, MSVC toolchain) and Visual Studio Build Tools with t
 .\build-release.ps1
 ```
 
-This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.2.2.exe` and `SHA256SUMS.txt`. The version comes from the `VERSION` file (up to four parts, e.g. `1.0.1.1`).
+This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.2.3.exe` and `SHA256SUMS.txt`. The version comes from the `VERSION` file (up to four parts, e.g. `1.0.1.1`).
 
 | Path | Contents |
 |---|---|

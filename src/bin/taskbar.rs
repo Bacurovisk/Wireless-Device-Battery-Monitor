@@ -46,8 +46,12 @@ const TIMER_QUICK: usize = 5;
 const TIMER_AUTO_UPDATE: usize = 6;
 /// "Update finished" message shortly after the first start of an updated version.
 const TIMER_UPDATED: usize = 7;
-/// Automatic update check this long after start-up (the network may not be up right at sign-in).
-const AUTO_UPDATE_DELAY_MS: u32 = 20_000;
+/// Automatic update check this long after start-up; when the network is not up yet (e.g. right
+/// at sign-in) it is tried again every AUTO_UPDATE_RETRY_MS, at most AUTO_UPDATE_RETRIES times.
+const AUTO_UPDATE_DELAY_MS: u32 = 2_000;
+const AUTO_UPDATE_RETRY_MS: u32 = 15_000;
+const AUTO_UPDATE_RETRIES: u32 = 8;
+static AUTO_UPDATE_TRIES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 /// How often receivers whose device is off or asleep are checked again.
 const QUICK_MS: u32 = 10_000;
 const WM_DEVICECHANGE_MSG: u32 = 0x0219;
@@ -81,10 +85,14 @@ const ID_MONITOR_ALL: usize = 40;
 const ID_MONITOR_MAIN: usize = 41;
 const ID_MONITOR_FIRST: usize = 42;
 const ID_MONITOR_GONE: usize = 73;
-/// "Position on the taskbar": ID_POSITION_FIRST + i for POSITION_OFFSETS[i] (same steps as the original).
+/// "Position on the taskbar": ID_POSITION_FIRST + i for POSITION_OFFSETS[i].
 const ID_POSITION_FIRST: usize = 80;
-const ID_POSITION_CUSTOM: usize = 89;
-const POSITION_OFFSETS: [u32; 6] = [0, 40, 80, 120, 160, 200];
+const ID_POSITION_CUSTOM: usize = 95;
+const POSITION_OFFSETS: [u32; 11] = [0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200];
+/// "Height on the taskbar": ID_HEIGHT_FIRST + i for HEIGHT_OFFSETS[i] (px, + = down).
+const ID_HEIGHT_FIRST: usize = 100;
+const ID_HEIGHT_CUSTOM: usize = 115;
+const HEIGHT_OFFSETS: [i32; 7] = [-15, -10, -5, 0, 5, 10, 15];
 
 pub const MAIN_CLASS: windows::core::PCWSTR = w!("BatteryHub.Taskbar.Main");
 const STRIP_CLASS: windows::core::PCWSTR = w!("BatteryHub.Taskbar.Strip");
@@ -142,6 +150,8 @@ struct App {
     /// when Windows reports a settings change - not from the registry every second.
     light: bool,
     offset: u32,
+    /// Up / down shift of the widget in px (TaskbarOffsetY, + = down).
+    offset_y: i32,
     /// Copies of the strip on the taskbars of other monitors ("Show widget on"): (taskbar, strip).
     mirrors: Vec<(HWND, HWND)>,
     /// Pixels of the last render, pushed to every mirror as well.
@@ -466,7 +476,7 @@ impl App {
                     }
                 }
             }
-            let y0 = (h - p.m.h) / 2;
+            let y0 = ((h - p.m.h) / 2 + px(self.offset_y as f32)).clamp(0, (h - p.m.h).max(0));
             for yy in 0..p.m.h {
                 for xx in 0..p.m.w {
                     let a = p.m.a[(yy * p.m.w + xx) as usize] as u32 * p.alpha / 255;
@@ -1255,6 +1265,7 @@ impl App {
     fn refresh_settings(&mut self) {
         self.light = ui::taskbar_is_light();
         self.offset = batteryhub::util::reg_get_dword(SETTINGS_KEY, "TaskbarOffset").unwrap_or(0);
+        self.offset_y = batteryhub::util::reg_get_dword(SETTINGS_KEY, "TaskbarOffsetY").unwrap_or(0) as i32;
         self.background = batteryhub::util::reg_get_dword(SETTINGS_KEY, "WidgetBackground").unwrap_or(0) != 0;
         self.choice = widget_choice();
     }
@@ -1309,6 +1320,11 @@ fn on_update_checked(main: HWND, check: batteryhub::update::Check) {
     let silent = UPDATE_SILENT.swap(false, std::sync::atomic::Ordering::Relaxed);
     if silent && !matches!(check, Check::Available(_)) {
         UPDATE_BUSY.store(false, std::sync::atomic::Ordering::Relaxed);
+        if matches!(check, Check::Failed(_)) && AUTO_UPDATE_TRIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < AUTO_UPDATE_RETRIES {
+            unsafe {
+                SetTimer(Some(main), TIMER_AUTO_UPDATE, AUTO_UPDATE_RETRY_MS, None);
+            }
+        }
         return;
     }
     match check {
@@ -1628,7 +1644,7 @@ unsafe fn show_menu() {
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
         let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
         // Look of the widget: plate behind it, position, and which monitors show it.
-        let (choice, offset, background) = with_app(|a| (a.choice.clone(), a.offset, a.background)).unwrap_or_default();
+        let (choice, offset, background, offset_y) = with_app(|a| (a.choice.clone(), a.offset, a.background, a.offset_y)).unwrap_or_default();
         let _ = AppendMenuW(
             menu,
             MF_STRING | check(background),
@@ -1638,7 +1654,7 @@ unsafe fn show_menu() {
         if let Ok(sub) = CreatePopupMenu() {
             let mut checked = ID_POSITION_CUSTOM;
             for (i, px) in POSITION_OFFSETS.iter().enumerate() {
-                let label = if *px == 0 { "Next to the notification area".to_string() } else { format!("{px} px from the notification area") };
+                let label = if *px == 0 { "Next to the notification area".to_string() } else { format!("{px} px to the left") };
                 let _ = AppendMenuW(sub, MF_STRING, ID_POSITION_FIRST + i, &windows::core::HSTRING::from(label));
                 if *px == offset {
                     checked = ID_POSITION_FIRST + i;
@@ -1651,6 +1667,26 @@ unsafe fn show_menu() {
             }
             let _ = CheckMenuRadioItem(sub, ID_POSITION_FIRST as u32, ID_POSITION_CUSTOM as u32, checked as u32, MF_BYCOMMAND.0);
             let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Position on the taskbar"));
+        }
+        if let Ok(sub) = CreatePopupMenu() {
+            let mut checked = ID_HEIGHT_CUSTOM;
+            for (i, px) in HEIGHT_OFFSETS.iter().enumerate() {
+                let label = match *px {
+                    0 => "Centred".to_string(),
+                    p if p < 0 => format!("{} px up", -p),
+                    p => format!("{p} px down"),
+                };
+                let _ = AppendMenuW(sub, MF_STRING, ID_HEIGHT_FIRST + i, &windows::core::HSTRING::from(label));
+                if *px == offset_y {
+                    checked = ID_HEIGHT_FIRST + i;
+                }
+            }
+            if checked == ID_HEIGHT_CUSTOM {
+                let label = format!("Custom ({offset_y} px, TaskbarOffsetY in the registry)");
+                let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_HEIGHT_CUSTOM, &windows::core::HSTRING::from(label));
+            }
+            let _ = CheckMenuRadioItem(sub, ID_HEIGHT_FIRST as u32, ID_HEIGHT_CUSTOM as u32, checked as u32, MF_BYCOMMAND.0);
+            let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Height on the taskbar"));
         }
         // With more than one monitor: all of them, the main one only, or one other monitor only.
         let others: Vec<(String, String)> =
@@ -1734,6 +1770,19 @@ unsafe fn show_menu() {
                     a.offset = px;
                     a.last_place = Default::default();
                     a.place();
+                    a.sync_mirrors();
+                });
+            }
+            id if (ID_HEIGHT_FIRST..ID_HEIGHT_FIRST + HEIGHT_OFFSETS.len()).contains(&id) => {
+                let px = HEIGHT_OFFSETS[id - ID_HEIGHT_FIRST];
+                if px == 0 {
+                    batteryhub::util::reg_delete_value(SETTINGS_KEY, "TaskbarOffsetY");
+                } else {
+                    save_dword("TaskbarOffsetY", px as u32);
+                }
+                with_app(|a| {
+                    a.offset_y = px;
+                    a.paint();
                     a.sync_mirrors();
                 });
             }
