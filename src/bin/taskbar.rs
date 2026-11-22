@@ -35,6 +35,7 @@ const WM_TRAY: u32 = WM_APP + 3;
 const WM_QUICK_DONE: u32 = WM_APP + 4;
 const WM_UPDATE_CHECKED: u32 = WM_APP + 5;
 const WM_UPDATE_DOWNLOADED: u32 = WM_APP + 6;
+const WM_SHOW_UPDATED: u32 = WM_APP + 7;
 // Not exported by the windows crate's WindowsAndMessaging module.
 const WM_MOUSELEAVE: u32 = 0x02A3;
 const TIMER_POLL: usize = 1;
@@ -43,6 +44,8 @@ const TIMER_DEVCHANGE: usize = 3;
 const TIMER_BTWATCH: usize = 4;
 const TIMER_QUICK: usize = 5;
 const TIMER_AUTO_UPDATE: usize = 6;
+/// "Update finished" message shortly after the first start of an updated version.
+const TIMER_UPDATED: usize = 7;
 /// Automatic update check this long after start-up (the network may not be up right at sign-in).
 const AUTO_UPDATE_DELAY_MS: u32 = 20_000;
 /// How often receivers whose device is off or asleep are checked again.
@@ -151,6 +154,8 @@ struct App {
     primary_hidden: bool,
     /// Plate behind the widget for transparent taskbars (cached setting).
     background: bool,
+    /// Version the setup just updated from (shown once in "Update finished").
+    updated_from: Option<String>,
 }
 
 thread_local! {
@@ -588,11 +593,16 @@ impl App {
             dbg_log(&format!("strip created {:?} parent {:?}", strip, self.taskbar));
             self.strip = strip;
             self.last_place = Default::default();
+            // Shown only on another monitor: the new main strip stays hidden from the start (no
+            // flash on the main taskbar before the first sync hides it).
+            self.primary_hidden = self.chosen_bars().1;
         }
         if !self.fallback {
             self.paint();
-            unsafe {
-                let _ = ShowWindow(self.strip, SW_SHOWNOACTIVATE);
+            if !self.primary_hidden {
+                unsafe {
+                    let _ = ShowWindow(self.strip, SW_SHOWNOACTIVATE);
+                }
             }
         }
         true
@@ -675,18 +685,7 @@ impl App {
             self.drop_mirrors();
             return;
         }
-        let others = secondary_taskbars();
-        let (bars, hide_primary): (Vec<HWND>, bool) = match self.choice.as_str() {
-            "all" => (others, false),
-            "main" => (Vec::new(), false),
-            id => {
-                let ids: Vec<String> = others.iter().map(|b| monitor_id(*b)).collect();
-                match find_monitor(&ids, id) {
-                    Some(i) => (vec![others[i]], true),
-                    None => (Vec::new(), false), // that monitor is not connected: main taskbar meanwhile
-                }
-            }
-        };
+        let (bars, hide_primary) = self.chosen_bars();
         self.set_primary_hidden(hide_primary);
         // Drop copies whose taskbar is gone or no longer wanted.
         let mut keep = Vec::new();
@@ -728,6 +727,23 @@ impl App {
         for i in 0..self.mirrors.len() {
             let (bar, strip) = self.mirrors[i];
             self.place_mirror(bar, strip);
+        }
+    }
+
+    /// Taskbars of other monitors that show a copy of the widget, and whether the main taskbar's
+    /// strip is hidden (the widget is shown only on one other monitor that is connected).
+    fn chosen_bars(&self) -> (Vec<HWND>, bool) {
+        let others = secondary_taskbars();
+        match self.choice.as_str() {
+            "all" => (others, false),
+            "main" => (Vec::new(), false),
+            id => {
+                let ids: Vec<String> = others.iter().map(|b| monitor_id(*b)).collect();
+                match find_monitor(&ids, id) {
+                    Some(i) => (vec![others[i]], true),
+                    None => (Vec::new(), false), // that monitor is not connected: main taskbar meanwhile
+                }
+            }
         }
     }
 
@@ -1818,6 +1834,17 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                         a.start_poll();
                     }
                     TIMER_QUICK => a.start_quick(),
+                    TIMER_UPDATED => {
+                        let _ = KillTimer(Some(hwnd), TIMER_UPDATED);
+                        if let Some(old) = a.updated_from.take() {
+                            let text = format!(
+                                "Update finished.\n\nBatteryHub was updated:  {}  ->  {}\n\nYour settings and autostart were kept.",
+                                batteryhub::install::label_of(&old),
+                                batteryhub::install::version_label()
+                            );
+                            post_from_thread(hwnd, WM_SHOW_UPDATED, move || text);
+                        }
+                    }
                     TIMER_AUTO_UPDATE => {
                         let _ = KillTimer(Some(hwnd), TIMER_AUTO_UPDATE);
                         check_for_updates(hwnd, true);
@@ -1853,6 +1880,12 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                 let ids = QUICK_IDS.with(|q| std::mem::take(&mut *q.borrow_mut()));
                 with_app(|a| a.on_quick_result(devices, &ids));
                 trim_memory();
+                LRESULT(0)
+            }
+            WM_SHOW_UPDATED => {
+                // Shown outside the timer handler, so the app is not borrowed while the box is open.
+                let text = *Box::from_raw(lp.0 as *mut String);
+                message(hwnd, &text, MB_OK | MB_ICONINFORMATION);
                 LRESULT(0)
             }
             WM_UPDATE_CHECKED => {
@@ -2003,6 +2036,14 @@ fn main() {
         SetTimer(Some(main), TIMER_QUICK, QUICK_MS, None);
         if auto_update() {
             SetTimer(Some(main), TIMER_AUTO_UPDATE, AUTO_UPDATE_DELAY_MS, None);
+        }
+        // Started by the setup after an update: say so once.
+        if let Some(old) = batteryhub::util::reg_get_string(SETTINGS_KEY, "UpdatedFrom") {
+            batteryhub::util::reg_delete_value(SETTINGS_KEY, "UpdatedFrom");
+            if batteryhub::install::label_of(&old) != batteryhub::install::version_label() {
+                with_app(|a| a.updated_from = Some(old));
+                SetTimer(Some(main), TIMER_UPDATED, 2000, None);
+            }
         }
 
         let mut msg = MSG::default();

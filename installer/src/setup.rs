@@ -434,6 +434,12 @@ fn install(ed: &Edition, payload: &[u8], log: &Log, o: &Opts, st: &State, update
     println!();
     let start = o.launch && (was_running || o.silent || log.ask(&format!("Start {} now?", ed.name), true));
     if start {
+        // The updated program says "Update finished: vOLD -> vNEW" once when it starts.
+        if update && ed.run_value.is_some() {
+            if let (Some(old), Some(k)) = (&st.version, inst::create(HKCU, ed.settings_key)) {
+                k.set_string("UpdatedFrom", old);
+            }
+        }
         launch(ed, log, &exe);
         if ed.run_value.is_some() {
             log.info("Look at the taskbar, next to the clock. Right-click it for Refresh / Exit.");

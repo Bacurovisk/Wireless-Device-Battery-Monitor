@@ -1,4 +1,4 @@
-# BatteryHub v1.2.1 (Rust)
+# BatteryHub v1.2.2 (Rust)
 
 An ultra-lightweight Rust implementation of BatteryHub for Windows, a fork of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor). All credit for the original idea, look and device protocols goes to the original project.
 
@@ -6,10 +6,15 @@ An ultra-lightweight Rust implementation of BatteryHub for Windows, a fork of [k
 
 | File | |
 |---|---|
-| `BatteryHub-Taskbar-Setup-v1.2.1.exe` | Setup: Install / Update / Uninstall |
+| `BatteryHub-Taskbar-Setup-v1.2.2.exe` | Setup: Install / Update / Uninstall |
 | `SHA256SUMS.txt` | Checksum |
 
 Already installed? Use *Check for updates...* in the right-click menu (v1.1 and later), or run the new setup and choose **[2] Update**. Your settings and autostart choice are kept.
+
+## New in v1.2.2
+
+- **Update finished:** after an update (from the menu or with the setup), BatteryHub says once which version it was updated from and to.
+- **No flash on the main taskbar** at start-up when the widget is set to show only on another monitor.
 
 ## New in v1.2.1
 
@@ -19,7 +24,7 @@ Already installed? Use *Check for updates...* in the right-click menu (v1.1 and 
 
 ## New in v1.2
 
-- **ROCCAT Syn Max Air** headset (1E7D:3A3F) over its 2.4 GHz receiver: level from the battery voltage, *Charging* / *Full* on the dock, disappears when switched off. Contributed by @BrooklynBanana in #1. ROCCAT Swarm must not run at the same time (it holds the receiver).
+- **ROCCAT Syn Max Air** headset (1E7D:3A3F) over its 2.4 GHz receiver: level from the battery voltage, *Charging* / *Full* on the dock, disappears when switched off. Contributed by [BrooklynBanana](https://github.com/BrooklynBanana). ROCCAT Swarm must not run at the same time (it holds the receiver).
 - **Request support for a device...** (right-click menu): lists every device BatteryHub can see (HID, USB, Bluetooth). Pick the one that is not shown, check its name and type, add notes, and *Send* opens a GitHub issue in your browser, filled in with exactly what the window shows (name, type, notes, vendor / product id, HID and USB interface summary, Windows build). You submit it there; nothing is sent from the app. *Copy full report* copies the same plus the list of all devices. Also `batteryhub-taskbar.exe --report`. Light or dark, following the Windows app theme.
 - **Automatically start with Windows** (menu): switch the autostart entry on or off without the setup.
 - **Automatically check for updates** (menu, off by default): checks once when BatteryHub starts and, if there is a new version, asks whether to update.
