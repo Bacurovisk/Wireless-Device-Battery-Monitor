@@ -2,6 +2,7 @@
 //! APIs), talks to the devices it recognises and appends what it finds to the PollContext.
 pub mod airpods;
 pub mod attackshark;
+pub mod blackshark;
 pub mod bluetooth;
 pub mod generic;
 pub mod logitech;
@@ -10,4 +11,5 @@ pub mod razer;
 pub mod roccat;
 pub mod sdi;
 pub mod steelseries;
+pub mod wlmouse;
 pub mod xinput;
