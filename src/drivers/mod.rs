@@ -6,6 +6,7 @@ pub mod generic;
 pub mod logitech;
 pub mod playstation;
 pub mod razer;
+pub mod roccat;
 pub mod sdi;
 pub mod steelseries;
 pub mod xinput;
