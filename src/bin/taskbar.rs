@@ -72,9 +72,16 @@ const ID_CHECK_UPDATES: usize = 4;
 const ID_REQUEST: usize = 5;
 const ID_AUTOSTART: usize = 6;
 const ID_AUTO_UPDATE: usize = 7;
-/// "Show widget on": ID_MONITORS_BASE + n for n monitors (1 = main monitor only).
-const ID_MONITORS_BASE: usize = 40;
-const MONITORS_MENU_MAX: usize = 6;
+const ID_BACKGROUND: usize = 8;
+/// "Show widget on": all monitors, main monitor only, or ID_MONITOR_FIRST + i for one other monitor.
+const ID_MONITOR_ALL: usize = 40;
+const ID_MONITOR_MAIN: usize = 41;
+const ID_MONITOR_FIRST: usize = 42;
+const ID_MONITOR_GONE: usize = 73;
+/// "Position on the taskbar": ID_POSITION_FIRST + i for POSITION_OFFSETS[i] (same steps as the original).
+const ID_POSITION_FIRST: usize = 80;
+const ID_POSITION_CUSTOM: usize = 89;
+const POSITION_OFFSETS: [u32; 6] = [0, 40, 80, 120, 160, 200];
 
 pub const MAIN_CLASS: windows::core::PCWSTR = w!("BatteryHub.Taskbar.Main");
 const STRIP_CLASS: windows::core::PCWSTR = w!("BatteryHub.Taskbar.Strip");
@@ -138,6 +145,12 @@ struct App {
     pixels: Vec<u32>,
     /// Strip the tooltip belongs to (the main strip or a mirror).
     tip_on: HWND,
+    /// "Show widget on": "all", "main" or the id of one other monitor (cached setting).
+    choice: String,
+    /// The widget is shown only on another monitor: the main taskbar's strip is hidden.
+    primary_hidden: bool,
+    /// Plate behind the widget for transparent taskbars (cached setting).
+    background: bool,
 }
 
 thread_local! {
@@ -160,6 +173,20 @@ struct Canvas {
 }
 
 impl Canvas {
+    /// Fills the canvas with a rounded rectangle, `inset` from the top and bottom edge.
+    fn round_rect(&mut self, inset: i32, radius: i32, c: COLORREF, a: u32) {
+        let (w, h, r) = (self.w, self.h, radius.max(1));
+        for y in inset..h - inset {
+            for x in 0..w {
+                let dx = if x < r { r - x } else if x >= w - r { x - (w - r - 1) } else { 0 };
+                let dy = if y < inset + r { inset + r - y } else if y >= h - inset - r { y - (h - inset - r - 1) } else { 0 };
+                if dx * dx + dy * dy <= r * r {
+                    self.blend(x, y, c, a);
+                }
+            }
+        }
+    }
+
     fn blend(&mut self, x: i32, y: i32, c: COLORREF, a: u32) {
         if x < 0 || y < 0 || x >= self.w || y >= self.h || a == 0 {
             return;
@@ -415,6 +442,12 @@ impl App {
             h,
             px: vec![0x0100_0000; (w * h) as usize],
         };
+        if self.background {
+            // Rounded plate in the taskbar's own colour: keeps the text readable on a transparent
+            // or restyled taskbar (e.g. TranslucentTB, Windhawk's Taskbar Styler).
+            let plate = if light { rgb(243, 243, 243) } else { rgb(32, 32, 32) };
+            cv.round_rect(px(4.0), px(6.0), plate, 235);
+        }
         let mut x = pad;
         self.hits.clear();
         for p in &pieces {
@@ -642,8 +675,19 @@ impl App {
             self.drop_mirrors();
             return;
         }
-        let wanted = widget_monitors().saturating_sub(1);
-        let bars: Vec<HWND> = if wanted == 0 { Vec::new() } else { secondary_taskbars().into_iter().take(wanted).collect() };
+        let others = secondary_taskbars();
+        let (bars, hide_primary): (Vec<HWND>, bool) = match self.choice.as_str() {
+            "all" => (others, false),
+            "main" => (Vec::new(), false),
+            id => {
+                let ids: Vec<String> = others.iter().map(|b| monitor_id(*b)).collect();
+                match find_monitor(&ids, id) {
+                    Some(i) => (vec![others[i]], true),
+                    None => (Vec::new(), false), // that monitor is not connected: main taskbar meanwhile
+                }
+            }
+        };
+        self.set_primary_hidden(hide_primary);
         // Drop copies whose taskbar is gone or no longer wanted.
         let mut keep = Vec::new();
         for (bar, strip) in std::mem::take(&mut self.mirrors) {
@@ -687,7 +731,47 @@ impl App {
         }
     }
 
+    /// Hides the main taskbar's strip while the widget is shown only on another monitor.
+    fn set_primary_hidden(&mut self, hide: bool) {
+        if self.strip.0.is_null() {
+            self.primary_hidden = hide;
+            return;
+        }
+        unsafe {
+            if hide {
+                if IsWindowVisible(self.strip).as_bool() {
+                    let _ = ShowWindow(self.strip, SW_HIDE);
+                }
+                if !self.primary_hidden {
+                    self.hide_tip();
+                    // Windows 10 layout: give the task buttons their full width back.
+                    if let (Ok(rebar), Ok(tray)) = (
+                        FindWindowExW(Some(self.taskbar), None, w!("ReBarWindow32"), None),
+                        FindWindowExW(Some(self.taskbar), None, w!("TrayNotifyWnd"), None),
+                    ) {
+                        let (mut rr, mut tr) = (RECT::default(), RECT::default());
+                        let _ = GetWindowRect(rebar, &mut rr);
+                        let _ = GetWindowRect(tray, &mut tr);
+                        let mut tl = POINT { x: rr.left, y: rr.top };
+                        let mut tp = POINT { x: tr.left, y: tr.top };
+                        let _ = ScreenToClient(self.taskbar, &mut tl);
+                        let _ = ScreenToClient(self.taskbar, &mut tp);
+                        if tp.x > tl.x {
+                            let _ = MoveWindow(rebar, tl.x, tl.y, tp.x - tl.x, rr.bottom - rr.top, true);
+                        }
+                    }
+                }
+            } else if self.primary_hidden {
+                self.last_place = Default::default();
+                self.primary_hidden = false;
+                self.place();
+            }
+        }
+        self.primary_hidden = hide;
+    }
+
     fn drop_mirrors(&mut self) {
+        self.set_primary_hidden(false);
         for (_, strip) in std::mem::take(&mut self.mirrors) {
             if is_our_strip(strip) {
                 unsafe {
@@ -836,7 +920,7 @@ impl App {
 
     /// Keeps the strip just left of the notification area (checked every second, like the original).
     fn place(&mut self) {
-        if self.strip.0.is_null() {
+        if self.strip.0.is_null() || self.primary_hidden {
             return;
         }
         unsafe {
@@ -1155,6 +1239,8 @@ impl App {
     fn refresh_settings(&mut self) {
         self.light = ui::taskbar_is_light();
         self.offset = batteryhub::util::reg_get_dword(SETTINGS_KEY, "TaskbarOffset").unwrap_or(0);
+        self.background = batteryhub::util::reg_get_dword(SETTINGS_KEY, "WidgetBackground").unwrap_or(0) != 0;
+        self.choice = widget_choice();
     }
 }
 
@@ -1350,6 +1436,9 @@ fn secondary_taskbars() -> Vec<HWND> {
                 break;
             }
             after = Some(h);
+            if !IsWindowVisible(h).as_bool() {
+                continue;
+            }
             let mut r = RECT::default();
             let _ = GetWindowRect(h, &mut r);
             out.push((r.left, r.top, h));
@@ -1359,14 +1448,94 @@ fn secondary_taskbars() -> Vec<HWND> {
     out.into_iter().map(|o| o.2).collect()
 }
 
-/// Number of monitors connected right now.
-fn monitor_count() -> usize {
-    unsafe { GetSystemMetrics(SM_CMONITORS).max(1) as usize }
+/// "Show widget on": "all", "main" (default) or the id of one other monitor. v1.2 stored a number
+/// of monitors instead (1 = main only, more = all).
+fn widget_choice() -> String {
+    if let Some(v) = batteryhub::util::reg_get_string(SETTINGS_KEY, "WidgetMonitor").filter(|v| !v.is_empty()) {
+        return v;
+    }
+    match batteryhub::util::reg_get_dword(SETTINGS_KEY, "WidgetMonitors") {
+        Some(n) if n >= 2 => "all".into(),
+        _ => "main".into(),
+    }
 }
 
-/// "Show widget on": on how many monitors (1 = main monitor only, the default).
-fn widget_monitors() -> usize {
-    batteryhub::util::reg_get_dword(SETTINGS_KEY, "WidgetMonitors").unwrap_or(1).clamp(1, 16) as usize
+fn monitor_info(bar: HWND) -> Option<MONITORINFOEXW> {
+    unsafe {
+        let mon = MonitorFromWindow(bar, MONITOR_DEFAULTTONULL);
+        if mon.is_invalid() {
+            return None;
+        }
+        let mut mi = MONITORINFOEXW::default();
+        mi.monitorInfo.cbSize = size_of::<MONITORINFOEXW>() as u32;
+        GetMonitorInfoW(mon, &mut mi.monitorInfo as *mut MONITORINFO).as_bool().then_some(mi)
+    }
+}
+
+/// A monitor's lasting identity: its device interface name (survives reboots, Explorer restarts and
+/// Windows renumbering the displays), else "\\.\DISPLAYn".
+fn monitor_id(bar: HWND) -> String {
+    let Some(mi) = monitor_info(bar) else { return String::new() };
+    let device = batteryhub::util::from_wide(&mi.szDevice);
+    unsafe {
+        let mut dd = DISPLAY_DEVICEW { cb: size_of::<DISPLAY_DEVICEW>() as u32, ..Default::default() };
+        if EnumDisplayDevicesW(&windows::core::HSTRING::from(device.as_str()), 0, &mut dd, 1 /* EDD_GET_DEVICE_INTERFACE_NAME */).as_bool() {
+            let id = batteryhub::util::from_wide(&dd.DeviceID);
+            if !id.is_empty() {
+                return id;
+            }
+        }
+    }
+    device
+}
+
+/// "Display 2 (left)": the number Windows gives the display and where it is next to the main one.
+fn monitor_label(bar: HWND) -> String {
+    let Some(mi) = monitor_info(bar) else { return "Other monitor".into() };
+    let device = batteryhub::util::from_wide(&mi.szDevice);
+    let mut label = match device.find("DISPLAY") {
+        Some(i) => format!("Display {}", &device[i + 7..]),
+        None => "Other monitor".into(),
+    };
+    unsafe {
+        let mon = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
+        let mut pm = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+        if GetMonitorInfoW(mon, &mut pm).as_bool() {
+            let (m, p) = (mi.monitorInfo.rcMonitor, pm.rcMonitor);
+            let dx = (m.left + m.right - p.left - p.right) / 2;
+            let dy = (m.top + m.bottom - p.top - p.bottom) / 2;
+            let side = if dx.abs() >= dy.abs() {
+                if dx < 0 { "left" } else { "right" }
+            } else if dy < 0 {
+                "above"
+            } else {
+                "below"
+            };
+            label += &format!(" ({side})");
+        }
+    }
+    label
+}
+
+/// The model part of a monitor id ("AUO7EAD" in \\?\DISPLAY#AUO7EAD#4&...#{...}).
+fn monitor_model(id: &str) -> &str {
+    let Some(a) = id.find("DISPLAY#").map(|a| a + 8) else { return "" };
+    id[a..].find('#').map(|b| &id[a..a + b]).unwrap_or("")
+}
+
+/// Index of the chosen monitor among `ids`, or None when it is not connected. A saved id that
+/// matches none exactly still matches the only connected monitor of the same model (a laptop
+/// panel's id changes when a MUX switch moves it to the other GPU).
+fn find_monitor(ids: &[String], choice: &str) -> Option<usize> {
+    if let Some(i) = ids.iter().position(|i| i == choice) {
+        return Some(i);
+    }
+    let model = monitor_model(choice);
+    if model.is_empty() {
+        return None;
+    }
+    let same: Vec<usize> = (0..ids.len()).filter(|&i| monitor_model(&ids[i]) == model).collect();
+    (same.len() == 1).then(|| same[0])
 }
 
 /// A strip window created by this process (a handle that outlived Explorer may have been reused by
@@ -1433,18 +1602,6 @@ unsafe fn show_menu() {
             }
             let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Refresh battery every"));
         }
-        // On how many monitors the widget is shown; more than are connected cannot be chosen.
-        if let Ok(sub) = CreatePopupMenu() {
-            let count = monitor_count();
-            let current = widget_monitors();
-            for n in 1..=MONITORS_MENU_MAX.max(count) {
-                let label = if n == 1 { "Main monitor".to_string() } else { format!("{n} monitors") };
-                let state = if n > count { MF_GRAYED } else { MF_ENABLED };
-                let check = if n == current.min(count) { MF_CHECKED } else { MF_UNCHECKED };
-                let _ = AppendMenuW(sub, MF_STRING | state | check, ID_MONITORS_BASE + n, &windows::core::HSTRING::from(label));
-            }
-            let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Show widget on"));
-        }
         let on_change = if refresh_on_change() { MF_CHECKED } else { MF_UNCHECKED };
         let _ = AppendMenuW(
             menu,
@@ -1454,6 +1611,55 @@ unsafe fn show_menu() {
         );
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
         let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
+        // Look of the widget: plate behind it, position, and which monitors show it.
+        let (choice, offset, background) = with_app(|a| (a.choice.clone(), a.offset, a.background)).unwrap_or_default();
+        let _ = AppendMenuW(
+            menu,
+            MF_STRING | check(background),
+            ID_BACKGROUND,
+            w!("Background behind taskbar text (for translucent taskbars)"),
+        );
+        if let Ok(sub) = CreatePopupMenu() {
+            let mut checked = ID_POSITION_CUSTOM;
+            for (i, px) in POSITION_OFFSETS.iter().enumerate() {
+                let label = if *px == 0 { "Next to the notification area".to_string() } else { format!("{px} px from the notification area") };
+                let _ = AppendMenuW(sub, MF_STRING, ID_POSITION_FIRST + i, &windows::core::HSTRING::from(label));
+                if *px == offset {
+                    checked = ID_POSITION_FIRST + i;
+                }
+            }
+            if checked == ID_POSITION_CUSTOM {
+                // A value set by hand in the registry (TaskbarOffset).
+                let label = format!("Custom ({offset} px, TaskbarOffset in the registry)");
+                let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_POSITION_CUSTOM, &windows::core::HSTRING::from(label));
+            }
+            let _ = CheckMenuRadioItem(sub, ID_POSITION_FIRST as u32, ID_POSITION_CUSTOM as u32, checked as u32, MF_BYCOMMAND.0);
+            let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Position on the taskbar"));
+        }
+        // With more than one monitor: all of them, the main one only, or one other monitor only.
+        let others: Vec<(String, String)> =
+            secondary_taskbars().into_iter().take(ID_MONITOR_GONE - ID_MONITOR_FIRST).map(|b| (monitor_id(b), monitor_label(b))).collect();
+        if !others.is_empty() {
+            if let Ok(sub) = CreatePopupMenu() {
+                let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_ALL, w!("All monitors"));
+                let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_MAIN, w!("Main monitor only"));
+                let ids: Vec<String> = others.iter().map(|o| o.0.clone()).collect();
+                let checked = match choice.as_str() {
+                    "all" => ID_MONITOR_ALL,
+                    "main" => ID_MONITOR_MAIN,
+                    id => find_monitor(&ids, id).map(|i| ID_MONITOR_FIRST + i).unwrap_or(ID_MONITOR_GONE),
+                };
+                for (i, (_, label)) in others.iter().enumerate() {
+                    let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_FIRST + i, &windows::core::HSTRING::from(format!("{label} only")));
+                }
+                if checked == ID_MONITOR_GONE {
+                    let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_MONITOR_GONE, w!("Chosen monitor (not connected, shown on main)"));
+                }
+                let _ = CheckMenuRadioItem(sub, ID_MONITOR_ALL as u32, ID_MONITOR_GONE as u32, checked as u32, MF_BYCOMMAND.0);
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Show widget on"));
+            }
+        }
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING | check(ui::autostart_enabled(autostart_name())), ID_AUTOSTART, w!("Automatically start with Windows"));
         let _ = AppendMenuW(menu, MF_STRING | check(auto_update()), ID_AUTO_UPDATE, w!("Automatically check for updates"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
@@ -1494,9 +1700,38 @@ unsafe fn show_menu() {
                 with_app(|a| a.manual_refresh(false));
             }
             ID_CHECK_UPDATES => check_for_updates(main, false),
-            id if id > ID_MONITORS_BASE && id <= ID_MONITORS_BASE + MONITORS_MENU_MAX.max(monitor_count()) => {
-                save_dword("WidgetMonitors", (id - ID_MONITORS_BASE) as u32);
-                with_app(|a| a.sync_mirrors());
+            ID_BACKGROUND => {
+                with_app(|a| {
+                    a.background = !a.background;
+                    save_dword("WidgetBackground", a.background as u32);
+                    a.paint();
+                });
+            }
+            id if (ID_POSITION_FIRST..ID_POSITION_FIRST + POSITION_OFFSETS.len()).contains(&id) => {
+                let px = POSITION_OFFSETS[id - ID_POSITION_FIRST];
+                if px == 0 {
+                    batteryhub::util::reg_delete_value(SETTINGS_KEY, "TaskbarOffset");
+                } else {
+                    save_dword("TaskbarOffset", px);
+                }
+                with_app(|a| {
+                    a.offset = px;
+                    a.last_place = Default::default();
+                    a.place();
+                    a.sync_mirrors();
+                });
+            }
+            id if id == ID_MONITOR_ALL || id == ID_MONITOR_MAIN || (ID_MONITOR_FIRST..ID_MONITOR_FIRST + others.len()).contains(&id) => {
+                let v = match id {
+                    ID_MONITOR_ALL => "all".to_string(),
+                    ID_MONITOR_MAIN => "main".to_string(),
+                    i => others[i - ID_MONITOR_FIRST].0.clone(),
+                };
+                batteryhub::util::reg_set_string(SETTINGS_KEY, "WidgetMonitor", &v);
+                with_app(|a| {
+                    a.choice = v;
+                    a.sync_mirrors();
+                });
             }
             ID_AUTOSTART => {
                 let on = !ui::autostart_enabled(autostart_name());

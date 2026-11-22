@@ -1,6 +1,6 @@
 <p align="center"><img src="res/batteryhub.png" width="112" alt="BatteryHub icon"></p>
 
-<h1 align="center">BatteryHub v1.2</h1>
+<h1 align="center">BatteryHub v1.2.1</h1>
 
 <p align="center">
 <b>An ultra-lightweight Rust implementation of BatteryHub for Windows.</b><br>
@@ -35,7 +35,7 @@ Developed by [@ferloom](https://github.com/ferloom) with the help of Claude (AI)
 
 ## Download
 
-Get **`BatteryHub-Taskbar-Setup-v1.2.exe`** from the [**latest release**](../../releases/latest), run it and choose **[1] Install**.
+Get **`BatteryHub-Taskbar-Setup-v1.2.1.exe`** from the [**latest release**](../../releases/latest), run it and choose **[1] Install**.
 
 - No administrator rights needed (per-user install).
 - Already installed? Use *Check for updates...* in the right-click menu, or run the new setup and choose **[2] Update**.
@@ -66,7 +66,8 @@ If something breaks after an update, you can always go back to an older version 
 - **Per-device warning level:** 50 / 40 / 30 / 20 / 15 / 10 / 5%.
 - **Reacts at once** when a receiver, cable or Bluetooth device connects or disconnects, and within ~10 s when a headset on a 2.4 GHz dongle is switched on or off.
 - **Refresh interval** of 1 / 5 / 10 / 30 minutes or 1 hour.
-- **More monitors:** show the widget on the main monitor only, or also on the taskbars of your other monitors.
+- **More monitors:** show the widget on all monitors, the main one only, or only one other monitor.
+- **Position and background:** move the widget away from the clock (e.g. to make room for another taskbar widget), and an optional plate behind it for transparent taskbars.
 - **Start with Windows** and **automatic update check** switched on or off right from the menu.
 - **Check for updates** from the menu, with a SHA-256-verified download.
 - **Request support for a device** from the menu: pick a device that is not shown, and a GitHub issue opens filled in with what is needed to add it.
@@ -91,7 +92,9 @@ Left click does nothing (on purpose: the strip stays out of the way). **Right cl
 | *Refresh battery levels* | Reads the levels again |
 | *Refresh battery every* ▸ | **1 minute** / 5 / 10 / 30 minutes / 1 hour |
 | *Refresh when a device connects or disconnects* | **On** by default; see below |
-| *Show widget on* ▸ | **Main monitor** / 2 monitors / 3 monitors ... The widget also appears on the taskbars of your other monitors (left to right), next to their clock. Only as many monitors as are connected can be chosen. Needs *Show my taskbar on all displays* in Windows |
+| *Background behind taskbar text (for translucent taskbars)* | **Off** by default. A rounded plate in the taskbar's colour behind the widget, so it stays readable on a transparent taskbar (TranslucentTB, Windhawk Taskbar Styler...) |
+| *Position on the taskbar* ▸ | **Next to the notification area** / 40 / 80 / 120 / 160 / 200 px from it, e.g. to make room for another taskbar widget (iCUE, network meters...). Also applies on other monitors. A value set by hand (`TaskbarOffset`) shows as *Custom* |
+| *Show widget on* ▸ | Only with more than one monitor: *All monitors* / **Main monitor only** / *Display 2 (left) only*... The monitor is remembered by its identity, not its number; while it is unplugged the widget is on the main taskbar. Other monitors need *Show my taskbar on all displays* in Windows |
 | *Automatically start with Windows* | Adds or removes BatteryHub's autostart entry (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\BatteryHub Taskbar`) |
 | *Automatically check for updates* | **Off** by default. When on, BatteryHub checks GitHub once, about 20 s after it starts (not while it runs); if there is a new version you get the same question as with *Check for updates...* |
 | *Request support for a device...* | Lists every device BatteryHub can see (HID, USB and Bluetooth; vendor-specific and audio devices first). Pick yours, check the name and type, add notes, and *Send* opens a new GitHub issue in your browser, filled in with exactly what the window shows: name, type, your name (optional, the issue is public), notes, vendor / product id, HID and USB interface summary, Windows build. You submit it there (a GitHub account is needed); nothing is sent from the app. *Copy full report* copies the same plus the list of all devices. Also available as `batteryhub-taskbar.exe --report` |
@@ -133,7 +136,7 @@ Command line for scripts: `/install`, `/update`, `/uninstall`, `/S` (silent), `/
 |---|---|
 | Program | `%LOCALAPPDATA%\Programs\BatteryHub\Taskbar\batteryhub-taskbar.exe` |
 | Shortcuts | Desktop and `Start Menu\Programs\BatteryHub\BatteryHub Taskbar.lnk` |
-| Settings | `HKCU\Software\BatteryHub\Taskbar`: `Thresholds` (per device), `RefreshMinutes`, `RefreshOnDeviceChange`, optional `TaskbarOffset` (DWORD, extra gap from the clock in pixels) |
+| Settings | `HKCU\Software\BatteryHub\Taskbar`: `Thresholds` (per device), `RefreshMinutes`, `RefreshOnDeviceChange`, `TaskbarOffset` (DWORD, gap from the clock in pixels), `WidgetMonitor` (`all`, `main` or a monitor id), `WidgetBackground`, `AutoCheckUpdates` |
 | Autostart | `HKCU\...\Run` → `BatteryHub Taskbar` (if you chose it) |
 
 The original C++ BatteryHub uses different names (`Program Files\BatteryHub`, `HKCU\Software\WirelessBattery`, autostart `WirelessBattery`) and is never touched.
@@ -199,7 +202,7 @@ Requirements: Rust (stable, MSVC toolchain) and Visual Studio Build Tools with t
 .\build-release.ps1
 ```
 
-This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.2.exe` and `SHA256SUMS.txt`. The version comes from the `VERSION` file (up to four parts, e.g. `1.0.1.1`).
+This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.2.1.exe` and `SHA256SUMS.txt`. The version comes from the `VERSION` file (up to four parts, e.g. `1.0.1.1`).
 
 | Path | Contents |
 |---|---|
