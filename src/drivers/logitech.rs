@@ -8,6 +8,20 @@
 //! Battery features: 0x1004 unified battery, 0x1000 battery level, 0x1001 battery voltage,
 //! 0x1F20 ADC measurement (headsets). HID++ 1.0 devices: registers 0x0D and 0x07.
 //! References: Solaar, HeadsetControl (see the original logitech.cpp).
+//!
+//! Receivers (Unifying / LIGHTSPEED / Nano), as Solaar (GPL-2.0+, lib/logitech_receiver/receiver.py,
+//! base.py, notifications.py) documents them; implemented here from those facts (issue #41):
+//!   * long register 0xB5, sub-register 0x20 + n - 1 = pairing information of slot n:
+//!     [sub][destination][report interval][wpid hi][wpid lo][..][..][kind (low nibble)]; an error
+//!     reply means the slot is empty. Only paired slots are pinged, and a paired device that does
+//!     not answer (asleep, switched off) is reported as `connected: false`, so the app checks the
+//!     receiver again every few seconds and shows the device as soon as it wakes - instead of only
+//!     at the next full refresh.
+//!   * register 0x00 (notification flags), byte 1 bit 0 = wireless notifications; writing register
+//!     0x02 = 0x02 makes the receiver send a 0x41 "device connection" notification for every paired
+//!     device: [10][index][41][protocol][flags][wpid lo][wpid hi], flags bit 6 = link not established.
+//!   * a sleeping device answers a ping late: Solaar waits up to 4 s; error 0x09 (resource error) /
+//!     0x04 (connect failed) = unreachable, 0x08 = no device with that index.
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{self, HidColl, HidDev};
 use crate::util::{guess_kind, hex4, interpolate, Deadline};
@@ -85,6 +99,110 @@ impl Hidpp {
             .and_then(|p| p.first().copied())
             .unwrap_or(0)
     }
+
+    /// Sends a short HID++ 1.0 message to the receiver and returns every report read within `ms`
+    /// (used to collect the 0x41 notifications that follow a "scan devices" request).
+    fn send_and_collect(&self, b2: u8, b3: u8, params: &[u8], ms: u64) -> Vec<Vec<u8>> {
+        let Some(s) = self.s.as_ref() else { return Vec::new() };
+        let mut msg = vec![0x10, 0xFF, b2, b3, 0, 0, 0];
+        for (i, v) in params.iter().take(3).enumerate() {
+            msg[4 + i] = *v;
+        }
+        if !s.write(&msg) {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let end = Deadline::in_ms(ms);
+        while !end.passed() {
+            for d in [self.s.as_ref(), self.l.as_ref()].into_iter().flatten() {
+                if let Some(r) = d.read(15) {
+                    out.push(r);
+                }
+            }
+        }
+        out
+    }
+}
+
+/// One paired slot of a receiver: index, device kind from the pairing register, and whether the
+/// receiver's 0x41 notification said the link is up (None = no notification seen).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Slot {
+    idx: u8,
+    kind: DeviceKind,
+    link: Option<bool>,
+}
+
+/// HID++ 1.0 device kind (pairing register / 0x41 notification, low nibble) -> DeviceKind.
+fn pairing_kind(k: u8) -> DeviceKind {
+    match k & 0x0F {
+        0x01 => DeviceKind::Keyboard,
+        0x02 | 0x08 => DeviceKind::Mouse,
+        0x0B | 0x0C => DeviceKind::Gamepad,
+        0x0D => DeviceKind::Headset,
+        _ => DeviceKind::Other,
+    }
+}
+
+/// Reply parameters of a 0xB5 read of sub-register `sub` (0x20 + n - 1) -> (wpid, kind nibble).
+/// None when the slot is empty or the reply is not this sub-register.
+fn parse_pairing(sub: u8, p: &[u8]) -> Option<(u16, u8)> {
+    if p.len() < 8 || p[0] != sub {
+        return None;
+    }
+    let wpid = ((p[3] as u16) << 8) | p[4] as u16;
+    (wpid != 0 && wpid != 0xFFFF).then_some((wpid, p[7] & 0x0F))
+}
+
+/// A 0x41 device connection notification -> (device index, link established).
+fn parse_link_notification(r: &[u8]) -> Option<(u8, bool)> {
+    if r.len() < 7 || r[0] != 0x10 || r[2] != 0x41 || r[3] == 0 || !(1..=6).contains(&r[1]) {
+        return None;
+    }
+    Some((r[1], r[4] & 0x40 == 0))
+}
+
+/// Paired slots of a receiver, from its pairing registers, with the link state the receiver
+/// reports for each. None when the receiver has no readable pairing register (then every index
+/// is pinged, as before).
+fn receiver_slots(h: &Hidpp) -> Option<Vec<Slot>> {
+    let mut slots = Vec::new();
+    let mut answered = false;
+    for n in 1..=6u8 {
+        let sub = 0x20 + n - 1;
+        match h.request(0xFF, 0x83, 0xB5, &[sub], true, 900) {
+            Reply::Ok(p) => {
+                answered = true;
+                if let Some((wpid, kind)) = parse_pairing(sub, &p) {
+                    crate::util::debug_log(|| format!("  slot {n}: paired, wpid {}, kind {kind}", hex4(wpid)));
+                    slots.push(Slot { idx: n, kind: pairing_kind(kind), link: None });
+                }
+            }
+            Reply::Err(e) => {
+                answered = true;
+                crate::util::debug_log(|| format!("  slot {n}: empty (error {e:02X})"));
+            }
+            Reply::None => {}
+        }
+    }
+    if !answered || slots.is_empty() {
+        return None;
+    }
+    // Wireless notifications on (Solaar does the same), then ask for one 0x41 per paired device.
+    if let Reply::Ok(f) = h.request(0xFF, 0x81, 0x00, &[], true, 900) {
+        if f.len() >= 3 && f[1] & 0x01 == 0 {
+            let _ = h.request(0xFF, 0x80, 0x00, &[f[0], f[1] | 0x01, f[2]], true, 900);
+        }
+    }
+    for r in h.send_and_collect(0x80, 0x02, &[0x02], 400) {
+        if let Some((idx, up)) = parse_link_notification(&r) {
+            crate::util::debug_log(|| format!("  slot {idx}: link {}", if up { "up" } else { "down" }));
+            if let Some(s) = slots.iter_mut().find(|s| s.idx == idx) {
+                s.link = Some(up);
+            }
+        }
+    }
+    Some(slots)
 }
 
 /// Voltage -> % for a typical Li-ion cell (mice/keyboards).
@@ -303,17 +421,32 @@ fn poll_device(ctx: &mut PollContext, pid: u16, shorts: &[HidColl], longs: &[Hid
     let path = main.path.to_lowercase();
     let bluetooth = path.contains("{00001812-") || path.contains("{00001124-");
     let passthrough = is_passthrough_dongle(pid);
-    let ping = |idx: u8| match h.request(idx, 0x00, 0x10 | SW_ID, &[0, 0, 0x5A], false, 400) {
+    let ping_ms = |idx: u8, ms: u64| match h.request(idx, 0x00, 0x10 | SW_ID, &[0, 0, 0x5A], false, ms) {
         Reply::Ok(p) if p.len() >= 3 && p[0] >= 2 => Reply::Ok(p),
         r => r,
     };
-    let indices: Vec<u8> = if passthrough {
+    let ping = |idx: u8| ping_ms(idx, 400);
+    crate::util::debug_log(|| {
+        format!(
+            "logitech {}: product '{product}', receiver {is_receiver}, bluetooth {bluetooth}, short {}, long {}",
+            hex4(pid),
+            shorts.len(),
+            longs.len()
+        )
+    });
+    // A receiver that lists its paired devices: ping only those, give a sleeping device time to
+    // answer, and skip those the receiver reports as not linked.
+    let slots = if is_receiver && !passthrough && !bluetooth { receiver_slots(&h) } else { None };
+    let indices: Vec<u8> = if let Some(slots) = &slots {
+        slots.iter().map(|s| s.idx).collect()
+    } else if passthrough {
         vec![1]
     } else if bluetooth || (!is_receiver && matches!(ping(0xFF), Reply::Ok(p) if p.len() >= 3 && p[0] >= 2)) {
         vec![0xFF]
     } else {
         vec![1, 2, 3, 4, 5, 6]
     };
+    crate::util::debug_log(|| format!("  indices {indices:?}, slots {slots:?}"));
 
     let mut any = false;
     for idx in indices {
@@ -326,8 +459,24 @@ fn poll_device(ctx: &mut PollContext, pid: u16, shorts: &[HidColl], longs: &[Hid
         };
         s.kind = if passthrough { DeviceKind::Mouse } else { guess_kind(&s.name) };
 
+        let slot = slots.as_ref().and_then(|v| v.iter().find(|s| s.idx == idx).copied());
+        if let Some(sl) = slot {
+            if sl.kind != DeviceKind::Other {
+                s.kind = sl.kind;
+            }
+        }
         let mut found = false;
-        match ping(idx) {
+        let reply = match slot {
+            Some(Slot { link: Some(false), .. }) => ping(idx), // receiver: not linked, short try only
+            Some(_) => ping_ms(idx, 2000),
+            None => ping(idx),
+        };
+        crate::util::debug_log(|| match &reply {
+            Reply::Ok(p) => format!("  index {idx}: ping ok {p:02X?}"),
+            Reply::Err(e) => format!("  index {idx}: error {e:02X}"),
+            Reply::None => format!("  index {idx}: no reply"),
+        });
+        match reply {
             Reply::Ok(p) if p.len() >= 3 && p[0] >= 2 => {
                 read_name_and_type20(&h, idx, &mut s);
                 found = read_battery20(&h, idx, pid, &mut s);
@@ -345,10 +494,24 @@ fn poll_device(ctx: &mut PollContext, pid: u16, shorts: &[HidColl], longs: &[Hid
             Reply::Err(0x01) => found = read_battery10(&h, idx, &mut s), // HID++ 1.0 device
             _ => {}
         }
+        crate::util::debug_log(|| format!("  index {idx}: battery found {found}, '{}' {}%", s.name, s.percent));
         if found {
             if s.kind == DeviceKind::Other {
                 s.kind = guess_kind(&s.name);
             }
+            s.vid = 0x046D;
+            s.hw = Some((0x046D, pid));
+            ctx.out.push(s);
+            any = true;
+        } else if slot.is_some() {
+            // Paired but silent (asleep / off): the receiver is checked again soon, and a device
+            // shown before keeps its last level, dimmed.
+            s.name = match s.kind {
+                DeviceKind::Mouse => "Logitech wireless mouse".into(),
+                DeviceKind::Keyboard => "Logitech wireless keyboard".into(),
+                _ => s.name,
+            };
+            s.connected = false;
             s.vid = 0x046D;
             s.hw = Some((0x046D, pid));
             ctx.out.push(s);
@@ -360,6 +523,9 @@ fn poll_device(ctx: &mut PollContext, pid: u16, shorts: &[HidColl], longs: &[Hid
 
 pub fn poll(ctx: &mut PollContext) {
     for (vid, pid) in ctx.products(0x046D) {
+        if ctx.is_claimed(vid, pid) {
+            continue; // read by a model-specific driver (logitech_g533)
+        }
         let passthrough = is_passthrough_dongle(pid);
         let all_shorts = ctx.find(vid, pid, |c| {
             c.out_len() == 7
@@ -412,6 +578,28 @@ mod tests {
         assert_eq!(headset_percent(0x0AB5, 4200), 100); // G733
         assert_eq!(headset_percent(0x0AB5, 3300), 0);
         assert_eq!(headset_percent(0x0A66, 3850), 50); // G533
+    }
+
+    #[test]
+    fn pairing_register() {
+        // 0xB5 sub 0x20 (slot 1): dest 0x51, interval 1 ms, wpid 40B1 (a LIGHTSPEED mouse), kind 2.
+        let p = [0x20, 0x51, 0x01, 0x40, 0xB1, 0x00, 0x00, 0x02, 0, 0, 0, 0, 0, 0, 0, 0];
+        assert_eq!(parse_pairing(0x20, &p), Some((0x40B1, 2)));
+        assert_eq!(pairing_kind(2), DeviceKind::Mouse);
+        assert_eq!(parse_pairing(0x21, &p), None); // another sub-register's reply
+        let empty = [0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        assert_eq!(parse_pairing(0x21, &empty), None);
+        assert_eq!(parse_pairing(0x20, &p[..5]), None);
+    }
+
+    #[test]
+    fn link_notifications() {
+        // [10][index][41][protocol][flags][wpid lo][wpid hi]; flags bit 6 = link not established.
+        assert_eq!(parse_link_notification(&[0x10, 0x01, 0x41, 0x0C, 0x02, 0xB1, 0x40]), Some((1, true)));
+        assert_eq!(parse_link_notification(&[0x10, 0x01, 0x41, 0x0C, 0x42, 0xB1, 0x40]), Some((1, false)));
+        assert_eq!(parse_link_notification(&[0x10, 0xFF, 0x80, 0x02, 0x00, 0x00, 0x00]), None); // the ack
+        assert_eq!(parse_link_notification(&[0x10, 0x01, 0x41, 0x00, 0x02, 0xB1, 0x40]), None); // no protocol
+        assert_eq!(parse_link_notification(&[0x11, 0x01, 0x41, 0x0C, 0x02, 0xB1, 0x40]), None);
     }
 
     #[test]

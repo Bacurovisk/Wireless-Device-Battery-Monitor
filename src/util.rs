@@ -89,6 +89,17 @@ pub fn sleep_ms(ms: u64) {
     std::thread::sleep(Duration::from_millis(ms));
 }
 
+/// Diagnostic line in `%TEMP%\bh2.log`, only when BatteryHub runs with the BH_DEBUG environment
+/// variable set (the same file the taskbar program logs to).
+pub fn debug_log(msg: impl FnOnce() -> String) {
+    if std::env::var_os("BH_DEBUG").is_some() {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(std::env::temp_dir().join("bh2.log")) {
+            let _ = writeln!(f, "{}", msg());
+        }
+    }
+}
+
 /// FNV-1a over a string (used for keys that must stay stable but short).
 pub fn fnv1a(s: &str) -> u32 {
     let mut h: u32 = 2166136261;
@@ -133,6 +144,42 @@ pub fn reg_get_dword(subkey: &str, value: &str) -> Option<u32> {
         )
     };
     r.is_ok().then_some(v)
+}
+
+pub fn reg_get_binary(subkey: &str, value: &str) -> Option<Vec<u8>> {
+    let (k, v) = (HSTRING::from(subkey), HSTRING::from(value));
+    let mut size = 0u32;
+    unsafe {
+        RegGetValueW(HKEY_CURRENT_USER, &k, &v, windows::Win32::System::Registry::RRF_RT_REG_BINARY, None, None, Some(&mut size)).ok().ok()?;
+        let mut buf = vec![0u8; size as usize];
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            &k,
+            &v,
+            windows::Win32::System::Registry::RRF_RT_REG_BINARY,
+            None,
+            Some(buf.as_mut_ptr().cast()),
+            Some(&mut size),
+        )
+        .ok()
+        .ok()?;
+        buf.truncate(size as usize);
+        Some(buf)
+    }
+}
+
+pub fn reg_set_binary(subkey: &str, value: &str, data: &[u8]) -> bool {
+    unsafe {
+        RegSetKeyValueW(
+            HKEY_CURRENT_USER,
+            &HSTRING::from(subkey),
+            &HSTRING::from(value),
+            windows::Win32::System::Registry::REG_BINARY.0,
+            Some(data.as_ptr().cast()),
+            data.len() as u32,
+        )
+        .is_ok()
+    }
 }
 
 pub fn reg_set_string(subkey: &str, value: &str, data: &str) -> bool {

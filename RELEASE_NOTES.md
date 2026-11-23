@@ -1,4 +1,4 @@
-# BatteryHub v1.4.1 (Rust)
+# BatteryHub v1.5 (Rust)
 
 An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor). All credit for the original idea, look and device protocols goes to the original project.
 
@@ -6,10 +6,21 @@ An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of 
 
 | File | |
 |---|---|
-| `BatteryHub-Taskbar-Setup-v1.4.1.exe` | Setup: Install / Update / Uninstall |
+| `BatteryHub-Taskbar-Setup-v1.5.exe` | Setup: Install / Update / Uninstall |
 | `SHA256SUMS.txt` | Checksum |
 
 Already installed? Use *Check for updates...* in the right-click menu (v1.1 and later), or run the new setup and choose **[2] Update**. Your settings and autostart choice are kept.
+
+## New in v1.5
+
+- **About 40 newly supported devices** from your requests: HyperX (Cloud III S, Cloud II Core, Cloud Flight, Stinger Core), Razer BlackShark V2 Pro and Barracuda X Chroma, Corsair HS70 Pro, Logitech G533, Jabra Link 390, BenQ ZOWIE, Keychron Link, Flydigi Apex 6, and many AULA, MCHOSE, ATK, VXE, LAMZU, Scyrox, VGN, AJAZZ, EWEADN, Epomaker, Darmoshark and Delux mice and keyboards. Full list in the README, plus a list of devices that can't be supported and why.
+- **Logitech receivers work without G HUB** (#41).
+- **Other monitors:** the widget sits right next to each taskbar's clock and appears on all taskbars at once.
+- **New option:** show as notification-area icons that Windows arranges (drag between other tray icons, no overlap with other widgets).
+- **Hover card** with the device's level and a chart of the last 24 hours (kept for 24 hours only).
+- **Shares the taskbar:** sits left of other programs' taskbar widgets instead of on top.
+- **Contributions:** FNATIC BOLT (#48) and HyperX Cloud Flight tested on hardware (#93).
+- **Hover highlight** like the taskbar's buttons, **only one copy** can run, and **less memory** (about 0.1–0.2 MB most of the time).
 
 ## New in v1.4.1
 

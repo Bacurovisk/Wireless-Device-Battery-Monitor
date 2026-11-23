@@ -1,189 +1,115 @@
-//! HyperX Cloud Flight Wireless headset over its 2.4 GHz USB dongle (VID 0951, PID 1723; the
-//! dongle 16C4 of the first model speaks the same protocol).
+//! HyperX Cloud III S Wireless headset over its 2.4 GHz dongle (VID 03F0, PID 06BE or 02CC).
 //!
-//! Protocol from hyperx-cloud-flight by kondinskis (MIT, github.com/kondinskis/hyperx-cloud-flight)
-//! and hyperx-cloud-flight-wireless by srn (MIT, github.com/srn/hyperx-cloud-flight-wireless),
-//! both reverse engineered from USB captures. The dongle's vendor collection (usage 0303, 20-byte
-//! input and output reports; usage page FF90 on the 1723, FF53 on the 16C4) answers a status
-//! request:
+//! Protocol as documented by HyperX-Battery-Tray by GuacamoleGH (MIT,
+//! github.com/GuacamoleGH/HyperX-Battery-Tray), hyperx-battery-logger by OZX-OG (MIT,
+//! github.com/OZX-OG/hyperx-battery-logger) and HyperHeadset by Lennard Kittner (MIT,
+//! github.com/LennardKittner/HyperHeadset); implemented here from those facts. The dongle's vendor
+//! collection (usage page 01C0, usage 0001, 64-byte input / output report 0C) answers a battery
+//! query written as an output report:
 //!
-//!   request   21 FF 05 00 ... (20 bytes, report ID 21)
-//!   reply     .. .. .. ST VV ... (20 bytes)
-//!             ST 0E / 0F   on battery: VV is a raw value, mapped to a level in steps of 5 %
-//!             ST 10 / 11   on power: VV >= 20 still charging (no level), below that full
+//!   request  0C 02 03 01 00 06 | 00 ... (64 bytes)
+//!   reply    0C 02 03 01 00 06 NN VV VV ...
+//!            NN  battery level 0..100 % (above 100, e.g. FF: headset off)
+//!            VV  battery voltage in mV, big-endian
 //!
-//! The headset also pushes status reports on its own, and short reports for power, mute and
-//! volume on other collections; only the status reply is used here. No decodable reply within the
-//! timeout means the headset is switched off or out of range (the dongle stays enumerated). The
-//! level is an estimate (5 % steps), and the raw value thresholds are the ones those projects use.
-//!
-//! The headset is asked at most once a minute while it answers, and again on every read while it
-//! does not, so switching it on shows up quickly and switching it off within a minute.
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
-
+//! The dongle also pushes events `0D 02 03 00 EE VV` (EE 0A = charging cable, VV 01 plugged /
+//! 00 unplugged; EE 0C = headset, 01 on / 00 off); one seen while waiting for the reply is used.
+//! Charging cannot be queried. No reply means the headset is off (the dongle stays enumerated).
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
-use crate::hid::HidDev;
+use crate::hid::{HidColl, HidDev};
 use crate::util::{hex4, Deadline};
 
-const VID: u16 = 0x0951;
-const PIDS: [u16; 2] = [0x1723, 0x16C4];
-const NAME: &str = "HyperX Cloud Flight Wireless";
-/// A reply comes within milliseconds while the headset is on.
-const REPLY_WAIT_MS: u64 = 1500;
-const ASK_EVERY: Duration = Duration::from_secs(60);
+const VID: u16 = 0x03F0;
+const HEADER: [u8; 5] = [0x0C, 0x02, 0x03, 0x01, 0x00];
+const CMD_BATTERY: u8 = 0x06;
+const EVENT: [u8; 4] = [0x0D, 0x02, 0x03, 0x00];
+const EV_CHARGER: u8 = 0x0A;
+const EV_HEADSET: u8 = 0x0C;
+const WAIT_MS: u64 = 1500;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Reading {
-    /// On battery, 10..=100 in steps of 5.
-    Level(i32),
-    /// On power, no level reported.
-    Charging,
-    /// On power and full.
-    Full,
-}
-
-pub fn request() -> [u8; 20] {
-    let mut r = [0u8; 20];
-    r[0] = 0x21;
-    r[1] = 0xFF;
-    r[2] = 0x05;
-    r
-}
-
-/// Battery level for the raw value `v` reported in state `state` (0E: low half, 0F: high half).
-pub fn level_from_raw(state: u8, v: u8) -> Option<i32> {
-    let p = match state {
-        0x0E => match v {
-            0..=89 => 10,
-            90..=119 => 15,
-            120..=148 => 20,
-            149..=159 => 25,
-            160..=169 => 30,
-            170..=179 => 35,
-            180..=189 => 40,
-            190..=199 => 45,
-            200..=209 => 50,
-            210..=219 => 55,
-            220..=239 => 60,
-            240..=255 => 65,
-        },
-        0x0F => match v {
-            0..=19 => 70,
-            20..=49 => 75,
-            50..=69 => 80,
-            70..=99 => 85,
-            100..=119 => 90,
-            120..=129 => 95,
-            130..=255 => 100,
-        },
-        _ => return None,
-    };
-    Some(p)
-}
-
-/// Decodes one input report (20 bytes, report ID included).
-pub fn decode(r: &[u8]) -> Option<Reading> {
-    if r.len() < 5 {
-        return None;
-    }
-    match r[3] {
-        0x10 | 0x11 => Some(if r[4] >= 20 { Reading::Charging } else { Reading::Full }),
-        state => level_from_raw(state, r[4]).map(Reading::Level),
+fn model(pid: u16) -> Option<&'static str> {
+    match pid {
+        0x06BE | 0x02CC => Some("HyperX Cloud III S Wireless"),
+        _ => None,
     }
 }
 
-fn query(d: &HidDev) -> Option<Reading> {
+#[derive(Debug, PartialEq, Eq)]
+pub enum Frame {
+    /// Battery reply: level (None = headset off) and voltage in mV (0 if not given).
+    Battery(Option<i32>, i32),
+    Charger(bool),
+    Headset(bool),
+}
+
+/// Decodes one input report (report ID included).
+pub fn decode(r: &[u8]) -> Option<Frame> {
+    if r.len() >= 7 && r[..5] == HEADER && r[5] == CMD_BATTERY {
+        let level = (r[6] <= 100).then_some(r[6] as i32);
+        let mv = if r.len() >= 9 && level.is_some() { ((r[7] as i32) << 8) | r[8] as i32 } else { 0 };
+        return Some(Frame::Battery(level, mv));
+    }
+    if r.len() >= 6 && r[..4] == EVENT && r[5] <= 1 {
+        return match r[4] {
+            EV_CHARGER => Some(Frame::Charger(r[5] == 1)),
+            EV_HEADSET => Some(Frame::Headset(r[5] == 1)),
+            _ => None,
+        };
+    }
+    None
+}
+
+struct Reading {
+    level: Option<i32>,
+    mv: i32,
+    charging: bool,
+}
+
+fn query(c: &HidColl) -> Option<Reading> {
+    let d = HidDev::open(c)?;
     d.flush();
-    if !d.write(&request()) {
+    let mut req = [0u8; 64];
+    req[..5].copy_from_slice(&HEADER);
+    req[5] = CMD_BATTERY;
+    if !d.write(&req) {
         return None;
     }
-    // Skip anything else the collection pushes until a status report shows up.
-    let end = Deadline::in_ms(REPLY_WAIT_MS);
-    loop {
-        let left = end.left_ms();
-        if left == 0 {
-            return None;
-        }
-        let r = d.read(left)?;
-        if let Some(reading) = decode(&r) {
-            return Some(reading);
-        }
-    }
-}
-
-/// Last answer per dongle: when it came and what it said.
-static LAST: Mutex<Option<HashMap<u16, (Instant, Reading)>>> = Mutex::new(None);
-
-fn recent(pid: u16) -> Option<Reading> {
-    let g = LAST.lock().unwrap_or_else(|e| e.into_inner());
-    let (at, reading) = g.as_ref()?.get(&pid)?;
-    (at.elapsed() < ASK_EVERY).then_some(*reading)
-}
-
-fn remember(pid: u16, reading: Option<Reading>) {
-    let mut g = LAST.lock().unwrap_or_else(|e| e.into_inner());
-    let map = g.get_or_insert_with(HashMap::new);
-    match reading {
-        Some(r) => {
-            map.insert(pid, (Instant::now(), r));
-        }
-        None => {
-            map.remove(&pid);
+    let end = Deadline::in_ms(WAIT_MS);
+    let mut charging = false;
+    while !end.passed() {
+        let Some(f) = d.read(end.left_ms()).and_then(|r| decode(&r)) else { continue };
+        match f {
+            Frame::Battery(level, mv) => return Some(Reading { level, mv, charging }),
+            Frame::Charger(on) => charging = on,
+            Frame::Headset(false) => return Some(Reading { level: None, mv: 0, charging: false }),
+            Frame::Headset(true) => {}
         }
     }
-}
-
-fn status(pid: u16, reading: Option<Reading>) -> DeviceStatus {
-    let mut s = DeviceStatus {
-        key: format!("hyperx:{}", hex4(pid)),
-        name: NAME.into(),
-        kind: DeviceKind::Headset,
-        via: "2.4 GHz dongle".into(),
-        hw: Some((VID, pid)),
-        grace_sec: 60,
-        ..Default::default()
-    };
-    match reading {
-        Some(Reading::Level(n)) => s.percent = n,
-        Some(Reading::Charging) => {
-            s.charging = true;
-            s.level_text = "Charging".into();
-        }
-        Some(Reading::Full) => {
-            s.percent = 100;
-            s.charging = true;
-            s.full = true;
-        }
-        // Dongle present, headset off or out of range.
-        None => s.connected = false,
-    }
-    s
+    None
 }
 
 pub fn poll(ctx: &mut PollContext) {
     for (vid, pid) in ctx.products(VID) {
-        if !PIDS.contains(&pid) {
+        let Some(name) = model(pid) else { continue };
+        let colls = ctx.find(vid, pid, |c| c.page() == 0x01C0 && c.usage() == 0x0001 && c.out_len() >= 64 && c.in_len() >= 7);
+        if colls.is_empty() {
             continue;
         }
-        let Some(c) = ctx
-            .find(vid, pid, |c| c.page() >= 0xFF00 && c.usage() == 0x0303 && c.in_len() == 20 && c.out_len() == 20)
-            .into_iter()
-            .next()
-        else {
-            continue;
+        let found = colls.iter().find_map(query);
+        let base = DeviceStatus {
+            key: format!("hyperx:{}", hex4(pid)),
+            name: name.into(),
+            kind: DeviceKind::Headset,
+            via: "2.4 GHz dongle".into(),
+            hw: Some((vid, pid)),
+            grace_sec: 60,
+            ..Default::default()
         };
-        let reading = match recent(pid) {
-            Some(r) => Some(r),
-            None => {
-                let Some(d) = HidDev::open(&c) else { continue };
-                let r = query(&d);
-                remember(pid, r);
-                r
-            }
+        let s = match found {
+            Some(Reading { level: Some(level), mv, charging }) => DeviceStatus { percent: level, millivolts: mv, charging, ..base },
+            _ => DeviceStatus { connected: false, ..base },
         };
-        ctx.add(status(pid, reading), vid, pid);
+        ctx.add(s, vid, pid);
     }
 }
 
@@ -191,91 +117,38 @@ pub fn poll(ctx: &mut PollContext) {
 mod tests {
     use super::*;
 
-    /// A 20-byte status report with state `st` and raw value `v`.
-    fn rep(st: u8, v: u8) -> Vec<u8> {
-        let mut r = vec![0u8; 20];
-        r[0] = 0x21;
-        r[3] = st;
-        r[4] = v;
+    fn report(head: &[u8]) -> Vec<u8> {
+        let mut r = vec![0u8; 64];
+        r[..head.len()].copy_from_slice(head);
         r
     }
 
     #[test]
-    fn request_layout() {
-        let r = request();
-        assert_eq!(r.len(), 20);
-        assert_eq!(&r[..4], &[0x21, 0xFF, 0x05, 0x00]);
-        assert!(r[3..].iter().all(|&b| b == 0));
+    fn battery_reply() {
+        // HyperX-Battery-Tray's test frame: 71 %, 3904 mV.
+        assert_eq!(decode(&report(&[0x0C, 0x02, 0x03, 0x01, 0x00, 0x06, 0x47, 0x0F, 0x40])), Some(Frame::Battery(Some(71), 3904)));
+        // hyperx-battery-logger's example: 90 %, 4172 mV.
+        assert_eq!(decode(&report(&[0x0C, 0x02, 0x03, 0x01, 0x00, 0x06, 0x5A, 0x10, 0x4C])), Some(Frame::Battery(Some(90), 4172)));
     }
 
     #[test]
-    fn levels_on_battery() {
-        assert_eq!(decode(&rep(0x0F, 130)), Some(Reading::Level(100)));
-        assert_eq!(decode(&rep(0x0F, 0)), Some(Reading::Level(70)));
-        assert_eq!(decode(&rep(0x0E, 255)), Some(Reading::Level(65)));
-        assert_eq!(decode(&rep(0x0E, 200)), Some(Reading::Level(50)));
-        assert_eq!(decode(&rep(0x0E, 0)), Some(Reading::Level(10)));
+    fn headset_off_reply() {
+        assert_eq!(decode(&report(&[0x0C, 0x02, 0x03, 0x01, 0x00, 0x06, 0xFF])), Some(Frame::Battery(None, 0)));
     }
 
     #[test]
-    fn range_edges() {
-        assert_eq!(level_from_raw(0x0E, 89), Some(10));
-        assert_eq!(level_from_raw(0x0E, 90), Some(15));
-        assert_eq!(level_from_raw(0x0E, 239), Some(60));
-        assert_eq!(level_from_raw(0x0E, 240), Some(65));
-        assert_eq!(level_from_raw(0x0F, 19), Some(70));
-        assert_eq!(level_from_raw(0x0F, 20), Some(75));
-        assert_eq!(level_from_raw(0x0F, 129), Some(95));
-        assert_eq!(level_from_raw(0x0F, 130), Some(100));
+    fn events() {
+        assert_eq!(decode(&report(&[0x0D, 0x02, 0x03, 0x00, 0x0A, 0x01])), Some(Frame::Charger(true)));
+        assert_eq!(decode(&report(&[0x0D, 0x02, 0x03, 0x00, 0x0C, 0x00])), Some(Frame::Headset(false)));
+        assert_eq!(decode(&report(&[0x0D, 0x02, 0x03, 0x00, 0x03, 0x01])), None); // mic mute
     }
 
     #[test]
-    fn levels_never_decrease_with_the_raw_value() {
-        for st in [0x0E, 0x0F] {
-            let mut last = 0;
-            for v in 0..=255u8 {
-                let p = level_from_raw(st, v).unwrap();
-                assert!(p >= last, "state {st:02X} value {v}");
-                last = p;
-            }
-        }
-        // The whole 0E range sits below the 0F range.
-        assert!(level_from_raw(0x0E, 255) < level_from_raw(0x0F, 0));
-    }
-
-    #[test]
-    fn on_power() {
-        assert_eq!(decode(&rep(0x10, 25)), Some(Reading::Charging));
-        assert_eq!(decode(&rep(0x11, 20)), Some(Reading::Charging));
-        assert_eq!(decode(&rep(0x10, 5)), Some(Reading::Full));
-        assert_eq!(decode(&rep(0x11, 19)), Some(Reading::Full));
-    }
-
-    #[test]
-    fn not_status_reports() {
-        assert_eq!(decode(&rep(0x00, 100)), None);
-        assert_eq!(decode(&rep(0x0D, 100)), None);
-        assert_eq!(decode(&rep(0x12, 100)), None);
-        assert_eq!(decode(&[0x21, 0xFF, 0x05, 0x0F]), None);
-        assert_eq!(decode(&[]), None);
-    }
-
-    #[test]
-    fn device_status() {
-        let s = status(0x1723, Some(Reading::Level(85)));
-        assert_eq!((s.percent, s.connected, s.charging), (85, true, false));
-        assert_eq!(s.key, "hyperx:1723");
-        assert_eq!(s.hw, Some((0x0951, 0x1723)));
-
-        let s = status(0x1723, Some(Reading::Charging));
-        assert!(s.is_charging());
-        assert_eq!(s.percent, -1);
-        assert_eq!(s.status_text(), "Charging ⚡");
-
-        let s = status(0x16C4, Some(Reading::Full));
-        assert!(s.is_full());
-        assert_eq!(s.status_text(), "100% ✓");
-
-        assert!(!status(0x1723, None).connected);
+    fn not_battery() {
+        // Connection-status reply, mic reply, other report IDs, too short.
+        assert_eq!(decode(&report(&[0x0C, 0x02, 0x03, 0x01, 0x00, 0x02, 0x02])), None);
+        assert_eq!(decode(&report(&[0x0C, 0x02, 0x03, 0x01, 0x00, 0x04, 0x01])), None);
+        assert_eq!(decode(&report(&[0x05, 0x02])), None);
+        assert_eq!(decode(&[0x0C, 0x02, 0x03, 0x01, 0x00, 0x06]), None);
     }
 }

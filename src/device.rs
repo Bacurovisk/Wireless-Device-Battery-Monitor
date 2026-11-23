@@ -232,6 +232,11 @@ struct HidCache {
 /// The HID collections to read. A cached list is reused only while the set of HID interfaces is
 /// unchanged (a cheap SetupAPI listing, no device opened), so a device plugged in or removed is
 /// picked up by the next read even if the device-change message was missed.
+/// Devices no driver may send anything to. Logitech G435 (046D:0ACB): its dongle reports the
+/// battery only from bootloader mode, which cuts the audio (issue #10); it has no HID++ channel and
+/// no standard battery usage, so it is skipped outright rather than relying on that.
+const NEVER_TOUCH: [(u16, u16); 2] = [(0x046D, 0x0ACB), (0x046D, 0x0ADF)];
+
 fn hid_collections(rescan: bool) -> Vec<HidColl> {
     let mut cache = HID_CACHE.lock().unwrap_or_else(|e| e.into_inner());
     let paths = hid::interface_paths();
@@ -240,7 +245,7 @@ fn hid_collections(rescan: bool) -> Vec<HidColl> {
             return c.colls.clone();
         }
     }
-    let colls = hid::enum_hid();
+    let colls: Vec<HidColl> = hid::enum_hid().into_iter().filter(|c| !NEVER_TOUCH.contains(&(c.vid, c.pid))).collect();
     *cache = Some(HidCache { at: std::time::Instant::now(), paths, colls: colls.clone() });
     crate::drivers::sdi::forget_containers();
     colls
@@ -256,6 +261,7 @@ pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
     }
     let mut ctx = PollContext { colls, ..Default::default() };
     drivers::steelseries::poll(&mut ctx);
+    drivers::logitech_g533::poll(&mut ctx);
     drivers::logitech::poll(&mut ctx);
     drivers::razer::poll(&mut ctx);
     drivers::roccat::poll(&mut ctx);
@@ -264,6 +270,30 @@ pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
     drivers::blackshark::poll(&mut ctx);
     drivers::wlmouse::poll(&mut ctx);
     drivers::hyperx::poll(&mut ctx);
+    drivers::blackshark_v2pro::poll(&mut ctx);
+    drivers::corsair::poll(&mut ctx);
+    drivers::aula::poll(&mut ctx);
+    drivers::atk::poll(&mut ctx);
+    drivers::mchose::poll(&mut ctx);
+    drivers::evision::poll(&mut ctx);
+    drivers::darmoshark::poll(&mut ctx);
+    drivers::sonix::poll(&mut ctx);
+    drivers::compx::poll(&mut ctx);
+    drivers::compx_extra::poll(&mut ctx);
+    drivers::aula_mouse::poll(&mut ctx);
+    drivers::mchose_modern::poll(&mut ctx);
+    drivers::ajazz_aj139::poll(&mut ctx);
+    drivers::hyperx_core::poll(&mut ctx);
+    drivers::rongyuan::poll(&mut ctx);
+    drivers::mchose_v9::poll(&mut ctx);
+    drivers::barracuda_chroma::poll(&mut ctx);
+    drivers::jabra::poll(&mut ctx);
+    drivers::zowie::poll(&mut ctx);
+    drivers::keychron::poll(&mut ctx);
+    drivers::hyperx_flight::poll(&mut ctx); // tested on hardware (PR #93); before hyperx_legacy
+    drivers::hyperx_legacy::poll(&mut ctx);
+    drivers::drivercore::poll(&mut ctx);
+    drivers::flydigi::poll(&mut ctx);
     drivers::playstation::poll(&mut ctx);
     drivers::generic::poll(&mut ctx);
     ctx.out
@@ -359,6 +389,7 @@ fn poll_with(colls: Vec<HidColl>) -> Vec<DeviceStatus> {
     }
     // Vendor drivers first, generic fallbacks last (same order as the original chain).
     drivers::steelseries::poll(&mut ctx);
+    drivers::logitech_g533::poll(&mut ctx);
     drivers::logitech::poll(&mut ctx);
     drivers::razer::poll(&mut ctx);
     drivers::roccat::poll(&mut ctx);
@@ -367,6 +398,30 @@ fn poll_with(colls: Vec<HidColl>) -> Vec<DeviceStatus> {
     drivers::blackshark::poll(&mut ctx);
     drivers::wlmouse::poll(&mut ctx);
     drivers::hyperx::poll(&mut ctx);
+    drivers::blackshark_v2pro::poll(&mut ctx);
+    drivers::corsair::poll(&mut ctx);
+    drivers::aula::poll(&mut ctx);
+    drivers::atk::poll(&mut ctx);
+    drivers::mchose::poll(&mut ctx);
+    drivers::evision::poll(&mut ctx);
+    drivers::darmoshark::poll(&mut ctx);
+    drivers::sonix::poll(&mut ctx);
+    drivers::compx::poll(&mut ctx);
+    drivers::compx_extra::poll(&mut ctx);
+    drivers::aula_mouse::poll(&mut ctx);
+    drivers::mchose_modern::poll(&mut ctx);
+    drivers::ajazz_aj139::poll(&mut ctx);
+    drivers::hyperx_core::poll(&mut ctx);
+    drivers::rongyuan::poll(&mut ctx);
+    drivers::mchose_v9::poll(&mut ctx);
+    drivers::barracuda_chroma::poll(&mut ctx);
+    drivers::jabra::poll(&mut ctx);
+    drivers::zowie::poll(&mut ctx);
+    drivers::keychron::poll(&mut ctx);
+    drivers::hyperx_flight::poll(&mut ctx); // tested on hardware (PR #93); before hyperx_legacy
+    drivers::hyperx_legacy::poll(&mut ctx);
+    drivers::drivercore::poll(&mut ctx);
+    drivers::flydigi::poll(&mut ctx);
     drivers::playstation::poll(&mut ctx);
     drivers::airpods::poll(&mut ctx);
     drivers::bluetooth::poll(&mut ctx);
