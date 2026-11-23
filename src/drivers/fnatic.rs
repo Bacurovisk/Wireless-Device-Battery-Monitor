@@ -1,12 +1,16 @@
-//! FNATIC BOLT 2.4 GHz receiver (2F0E:0203) and USB cable (2F0E:0204).
+//! FNATIC BOLT wireless receiver (2F0E:0203) and USB cable (2F0E:0204).
 //!
-//! Hardware evidence: USBPcap captures and the FNATIC OP battery display.
-//! Unnumbered HID output: 0C 00 ...; input: 0C PP ... (PP = battery %).
-//! CAUTION: The charging flag below is *inferred* from a wired connection and
-//! battery below 100%, not decoded from a device charging-status field.
-//! FNATIC OP traces showed a transient wired 100% before the actual 65%.
-//! A first wired 100% is held for 15s and may use the last known non-full
-//! value while waiting; repeated values at the same instant do not confirm it.
+//! USBPcap evidence: a read-only 0x0C query gives the battery percentage over the
+//! 2.4 GHz receiver. The wired 0x0C response can report a bogus 100% even after
+//! the mouse has been connected for a while. Never use wired battery readings.
+//!
+//! USB presence selects the displayed connection (one logical device), while
+//! only the receiver supplies battery readings. If the receiver stops responding
+//! while plugged in, briefly retain the last wireless reading, clearly marked
+//! as cached. A missing or old reading remains unknown rather than fabricated.
+//!
+//! Charging is inferred from a connected USB cable (and a non-full/unknown
+//! battery level), NOT from a confirmed hardware charging flag.
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::HidDev;
 use std::sync::{Mutex, OnceLock};
@@ -17,53 +21,36 @@ const RECEIVER: u16 = 0x0203;
 const CABLE: u16 = 0x0204;
 const BATTERY_COMMAND: u8 = 0x0C;
 const TIMEOUT_MS: u32 = 1200;
-const WIRED_FULL_CONFIRM: Duration = Duration::from_secs(15);
+// Limit how long a previously observed wireless percentage may be displayed.
+const CACHE_MAX_AGE: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Default)]
-struct WiredFullFilter {
-    first_full: Option<Instant>,
-    last_non_full: Option<i32>,
+struct BatteryCache {
+    wireless: Option<(i32, Instant)>,
 }
 
-impl WiredFullFilter {
-    /// Reject a newly encountered wired 100% until it persists for 15s.
-    /// USB receiver captures observed a bogus 100% for about eight seconds.
-    fn filter(&mut self, wired: Option<i32>, wireless: Option<i32>, now: Instant) -> Option<i32> {
-        match wired {
-            Some(0..=99) => {
-                self.first_full = None;
-                self.last_non_full = wired;
-                wired
-            }
-            Some(100) => {
-                let since = *self.first_full.get_or_insert(now);
-                if now.saturating_duration_since(since) >= WIRED_FULL_CONFIRM {
-                    self.last_non_full = None;
-                    Some(100)
-                } else {
-                    let observed = wireless.filter(|p| (0..100).contains(p));
-                    if observed.is_some() { self.last_non_full = observed; }
-                    observed.or(self.last_non_full)
-                }
-            }
+impl BatteryCache {
+    /// Returns the fresh receiver reading, or a recent receiver reading.
+    /// Never records a wired reply, which is known to be unreliable.
+    fn select(&mut self, wireless: Option<i32>, now: Instant) -> (Option<i32>, bool) {
+        if let Some(p @ 0..=100) = wireless {
+            self.wireless = Some((p, now));
+            return (Some(p), false);
+        }
+        match self.wireless {
+            Some((p, at)) if now.saturating_duration_since(at) <= CACHE_MAX_AGE => (Some(p), true),
             _ => {
-                self.first_full = None;
-                None
+                self.wireless = None;
+                (None, false)
             }
         }
     }
-    fn wireless_only(&mut self, percent: Option<i32>) {
-        self.first_full = None;
-        if let Some(p @ 0..=99) = percent { self.last_non_full = Some(p); }
-        if percent == Some(100) { self.last_non_full = None; }
-    }
 }
 
-static FULL_FILTER: OnceLock<Mutex<WiredFullFilter>> = OnceLock::new();
-fn full_filter() -> &'static Mutex<WiredFullFilter> {
-    FULL_FILTER.get_or_init(|| Mutex::new(WiredFullFilter::default()))
+static CACHE: OnceLock<Mutex<BatteryCache>> = OnceLock::new();
+fn cache() -> &'static Mutex<BatteryCache> {
+    CACHE.get_or_init(|| Mutex::new(BatteryCache::default()))
 }
-
 
 /// Input report payload after HidDev strips a possible zero report ID.
 pub fn decode(payload: &[u8]) -> Option<i32> {
@@ -85,7 +72,6 @@ fn query(d: &HidDev) -> Option<i32> {
         if left == 0 {
             return None;
         }
-        // A timed-out read does not imply the mouse is disconnected.
         let data = d.read(left)?;
         if let Some(percent) = decode(&data) {
             return Some(percent);
@@ -93,11 +79,9 @@ fn query(d: &HidDev) -> Option<i32> {
     }
 }
 
-fn read_device(ctx: &PollContext, pid: u16) -> Option<i32> {
-    // The receiver uses MI_01, usage page FF (from hardware HID dump).
-    // Cable MI_01 is observed in Windows PnP; the report layout must be
-    // verified on wired hardware as well.
-    let colls = ctx.find(VID, pid, |c| {
+fn read_wireless(ctx: &PollContext) -> Option<i32> {
+    // Interface 1: vendor-defined HID collection, 65 byte input/output.
+    let colls = ctx.find(VID, RECEIVER, |c| {
         c.iface == 1 && c.page() == 0x00FF && c.usage() == 0x0001
             && c.in_len() == 65 && c.out_len() == 65
     });
@@ -110,120 +94,97 @@ pub fn poll(ctx: &mut PollContext) {
     if !cable_present && !dongle_present {
         return;
     }
-    // Only touch unclaimed devices; the driver is called before generic HID.
     if (cable_present && ctx.is_claimed(VID, CABLE))
         || (dongle_present && ctx.is_claimed(VID, RECEIVER)) {
         return;
     }
 
-    let wired = if cable_present { read_device(ctx, CABLE) } else { None };
-    // When a wired 100% first appears, also query the dongle. This gives a
-    // useful fallback instead of showing a known transient full reading.
-    let wireless = if dongle_present && (wired.is_none() || wired == Some(100)) {
-        read_device(ctx, RECEIVER)
-    } else {
-        None
-    };
-    let mut state = full_filter().lock().unwrap_or_else(|e| e.into_inner());
-    let chosen = if cable_present {
-        match wired {
-            Some(_) => Some((CABLE, state.filter(wired, wireless, Instant::now()))),
-            None => {
-                state.wireless_only(wireless);
-                wireless.map(|p| (RECEIVER, Some(p)))
-            }
-        }
-    } else {
-        state.wireless_only(wireless);
-        wireless.map(|p| (RECEIVER, Some(p)))
-    };
-    drop(state);
-    let selected_pid = chosen.map(|v| v.0).unwrap_or(if cable_present { CABLE } else { RECEIVER });
-    let is_wired = selected_pid == CABLE;
+    // The 0204 cable may report 100% incorrectly indefinitely. Do not query it.
+    let wireless = if dongle_present { read_wireless(ctx) } else { None };
+    let (percent, cached) = cache().lock().unwrap_or_else(|e| e.into_inner())
+        .select(wireless, Instant::now());
+
+    let selected_pid = if cable_present { CABLE } else { RECEIVER };
     let mut status = DeviceStatus {
         key: "fnatic:bolt".into(),
         name: "FNATIC BOLT".into(),
         kind: DeviceKind::Mouse,
-        via: if is_wired { "USB cable" } else { "2.4 GHz receiver" }.into(),
+        via: if cable_present { "USB cable" } else { "2.4 GHz receiver" }.into(),
         hw: Some((VID, selected_pid)),
         grace_sec: 60,
         ..Default::default()
     };
-    if let Some((_, percent)) = chosen {
-        // A temporarily suppressed wired 100% deliberately has unknown percent
-        // if neither the receiver nor a previous valid level is available.
-        if let Some(percent) = percent {
-            status.percent = percent;
-            status.charging = inferred_charging(is_wired, percent);
-        }
-        if is_wired {
-            status.detail = "Charging inferred from USB cable; initial 100% filtered".into();
-        }
-    } else {
+    if let Some(p) = percent { status.percent = p; }
+    // USB presence is known; the charge flag itself is not known.
+    status.charging = cable_present && percent != Some(100);
+    if cable_present {
+        status.detail = if cached {
+            "USB cable attached; battery last read from receiver (cached). Charging inferred".into()
+        } else if percent.is_none() {
+            "USB cable attached; battery unknown. Charging inferred".into()
+        } else {
+            "USB cable attached; battery read from receiver. Charging inferred".into()
+        };
+    } else if cached {
+        status.detail = "Last known receiver battery level (cached)".into();
+    }
+    // A plugged-in USB cable is still connected even if battery is unknown.
+    if !cable_present && percent.is_none() {
         status.connected = false;
     }
     ctx.add(status, VID, selected_pid);
-    // Both USB identities can be present at once. Never show duplicates.
     if cable_present { ctx.claim(VID, CABLE); }
     if dongle_present { ctx.claim(VID, RECEIVER); }
-}
-
-fn inferred_charging(wired: bool, percent: i32) -> bool {
-    wired && (0..100).contains(&percent)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn recorded_readings() {
-        for (hex, expected) in [(0x2C,44),(0x41,65),(0x3F,63),(0x64,100)] {
-            let mut report = [0u8;64];
-            report[0] = 0x0C;
-            report[1] = hex;
-            assert_eq!(decode(&report),Some(expected));
+    fn recorded_wireless_response() {
+        for (b, expected) in [(0x2C, 44), (0x41, 65), (0x3F, 63), (0x64, 100)] {
+            let mut report = [0u8; 64];
+            report[0] = BATTERY_COMMAND;
+            report[1] = b;
+            assert_eq!(decode(&report), Some(expected));
         }
     }
+
     #[test]
-    fn invalid_reports_rejected() {
-        assert_eq!(decode(&[0x0C,44]),None);
-        let mut r = [0u8;64];
-        r[0]=0x0D; r[1]=44;
-        assert_eq!(decode(&r),None);
-        r[0]=0x0C; r[1]=101;
-        assert_eq!(decode(&r),None);
+    fn malformed_reports_rejected() {
+        assert_eq!(decode(&[BATTERY_COMMAND, 44]), None);
+        let mut report = [0u8; 64];
+        report[0] = 0x0D;
+        report[1] = 44;
+        assert_eq!(decode(&report), None);
+        report[0] = BATTERY_COMMAND;
+        report[1] = 101;
+        assert_eq!(decode(&report), None);
     }
+
     #[test]
-    fn initial_wired_full_does_not_flash_100() {
+    fn cached_receiver_level_expires() {
         let t = Instant::now();
-        let mut s = WiredFullFilter::default();
-        s.wireless_only(Some(65));
-        assert_eq!(s.filter(Some(100), Some(65), t), Some(65));
-        assert_eq!(s.filter(Some(100), None, t + Duration::from_secs(9)), Some(65));
-        assert_eq!(s.filter(Some(65), None, t + Duration::from_secs(10)), Some(65));
-        assert_eq!(s.first_full, None);
+        let mut state = BatteryCache::default();
+        assert_eq!(state.select(None, t), (None, false));
+        assert_eq!(state.select(Some(65), t), (Some(65), false));
+        assert_eq!(state.select(None, t + Duration::from_secs(60)), (Some(65), true));
+        assert_eq!(state.select(None, t + CACHE_MAX_AGE + Duration::from_secs(1)), (None, false));
     }
+
     #[test]
-    fn actual_full_is_accepted_after_confirmation() {
+    fn fresh_receiver_reading_replaces_cache() {
         let t = Instant::now();
-        let mut s = WiredFullFilter::default();
-        assert_eq!(s.filter(Some(100), None, t), None);
-        assert_eq!(s.filter(Some(100), None, t + Duration::from_secs(14)), None);
-        assert_eq!(s.filter(Some(100), None, t + Duration::from_secs(15)), Some(100));
-        assert_eq!(s.filter(Some(88), None, t + Duration::from_secs(16)), Some(88));
+        let mut state = BatteryCache::default();
+        state.select(Some(65), t);
+        assert_eq!(state.select(Some(64), t + Duration::from_secs(30)), (Some(64), false));
+        assert_eq!(state.select(None, t + Duration::from_secs(40)), (Some(64), true));
     }
+
     #[test]
-    fn cable_reconnect_starts_new_confirmation_window() {
-        let t = Instant::now();
-        let mut s = WiredFullFilter::default();
-        assert_eq!(s.filter(Some(100), None, t), None);
-        s.wireless_only(Some(64));
-        assert_eq!(s.filter(Some(100), None, t + Duration::from_secs(20)), Some(64));
-    }
-    #[test]
-    fn charge_is_only_an_inference() {
-        assert!(inferred_charging(true,65));
-        assert!(!inferred_charging(false,65));
-        assert!(!inferred_charging(true,100));
+    fn genuine_receiver_100_is_allowed() {
+        let mut state = BatteryCache::default();
+        assert_eq!(state.select(Some(100), Instant::now()), (Some(100), false));
     }
 }
