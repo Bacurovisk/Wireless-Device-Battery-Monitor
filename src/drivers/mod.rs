@@ -4,6 +4,7 @@ pub mod airpods;
 pub mod attackshark;
 pub mod blackshark;
 pub mod bluetooth;
+pub mod fnatic;
 pub mod generic;
 pub mod logitech;
 pub mod playstation;
