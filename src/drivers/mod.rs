@@ -6,6 +6,7 @@ pub mod blackshark;
 pub mod bluetooth;
 pub mod fnatic;
 pub mod generic;
+pub mod hyperx;
 pub mod logitech;
 pub mod playstation;
 pub mod razer;
