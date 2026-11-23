@@ -16,8 +16,8 @@ in about <b>0.2 MB of RAM</b>.
 </p>
 
 <p align="center">
-<img src="res/screenshot-taskbar.png" width="440" alt="BatteryHub on the taskbar: mouse 86% charging (green bolt), headset 80%"><br>
-<img src="res/screenshot-tooltip.png" width="430" alt="Hover tooltip: device name, level, charge state, connection and warning level">
+<img src="res/screenshot-card.png" width="300" alt="Hover card: Logitech PRO 2 LIGHTSPEED, 80%, level bar, Logitech receiver, chart of the last 24 hours"><br>
+<img src="res/screenshot-taskbar.png" width="390" alt="BatteryHub on the Windows 11 taskbar next to the notification area: headset 88%, mouse 80%">
 </p>
 
 > [!IMPORTANT]
@@ -34,7 +34,7 @@ Developed by [@ferloom](https://github.com/ferloom) with the help of Claude (AI)
 
 ## Contents
 
-[Download](#download) Â· [Problem with a new version?](#problem-with-a-new-version-downgrade-and-report-it) Â· [Features](#features) Â· [Using it](#using-it) Â· [Setup](#setup-install--update--uninstall) Â· [Resource usage vs. the original](#resource-usage-vs-the-original) Â· [Taskbar compatibility](#taskbar-compatibility) Â· [Supported devices](#supported-devices) Â· [Unsupported devices](#unsupported-devices) Â· [Testing](#testing) Â· [Building](#building-from-source) Â· [License](#license)
+[Download](#download) · [Problem with a new version?](#problem-with-a-new-version-downgrade-and-report-it) · [Features](#features) · [Using it](#using-it) · [Setup](#setup-install--update--uninstall) · [Resource usage vs. the original](#resource-usage-vs-the-original) · [Taskbar compatibility](#taskbar-compatibility) · [Supported devices](#supported-devices) · [Unsupported devices](#unsupported-devices) · [Testing](#testing) · [Building](#building-from-source) · [License](#license)
 
 ## Download
 
@@ -43,7 +43,7 @@ Get **`BatteryHub-Taskbar-Setup-v1.5.exe`** from the [**latest release**](../../
 - No administrator rights needed (per-user install).
 - Already installed? Use *Check for updates...* in the right-click menu, or run the new setup and choose **[2] Update**.
 - It does not interfere with the original C++ BatteryHub if you have that installed too.
-- Windows may show a SmartScreen warning because the file is not code-signed: *More info* â†’ *Run anyway*.
+- Windows may show a SmartScreen warning because the file is not code-signed: *More info* → *Run anyway*.
 
 ## Problem with a new version? Downgrade and report it
 
@@ -63,9 +63,9 @@ If something breaks after an update, you can always go back to an older version 
 
 ## Features
 
-- **On the taskbar, next to the clock:** one icon and percentage per device (`đźŽ§ 27%  đź–± 96%`), in the original's look (Segoe Fluent Icons, Segoe UI Variable, ClearType), following light / dark mode and DPI.
+- **On the taskbar, next to the clock:** one icon and percentage per device (`🎧 27%  🖱 96%`), in the original's look (Segoe Fluent Icons, Segoe UI Variable, ClearType), following light / dark mode and DPI.
 - **Hover a device** for a card with its name, level, connection and a chart of the **last 24 hours**, fading in and cross-fading between devices like the taskbar's window previews; the widget lights up like the taskbar's own buttons. The history keeps one point per change (at least every 10 minutes), is deleted after 24 hours, and is stored with the settings (`History`), so the uninstaller removes it.
-- **Charging at a glance:** green âšˇ while charging, blue âšˇ at 100%, red percentage at or below the device's warning level.
+- **Charging at a glance:** green ⚡ while charging, blue ⚡ at 100%, red percentage at or below the device's warning level.
 - **Per-device warning level:** 50 / 40 / 30 / 20 / 15 / 10 / 5%.
 - **Reacts at once** when a receiver, cable or Bluetooth device connects or disconnects, and within ~10 s when a headset on a 2.4 GHz dongle is switched on or off.
 - **Refresh interval** of 1 / 5 / 10 / 30 minutes or 1 hour.
@@ -76,7 +76,7 @@ If something breaks after an update, you can always go back to an older version 
 - **Start with Windows** and **automatic update check** switched on or off right from the menu.
 - **Check for updates** from the menu, with a SHA-256-verified download.
 - **Request support for a device** from the menu: pick a device that is not shown, and a GitHub issue opens filled in with what is needed to add it.
-- **Tiny:** about 0.1â€“0.2 MB of RAM when idle (Task Manager "Memory"), about 0.1 s of CPU per minute.
+- **Tiny:** about 0.1–0.2 MB of RAM when idle (Task Manager "Memory"), about 0.1 s of CPU per minute.
 - **One copy only:** starting BatteryHub again while it runs does nothing.
 - **Safe fallback** to notification-area icons on a vertical taskbar or an unknown Explorer layout.
 
@@ -85,38 +85,38 @@ If something breaks after an update, you can always go back to an older version 
 | On the strip | Meaning |
 |---|---|
 | **Red** percentage | At or below the device's warning level (default 15%) |
-| **Green âšˇ** | Plugged in and charging |
-| **Blue âšˇ** | Plugged in and charged to 100% |
+| **Green ⚡** | Plugged in and charging |
+| **Blue ⚡** | Plugged in and charged to 100% |
 | Dimmed | Asleep (receiver still plugged in), showing the last known value |
 
 Left click does nothing (on purpose: the strip stays out of the way). **Right click** opens the menu:
 
 | Menu item | What it does |
 |---|---|
-| *Device name (level, state)* â–¸ | *Red warning at or below* 50 / 40 / 30 / 20 / **15** / 10 / 5% for that device |
+| *Device name (level, state)* ▸ | *Red warning at or below* 50 / 40 / 30 / 20 / **15** / 10 / 5% for that device |
 | *Refresh devices* | Full rescan; devices that are gone disappear |
 | *Refresh battery levels* | Reads the levels again |
-| *Refresh battery every* â–¸ | **1 minute** / 5 / 10 / 30 minutes / 1 hour |
+| *Refresh battery every* ▸ | **1 minute** / 5 / 10 / 30 minutes / 1 hour |
 | *Refresh when a device connects or disconnects* | **On** by default; see below |
-| *Show as notification-area icons (Windows arranges them)* | **Off** by default. Instead of the strip, one notification-area icon per device with its level drawn in it. Windows places these icons like any other: drag them to reorder or in and out of the hidden icons. New icons start hidden behind ^ (Windows 11 does that for every app): drag them onto the taskbar or turn them on in *Settings â†’ Personalization â†’ Taskbar â†’ Other system tray icons* once; Windows remembers it per device |
+| *Show as notification-area icons (Windows arranges them)* | **Off** by default. Instead of the strip, one notification-area icon per device with its level drawn in it. Windows places these icons like any other: drag them to reorder or in and out of the hidden icons. New icons start hidden behind ^ (Windows 11 does that for every app): drag them onto the taskbar or turn them on in *Settings → Personalization → Taskbar → Other system tray icons* once; Windows remembers it per device |
 | *Background behind taskbar text (for translucent taskbars)* | **Off** by default. A rounded plate in the taskbar's colour behind the widget, so it stays readable on a transparent taskbar (TranslucentTB, Windhawk Taskbar Styler...) |
-| *Position on the taskbar* â–¸ | **Next to the notification area** or 20 to 200 px to the left of it (in 20 px steps), e.g. to make room for another taskbar widget (iCUE, network meters...). Also applies on other monitors. A value set by hand (`TaskbarOffset`) shows as *Custom* |
-| *Height on the taskbar* â–¸ | 5 / 10 / 15 px up, **Centred**, or 5 / 10 / 15 px down. Also applies on other monitors. A value set by hand (`TaskbarOffsetY`) shows as *Custom* |
-| *Show widget on* â–¸ | Only with more than one monitor: *All monitors* / **Main monitor only** / *Display 2 (left) only*... The monitor is remembered by its identity, not its number; while it is unplugged the widget is on the main taskbar. Other monitors need *Show my taskbar on all displays* in Windows (taskbars of other programs, e.g. DisplayFusion, are not supported) |
+| *Position on the taskbar* ▸ | **Next to the notification area** or 20 to 200 px to the left of it (in 20 px steps), e.g. to make room for another taskbar widget (iCUE, network meters...). Also applies on other monitors. A value set by hand (`TaskbarOffset`) shows as *Custom* |
+| *Height on the taskbar* ▸ | 5 / 10 / 15 px up, **Centred**, or 5 / 10 / 15 px down. Also applies on other monitors. A value set by hand (`TaskbarOffsetY`) shows as *Custom* |
+| *Show widget on* ▸ | Only with more than one monitor: *All monitors* / **Main monitor only** / *Display 2 (left) only*... The monitor is remembered by its identity, not its number; while it is unplugged the widget is on the main taskbar. Other monitors need *Show my taskbar on all displays* in Windows (taskbars of other programs, e.g. DisplayFusion, are not supported) |
 | *Automatically start with Windows* | Adds or removes BatteryHub's autostart entry (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\BatteryHub Taskbar`) |
 | *Automatically check for updates* | **Off** by default. When on, BatteryHub checks GitHub once, about 2 s after it starts (not while it runs; if the network is not up yet it tries again every 15 s, up to 8 times); if there is a new version you get the same question as with *Check for updates...* |
 | *Install updates silently* | **Off** by default; needs the automatic check. When the check finds a new version, BatteryHub downloads it, verifies its SHA-256 checksum and installs it in the background: no question, no setup window, no "Update finished" message. Settings and autostart are kept. |
 | *Request support for a device...* | Lists every device BatteryHub can see (HID, USB and Bluetooth; vendor-specific and audio devices first). Pick yours, check the name and type, add notes, and *Send* opens a new GitHub issue in your browser, filled in with exactly what the window shows: name, type, your name (optional, the issue is public), notes, vendor / product id, HID and USB interface summary, Windows build. You submit it there (a GitHub account is needed); nothing is sent from the app. *Copy full report* copies the same plus the list of all devices. Also available as `batteryhub-taskbar.exe --report` |
-| *Check for updates...* | "No new updates", or "A new update is available: v1.1 â†’ v1.x - update now?". *Yes* downloads the setup, checks it against the release's SHA-256 checksum and starts it; it updates and restarts BatteryHub, keeping your settings and autostart |
+| *Check for updates...* | "No new updates", or "A new update is available: v1.1 → v1.x - update now?". *Yes* downloads the setup, checks it against the release's SHA-256 checksum and starts it; it updates and restarts BatteryHub, keeping your settings and autostart |
 | *Exit* | Closes BatteryHub |
 
-Tooltip and menu follow the taskbar theme (dark or light); the *Request support* window follows the Windows app theme.
+The hover card and the menu follow the taskbar theme (dark or light); the *Request support* window follows the Windows app theme.
 
 **When a device comes or goes** (with *Refresh when a device connects or disconnects* on):
 
 | Event | Shown after |
 |---|---|
-| USB receiver / cable plugged in or removed | ~1â€“3 s (Windows device notifications; every read also checks whether the set of HID devices changed) |
+| USB receiver / cable plugged in or removed | ~1–3 s (Windows device notifications; every read also checks whether the set of HID devices changed) |
 | Bluetooth device (AirPods, headphones, controllers) connects or disconnects | a few seconds (connections are checked every 3 s); AirPods only while connected to this PC |
 | Headset on a 2.4 GHz dongle switched on or off | ~10 s (headset dongles are checked every 10 s) |
 | Mouse / keyboard asleep, receiver still plugged in | stays, dimmed, with its last level |
@@ -137,19 +137,19 @@ The setup is a console window with a detailed log. Before it shows any options, 
 | **[3] Uninstall** | installed | Stops the program, checks every autostart location (HKCU / HKLM Run, RunOnce, Task Manager startup state, Startup folder) for entries that start it and removes them, then the shortcuts, files and settings. Lists everything it removed |
 | **[0] Exit** | always | Changes nothing |
 
-BatteryHub also appears in **Settings â†’ Apps â†’ Installed apps**, where *Uninstall* runs the same uninstall.
+BatteryHub also appears in **Settings → Apps → Installed apps**, where *Uninstall* runs the same uninstall.
 
-At the end it thanks you, links to the project (a â­ helps!) and closes itself after 5 seconds. On an error it stays open.
+At the end it thanks you, links to the project (a ⭐ helps!) and closes itself after 5 seconds. On an error it stays open.
 
 Command line for scripts: `/install`, `/update`, `/uninstall`, `/S` (silent), `/autostart=yes|no`, `/nolaunch`, `/nonotify` (no "Update finished" message afterwards).
 
 | Where the files go | |
 |---|---|
 | Program | `%LOCALAPPDATA%\Programs\BatteryHub\Taskbar\batteryhub-taskbar.exe`, plus `BatteryHub-Setup.exe` (a copy of the setup that *Uninstall* in Settings runs) |
-| Settings â†’ Apps entry | `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\BatteryHub Taskbar` |
+| Settings → Apps entry | `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\BatteryHub Taskbar` |
 | Shortcuts | Desktop and `Start Menu\Programs\BatteryHub\BatteryHub Taskbar.lnk` |
 | Settings | `HKCU\Software\BatteryHub\Taskbar`: `Thresholds` (per device), `RefreshMinutes`, `RefreshOnDeviceChange`, `TaskbarOffset` (DWORD, gap from the clock in pixels), `TaskbarOffsetY` (DWORD, up / down shift in pixels, + = down), `WidgetMonitor` (`all`, `main` or a monitor id), `WidgetBackground`, `AutoCheckUpdates`, `SilentUpdates`, `NotificationIcons`, `History` (binary, last 24 hours of levels) |
-| Autostart | `HKCU\...\Run` â†’ `BatteryHub Taskbar` (if you chose it) |
+| Autostart | `HKCU\...\Run` → `BatteryHub Taskbar` (if you chose it) |
 
 The original C++ BatteryHub uses different names (`Program Files\BatteryHub`, `HKCU\Software\WirelessBattery`, autostart `WirelessBattery`) and is never touched.
 
@@ -159,18 +159,20 @@ Both programs running **side by side on the same PC**, the same devices connecte
 
 | | **BatteryHub (Rust) v1.1** | BatteryHub (C++) 1.1.0 | |
 |---|---:|---:|---:|
-| **RAM in Task Manager** ("Memory" column), median | **0.20 MB** | 4.66 MB | **23Ă— less** |
+| **RAM in Task Manager** ("Memory" column), median | **0.20 MB** | 4.66 MB | **23× less** |
 | RAM in Task Manager, average / max | 0.33 / 0.82 MB | 4.65 / 4.92 MB | |
-| Working set incl. shared system DLLs | **1.3 MB** | 27.5 MB | 21Ă— less |
+| Working set incl. shared system DLLs | **1.3 MB** | 27.5 MB | 21× less |
 | Private bytes (commit) | **4.6 MB** | 6.0 MB | |
-| CPU time per minute | **0.11 s** | 0.88 s | 8Ă— less |
+| CPU time per minute | **0.11 s** | 0.88 s | 8× less |
 | Threads | **9** | 15 | |
 | Handles | 367 | 375 | |
-| Program file | **867 KB** | 1,958 KB | 2.3Ă— smaller |
+| Program file | **about 500 KB** | 1,958 KB | 4× smaller |
+
+**v1.5**, with about 40 more device drivers, the hover card and its 24-hour history: program 867 KB, setup 1.6 MB. In a 90-second check the Task Manager median was **0.12 MB**, with short peaks up to about 1 MB while the devices are being read.
 
 What keeps it small: memory needed only for a moment (a read, a Bluetooth check) is handed back to Windows right after; settings are cached; Bluetooth LE is listened to only while reading; the device list is cached and rescanned only when it changes; only Bluetooth device nodes are enumerated; the Xbox input APIs and WinHTTP are loaded only when needed.
 
-**To be fair:** the original does a lot more (about 100 device drivers, battery history, brand colours and more options). Part of the difference is less code doing less work, not only the language.
+**To be fair:** the original has more device drivers (about 100), brand colours and more options. Part of the difference is less code doing less work, not only the language.
 
 ## Taskbar compatibility
 
@@ -181,7 +183,7 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Windows 11, Windows 10, ExplorerPatcher (also the small Windows 10 taskbar) | Strip next to the clock; on the Windows 10 layout the task buttons are narrowed so they never slide under it |
 | Explorer restarts | Recreates exactly one strip on the new taskbar (stray strip windows are removed every second) |
 | Taskbar height, DPI or theme changes (e.g. after leaving full screen) | Re-renders the strip |
-| Vertical taskbar, unknown Explorer layout, or the strip cannot be placed for 3 s | **One notification-area icon per device** (level drawn in the icon, same tooltip and menu), back to the strip when possible |
+| Vertical taskbar, unknown Explorer layout, or the strip cannot be placed for 3 s | **One notification-area icon per device** (level drawn in the icon, a short tooltip and the same menu), back to the strip when possible |
 
 ## Supported devices
 
@@ -209,7 +211,7 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | HyperX | Cloud III S Wireless headset over its 2.4 GHz dongle `03F0:06BE` / `03F0:02CC` (protocol as documented by [HyperX-Battery-Tray](https://github.com/GuacamoleGH/HyperX-Battery-Tray), [hyperx-battery-logger](https://github.com/OZX-OG/hyperx-battery-logger) and [HyperHeadset](https://github.com/LennardKittner/HyperHeadset), all MIT) |
 | HyperX Cloud II Core Wireless | Over its 2.4 GHz dongle `03F0:0995` (second id `03F0:0795`) (protocol from [HaloBattery](https://github.com/HeyOkay/HaloBattery) and [HyperHeadset](https://github.com/LennardKittner/HyperHeadset), both MIT) |
 | HyperX Cloud Flight | Over its 2.4 GHz dongle `0951:1723` (and `0951:16C4`); level in 5 % steps, no level while charging; contributed by [estebannoemr](https://github.com/estebannoemr) in #93, tested on hardware (protocol from [hyperx-cloud-flight](https://github.com/kondinskis/hyperx-cloud-flight) and [hyperx-cloud-flight-wireless](https://github.com/srn/hyperx-cloud-flight-wireless), both MIT) |
-| HyperX (older headsets) | Cloud Flight (`0951:16C4` / `0951:1723`), Cloud Stinger Core Wireless (`0951:170B`, PlayStation receivers `0951:1713` / `03F0:0A93` / `03F0:0B93`) over their 2.4 GHz dongles (protocols from [HeadsetControl](https://github.com/Sapd/HeadsetControl), GPL-3.0, [HyperHeadset](https://github.com/LennardKittner/HyperHeadset), MIT, and [HyperBatteryMonitor](https://github.com/davidsantanaalves/HyperBatteryMonitor), MIT, as used by the original C++ BatteryHub; the Cloud Flight shows no level while charging) |
+| HyperX (older headsets) | Cloud Stinger Core Wireless (`0951:170B`, PlayStation receivers `0951:1713` / `03F0:0A93` / `03F0:0B93`) over their 2.4 GHz dongles (protocols from [HeadsetControl](https://github.com/Sapd/HeadsetControl), GPL-3.0, [HyperHeadset](https://github.com/LennardKittner/HyperHeadset), MIT, and [HyperBatteryMonitor](https://github.com/davidsantanaalves/HyperBatteryMonitor), MIT, as used by the original C++ BatteryHub) |
 | Logitech G533 | Headset over its dongle `046D:0A66`, read with its fixed HID++ battery request (protocol and voltage calibration from [HeadsetControl](https://github.com/Sapd/HeadsetControl), GPL-3.0) |
 | ZOWIE | DW-series mice (FK2-DW, U2-DW, S2-DW, EC-DW ...) on the DW receiver `04A5:800A`, ZOWIE U2 on `04A5:8008`; level estimated from the battery voltage, charging on the dock inferred from its trend (protocol from [zowie-battery-tray](https://github.com/IgnacioBarb/zowie-battery-tray), MIT, as used by the original C++ BatteryHub) |
 | Keychron | Mice (M1, M2, M3, M3 mini, M6, M7) on the Keychron Link receiver `3434:D030` / `3434:D031`; keyboards on it only with the `KC_GET_BATTERY` firmware patch ([ldkv/qmk_firmware#1](https://github.com/ldkv/qmk_firmware/pull/1)), as stock keyboard firmware reports its battery over Bluetooth only (protocol as documented by the original C++ BatteryHub, GPL-3.0) |
@@ -222,11 +224,11 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Generic HID | Devices exposing the standard Battery Strength usage |
 | Xbox | Windows.Gaming.Input (exact %) and XInput (coarse levels) |
 
-Device not shown? Use *Request support for a device...* in the right-click menu (see above). More brands from the original project can be added as one file each in `src/drivers/`; pull requests are welcome (the ROCCAT driver came from one). Devices can be excluded with `HKCU\Software\WirelessBattery\IgnoreDevices` (`VID:PID` list, the same setting as the original).
+Device not shown? Use *Request support for a device...* in the right-click menu (see above). More brands from the original project can be added as one file each in `src/drivers/`; pull requests are welcome (the ROCCAT, FNATIC BOLT and HyperX Cloud Flight drivers came from them). Devices can be excluded with `HKCU\Software\WirelessBattery\IgnoreDevices` (`VID:PID` list, the same setting as the original).
 
 ## Unsupported devices
 
-Devices that were requested but cannot be supported for now, and why. Most of them can still show their battery over **Bluetooth**, if the device has it: whenever Windows shows the level in *Settings â†’ Bluetooth & devices*, BatteryHub shows it too. If you know how one of these reports its battery (a capture, a project that reads it), please comment on its issue; `batteryhub-taskbar.exe --listen VID:PID` records what a receiver sends without sending anything to it.
+Devices that were requested but cannot be supported for now, and why. Most of them can still show their battery over **Bluetooth**, if the device has it: whenever Windows shows the level in *Settings → Bluetooth & devices*, BatteryHub shows it too. If you know how one of these reports its battery (a capture, a project that reads it), please comment on its issue; `batteryhub-taskbar.exe --listen VID:PID` records what a receiver sends without sending anything to it.
 
 | Device | VID:PID | Why | Issue |
 |---|---|---|---|
@@ -261,12 +263,12 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | Keychron TurboLink 8K receiver | `3434:D05A` | Not among the documented Keychron receiver ids; which Launcher protocol it uses is not confirmed, so commands are not guessed | [#45](../../issues/45) |
 | Redragon K1NG 4K PRO (M916 PRO 4K) | `3554:F54F` | Not among the documented CompX (Pulsar / Kysona) ids; commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#46](../../issues/46) |
 | PIAO-2.4G mouse | `372E:1014` | No documented protocol for this `372E` receiver | [#47](../../issues/47) |
-| AJAZZ NJ07 (Bluetooth LE) | â€” | Windows reads no battery level from it over Bluetooth; its 2.4 GHz dongle has not been reported yet | [#69](../../issues/69) |
+| AJAZZ NJ07 (Bluetooth LE) | — | Windows reads no battery level from it over Bluetooth; its 2.4 GHz dongle has not been reported yet | [#69](../../issues/69) |
 | VXE V1 (VGN Siren V1) headset | `10D6:0016` | The Actions-chip dongle's vendor channels are undocumented; no battery query is known. Over Bluetooth it works when Windows shows the level. | [#85](../../issues/85) |
 
 ## Testing
 
-- **Unit tests** (`cargo test --lib`) decode recorded device reports without the hardware: SteelSeries Arctis Nova status blocks, DualSense / DualShock 4 input reports, AirPods proximity broadcasts, Google Fast Pair battery fields, Logitech voltage curves and receiver grouping. They also cover when a device is removed or shown as asleep, warning levels, colours, menu ids, the GitHub release parser, SHA-256 and version comparison.
+- **Unit tests** (`cargo test --lib`) decode recorded device reports without the hardware: SteelSeries Arctis Nova status blocks, DualSense / DualShock 4 input reports, AirPods proximity broadcasts, Google Fast Pair battery fields, Logitech voltage curves and receiver grouping, and the report decoders of every vendor driver (frames taken from the protocol sources). They also cover the 24-hour history, the card's blur, when a device is removed or shown as asleep, warning levels, colours, menu ids, the GitHub release parser, SHA-256 and version comparison.
 - The **setup** has its own tests (autostart matching never touches the original app, version handling).
 - **CI** ([GitHub Actions](.github/workflows/ci.yml)) runs all tests and builds the program and the setup on every push.
 - **Resource usage** is measured with [bench/compare.ps1](bench/compare.ps1) (two programs side by side) and [bench/measure.ps1](bench/measure.ps1).
@@ -286,7 +288,7 @@ This builds the program, then the setup with the program embedded (`installer/`,
 | `src/` | Library: HID layer, device drivers, BLE watcher, settings, update check, UI and setup helpers |
 | `src/bin/taskbar.rs` | The taskbar program |
 | `installer/` | The setup (`src/setup.rs`) |
-| `res/` | Icon (`make_icon.py` draws it), manifest, resource script |
+| `res/` | Icon (`make_icon.py` draws it), manifest, resource script, README screenshots |
 | `bench/` | Resource measurement scripts and results |
 | `.github/workflows/ci.yml` | CI: tests and builds on every push |
 | `examples/list.rs` | Console diagnostics: `cargo run --example list -- --dump --ble`, `-- --update` |
