@@ -335,6 +335,50 @@ mod tests {
         assert!(unused.is_empty(), "not used any more: {unused:#?}");
     }
 
+    /// The connection texts drivers set (`via: "..."`, `.via = "..."`, also in `if` / `else` arms
+    /// over several lines): drivers are not scanned for `tr(` / `n_(`, so these reach lang/en.txt
+    /// through `device::CONNECTIONS`.
+    fn driver_connection_texts() -> BTreeSet<String> {
+        let mut out = BTreeSet::new();
+        for e in std::fs::read_dir("src/drivers").unwrap().flatten() {
+            let src = std::fs::read_to_string(e.path()).unwrap();
+            for pat in ["via:", ".via ="] {
+                for (i, _) in src.match_indices(pat) {
+                    let (before, value) = (&src[..i], &src[i + pat.len()..]);
+                    if (pat == "via:" && before.ends_with(|c: char| c == '"' || c == '_' || c.is_alphanumeric())) || value.starts_with('=') {
+                        continue; // "via:{...}" in a key, "via_name", a `==` comparison
+                    }
+                    // String literals up to the end of the value: a `,` or `;` outside brackets.
+                    let (mut depth, mut chars) = (0, value.chars());
+                    while let Some(c) = chars.next() {
+                        match c {
+                            '"' => {
+                                out.insert(chars.by_ref().take_while(|&c| c != '"').collect());
+                            }
+                            '(' | '{' => depth += 1,
+                            ')' | '}' if depth == 0 => break,
+                            ')' | '}' => depth -= 1,
+                            ',' | ';' if depth == 0 => break,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn driver_connections_are_translatable() {
+        // Names of products, protocols and standards: the same in every language.
+        const NAMES: [&str; 5] = ["Bluetooth", "HID", "Jabra Link 390", "Xbox Wireless", "Xbox Wireless / Bluetooth"];
+        let listed: BTreeSet<&str> = crate::device::CONNECTIONS.iter().copied().chain(NAMES).collect();
+        let found = driver_connection_texts();
+        assert!(found.contains("Logitech receiver") && found.contains("USB cable"), "{found:#?}");
+        let missing: Vec<_> = found.iter().filter(|t| !listed.contains(t.as_str())).collect();
+        assert!(missing.is_empty(), "add to device::CONNECTIONS (and lang/*.txt), or to NAMES if it is a name: {missing:#?}");
+    }
+
     #[test]
     fn every_language_is_complete_and_keeps_placeholders() {
         let en = english_keys();

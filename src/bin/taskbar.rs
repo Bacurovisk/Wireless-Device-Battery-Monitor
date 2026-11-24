@@ -3210,13 +3210,13 @@ fn monitor_label(bar: HWND) -> String {
             let dx = (m.left + m.right - p.left - p.right) / 2;
             let dy = (m.top + m.bottom - p.top - p.bottom) / 2;
             let side = if dx.abs() >= dy.abs() {
-                if dx < 0 { "left" } else { "right" }
+                if dx < 0 { n_("{display} (left)") } else { n_("{display} (right)") }
             } else if dy < 0 {
-                "above"
+                n_("{display} (above)")
             } else {
-                "below"
+                n_("{display} (below)")
             };
-            label += &format!(" ({side})");
+            label = trf(side, &[("display", &label)]);
         }
     }
     label
