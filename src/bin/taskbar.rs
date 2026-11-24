@@ -61,7 +61,7 @@ const TIMER_NOTIFY: usize = 21;
 const TIMER_AWAY: usize = 22;
 /// Devices sliding to their new places on the strip.
 const TIMER_SLIDE: usize = 23;
-/// Frames of a copy on another monitor popping in as it appears.
+/// Frames of a strip popping in as it appears on a monitor, or out as it leaves one.
 const TIMER_MIRROR_IN: usize = 24;
 /// Length of that pop-in.
 const MIRROR_IN_MS: f32 = 320.0;
@@ -300,8 +300,10 @@ struct App {
     main_tray: RECT,
     /// Every copy on another monitor knows its place: the strips appear on all taskbars together.
     mirrors_ready: bool,
-    /// Copies popping in (strip, start).
-    mirror_in: Vec<(HWND, Instant)>,
+    /// Strips popping in or out (strip, start, leaving): copies on other monitors, and the main
+    /// strip when the widget moves to or from another monitor. A copy that left is destroyed, the
+    /// main strip hidden, once it has popped out.
+    mirror_in: Vec<(HWND, Instant, bool)>,
     /// Strip x ranges of the devices drawn in the last paint: (from, to, device index).
     hits: Vec<(i32, i32, usize)>,
     /// Hover tooltip (tracking tooltip owned by the main window) and what it shows right now.
@@ -1066,10 +1068,12 @@ impl App {
         self.size = SIZE { cx: w, cy: h };
         self.pixels = cv.px;
         self.lit = self.hover_pixels();
-        self.push(self.strip);
+        if !self.popping(self.strip) {
+            self.push(self.strip);
+        }
         for i in 0..self.mirrors.len() {
             let m = self.mirrors[i].1;
-            if !self.mirror_in.iter().any(|(h, _)| *h == m) {
+            if !self.popping(m) {
                 self.push(m);
             }
         }
@@ -1421,7 +1425,12 @@ impl App {
                 keep.push((bar, strip));
             } else if is_our_strip(strip) {
                 unsafe {
-                    let _ = DestroyWindow(strip);
+                    if IsWindow(Some(bar)).as_bool() && IsWindowVisible(strip).as_bool() {
+                        // No longer wanted on that monitor: pops out, then is destroyed.
+                        self.start_pop(strip, true);
+                    } else {
+                        let _ = DestroyWindow(strip);
+                    }
                 }
             }
         }
@@ -1444,7 +1453,7 @@ impl App {
                         break;
                     }
                     after = Some(h);
-                    if !self.mirrors.iter().any(|m| m.1 == h) && is_our_strip(h) {
+                    if !self.mirrors.iter().any(|m| m.1 == h) && !self.popping(h) && is_our_strip(h) {
                         let _ = DestroyWindow(h);
                     }
                 }
@@ -1488,7 +1497,10 @@ impl App {
         }
         unsafe {
             if hide {
-                if IsWindowVisible(self.strip).as_bool() {
+                if IsWindowVisible(self.strip).as_bool() && !self.primary_hidden {
+                    // Leaving the main taskbar for another monitor: pops out, then hides.
+                    self.start_pop(self.strip, true);
+                } else if IsWindowVisible(self.strip).as_bool() && !self.popping(self.strip) {
                     let _ = ShowWindow(self.strip, SW_HIDE);
                 }
                 if !self.primary_hidden {
@@ -1512,7 +1524,11 @@ impl App {
             } else if self.primary_hidden {
                 self.last_place = Default::default();
                 self.primary_hidden = false;
+                let was = IsWindowVisible(self.strip).as_bool() && !self.popping(self.strip);
                 self.place();
+                if !was && IsWindowVisible(self.strip).as_bool() {
+                    self.start_pop(self.strip, false);
+                }
             }
         }
         self.primary_hidden = hide;
@@ -1535,19 +1551,47 @@ impl App {
         let was = unsafe { IsWindowVisible(strip).as_bool() };
         let pending = self.place_mirror(bar, strip);
         if !was && unsafe { IsWindowVisible(strip).as_bool() } {
-            self.mirror_in.retain(|(h, _)| *h != strip);
-            self.mirror_in.push((strip, Instant::now()));
-            self.mirror_in_frame(strip, 0.0);
-            unsafe {
-                SetTimer(Some(self.main), TIMER_MIRROR_IN, 15, None);
-            }
+            self.start_pop(strip, false);
         }
         pending
+    }
+
+    /// A strip is popping in or out (its frames come from TIMER_MIRROR_IN).
+    fn popping(&self, strip: HWND) -> bool {
+        self.mirror_in.iter().any(|(h, _, _)| *h == strip)
+    }
+
+    /// Starts `strip` popping in, or out (`leaving`). A strip turning around part-way continues
+    /// from where it is.
+    fn start_pop(&mut self, strip: HWND, leaving: bool) {
+        let now = Instant::now();
+        let t0 = match self.mirror_in.iter().position(|(h, _, _)| *h == strip) {
+            Some(i) => {
+                let (_, t, was_leaving) = self.mirror_in.remove(i);
+                let done = (t.elapsed().as_secs_f32() * 1000.0 / MIRROR_IN_MS).min(1.0);
+                if was_leaving == leaving {
+                    t
+                } else {
+                    now - std::time::Duration::from_secs_f32((1.0 - done) * MIRROR_IN_MS / 1000.0)
+                }
+            }
+            None => now,
+        };
+        self.mirror_in.push((strip, t0, leaving));
+        let p = (t0.elapsed().as_secs_f32() * 1000.0 / MIRROR_IN_MS).min(1.0);
+        self.mirror_in_frame(strip, if leaving { 1.0 - p } else { p });
+        unsafe {
+            SetTimer(Some(self.main), TIMER_MIRROR_IN, 15, None);
+        }
     }
 
     /// One frame of a copy popping in (`p` 0 to 1): it grows from 60 % around its centre with a
     /// small overshoot, fades in and is blurred while it moves, like the devices on the strip.
     fn mirror_in_frame(&self, strip: HWND, p: f32) {
+        if p <= 0.0 {
+            self.push_px(strip, &vec![0; self.pixels.len()]);
+            return;
+        }
         if p >= 1.0 {
             self.push(strip);
             return;
@@ -1561,14 +1605,24 @@ impl App {
         self.push_px(strip, &px);
     }
 
-    /// TIMER_MIRROR_IN: advances the copies popping in; stops when all are in.
+    /// TIMER_MIRROR_IN: advances the strips popping in or out; a copy that has popped out is
+    /// destroyed, the main strip hidden. Stops when none is left.
     fn mirror_in_step(&mut self) {
         let list = std::mem::take(&mut self.mirror_in);
-        for (strip, t0) in list {
-            let p = t0.elapsed().as_secs_f32() * 1000.0 / MIRROR_IN_MS;
-            self.mirror_in_frame(strip, p.min(1.0));
+        for (strip, t0, leaving) in list {
+            let p = (t0.elapsed().as_secs_f32() * 1000.0 / MIRROR_IN_MS).min(1.0);
+            self.mirror_in_frame(strip, if leaving { 1.0 - p } else { p });
             if p < 1.0 {
-                self.mirror_in.push((strip, t0));
+                self.mirror_in.push((strip, t0, leaving));
+            } else if leaving {
+                unsafe {
+                    if strip == self.strip {
+                        let _ = ShowWindow(strip, SW_HIDE);
+                        self.push(strip); // full content again for its next appearance
+                    } else if is_our_strip(strip) && !self.mirrors.iter().any(|m| m.1 == strip) {
+                        let _ = DestroyWindow(strip);
+                    }
+                }
             }
         }
         if self.mirror_in.is_empty() {
