@@ -2077,7 +2077,7 @@ impl App {
             // another is still running starts from what is on screen now (no jump back), and the
             // card that is more visible at that moment is the one that fades out.
             let prev = match (&old.content, was_shown && !same) {
-                (Some(c), true) if c.h == h => {
+                (Some(c), true) => {
                     let outgoing = match (&old.prev, old.at) {
                         (Some((_, _, p)), Some(at)) if at.elapsed().as_secs_f32() * 1000.0 < CARD_CROSS_MS * 0.5 => p.clone(),
                         _ => c.clone(),
