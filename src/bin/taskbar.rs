@@ -2172,7 +2172,7 @@ impl App {
         // Big level (or the device's own word for it), the time left under it, then the bar.
         let big_text = if let Some(b) = d.buds.filter(|b| d.percent >= 0 && b.left >= 0 && b.right >= 0) {
             // Earbuds: each bud, labelled.
-            format!("{}: {}%  {}: {}%", tr("R"), b.right, tr("L"), b.left)
+            format!("{}: {}%  {}: {}%", tr("L"), b.left, tr("R"), b.right)
         } else if d.percent >= 0 {
             format!("{}%", d.percent)
         } else if !d.level_text.is_empty() {
