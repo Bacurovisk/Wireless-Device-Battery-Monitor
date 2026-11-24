@@ -1469,12 +1469,36 @@ impl App {
         unsafe {
             let mut br = RECT::default();
             let _ = GetWindowRect(bar, &mut br);
-            if br.bottom - br.top > br.right - br.left {
-                let _ = ShowWindow(strip, SW_HIDE);
-                return false; // vertical
-            }
             let dpi = GetDpiForWindow(bar);
             let s = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
+            if br.bottom - br.top > br.right - br.left {
+                // A vertical taskbar (left / right): like the main one, just above its clock and
+                // centred across its width. The copy is drawn in the main taskbar's layout, so a
+                // vertical copy only fits when the main taskbar is vertical too.
+                if !self.vertical {
+                    let _ = ShowWindow(strip, SW_HIDE);
+                    return false;
+                }
+                let bottom = match FindWindowExW(Some(bar), None, w!("ClockButton"), None) {
+                    Ok(clock) if !clock.0.is_null() && IsWindowVisible(clock).as_bool() => {
+                        let mut cr = RECT::default();
+                        let _ = GetWindowRect(clock, &mut cr);
+                        cr.top
+                    }
+                    _ => br.bottom - (130.0 * s) as i32,
+                };
+                let mut p = POINT { x: br.left, y: bottom };
+                let _ = ScreenToClient(bar, &mut p);
+                let mut top = p.y - self.size.cy - (2.0 * s) as i32;
+                if self.offset > 0 {
+                    top -= (self.offset as f32 * s) as i32;
+                }
+                let mut client = RECT::default();
+                let _ = GetClientRect(bar, &mut client);
+                let left = ((client.right - self.size.cx) / 2).max(0);
+                Self::show_mirror_at(bar, strip, left, top.max(0), self.size);
+                return false;
+            }
             let right = match FindWindowExW(Some(bar), None, w!("ClockButton"), None) {
                 Ok(clock) if !clock.0.is_null() && IsWindowVisible(clock).as_bool() => {
                     let mut cr = RECT::default();
@@ -1511,17 +1535,24 @@ impl App {
                     let _ = MoveWindow(worker, tl.x, tl.y, left - tl.x, wr.bottom - wr.top, true);
                 }
             }
+            Self::show_mirror_at(bar, strip, left, top, self.size);
+        }
+        false
+    }
+
+    /// Moves a copy to `left`, `top` (client coordinates of its taskbar) unless it is already there.
+    fn show_mirror_at(bar: HWND, strip: HWND, left: i32, top: i32, size: SIZE) {
+        unsafe {
             let mut cur = RECT::default();
             let _ = GetWindowRect(strip, &mut cur);
             let mut cp = POINT { x: cur.left, y: cur.top };
             let _ = ScreenToClient(bar, &mut cp);
             let covered = GetWindow(strip, GW_HWNDPREV).is_ok_and(|h| !h.0.is_null()) || !IsWindowVisible(strip).as_bool();
-            let same = cp.x == left && cp.y == top && cur.right - cur.left == self.size.cx && cur.bottom - cur.top == self.size.cy;
+            let same = cp.x == left && cp.y == top && cur.right - cur.left == size.cx && cur.bottom - cur.top == size.cy;
             if covered || !same {
-                let _ = SetWindowPos(strip, Some(HWND_TOP), left, top, self.size.cx, self.size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                let _ = SetWindowPos(strip, Some(HWND_TOP), left, top, size.cx, size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
             }
         }
-        false
     }
 
     // ---- notification-area fallback ------------------------------------------------------------
