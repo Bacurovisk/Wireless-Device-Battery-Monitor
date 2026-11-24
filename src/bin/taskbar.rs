@@ -1552,6 +1552,10 @@ impl App {
         let pending = self.place_mirror(bar, strip);
         if !was && unsafe { IsWindowVisible(strip).as_bool() } {
             self.start_pop(strip, false);
+        } else if !self.popping(strip) && unsafe { IsWindowVisible(strip).as_bool() } {
+            // What a copy shows right after it appears can get lost on the way to the screen (it
+            // stayed blank until the mouse went over it), so it gets its image again every tick.
+            self.push(strip);
         }
         pending
     }
@@ -1673,7 +1677,7 @@ impl App {
                 let mut client = RECT::default();
                 let _ = GetClientRect(bar, &mut client);
                 let left = ((client.right - self.size.cx) / 2).max(0);
-                Self::show_mirror_at(bar, strip, left, top.max(0), self.size);
+                self.show_mirror_at(bar, strip, left, top.max(0), self.size);
                 return false;
             }
             let right = match FindWindowExW(Some(bar), None, w!("ClockButton"), None) {
@@ -1712,13 +1716,15 @@ impl App {
                     let _ = MoveWindow(worker, tl.x, tl.y, left - tl.x, wr.bottom - wr.top, true);
                 }
             }
-            Self::show_mirror_at(bar, strip, left, top, self.size);
+            self.show_mirror_at(bar, strip, left, top, self.size);
         }
         false
     }
 
     /// Moves a copy to `left`, `top` (client coordinates of its taskbar) unless it is already there.
-    fn show_mirror_at(bar: HWND, strip: HWND, left: i32, top: i32, size: SIZE) {
+    /// Moving or resizing a layered child window can drop what it shows until its next update
+    /// (it stayed blank until the mouse went over it), so it gets its image again after a move.
+    fn show_mirror_at(&self, bar: HWND, strip: HWND, left: i32, top: i32, size: SIZE) {
         unsafe {
             let mut cur = RECT::default();
             let _ = GetWindowRect(strip, &mut cur);
@@ -1728,6 +1734,9 @@ impl App {
             let same = cp.x == left && cp.y == top && cur.right - cur.left == size.cx && cur.bottom - cur.top == size.cy;
             if covered || !same {
                 let _ = SetWindowPos(strip, Some(HWND_TOP), left, top, size.cx, size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                if !self.popping(strip) {
+                    self.push(strip);
+                }
             }
         }
     }
