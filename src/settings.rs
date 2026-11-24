@@ -4,7 +4,9 @@
 //!  * `Names`: name chosen with "Rename device" (REG_SZ; the device itself is not renamed);
 //!  * `Warn5`: "Warn at 5%" (DWORD 0/1, default on);
 //!  * `Hidden`: "Show on the taskbar" turned off (DWORD 1; the device is still read and listed in
-//!    the menu, only the strip, its tooltip and the hover card skip it).
+//!    the menu, only the strip, its tooltip and the hover card skip it);
+//!  * `Known`: the last status of every device seen (REG_SZ, a dashboard status line), so the
+//!    dashboard can list devices that are not connected now but have saved history.
 use std::collections::{HashMap, HashSet};
 
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -178,6 +180,18 @@ fn seen_times(settings_key: &str) -> HashMap<String, u64> {
     inst::open(HKCU, &sub(settings_key, "Seen"), false)
         .map(|k| k.values().into_iter().filter_map(|(n, _, d)| Some((n, u32::from_str_radix(d.trim_start_matches("0x"), 16).ok()? as u64))).collect())
         .unwrap_or_default()
+}
+
+/// Every device seen so far: device key -> its last status line (dashboard::encode_status).
+pub fn known(settings_key: &str) -> Vec<(String, String)> {
+    inst::open(HKCU, &sub(settings_key, "Known"), false)
+        .map(|k| k.values().into_iter().filter(|v| v.1 == 1).map(|(n, _, d)| (n, d)).collect())
+        .unwrap_or_default()
+}
+
+/// Saves a device's status line for the dashboard's list of known devices.
+pub fn set_known(settings_key: &str, device_key: &str, line: &str) -> bool {
+    inst::create(HKCU, &sub(settings_key, "Known")).is_some_and(|k| k.set_string(device_key, line))
 }
 
 /// Remembers that these devices were connected at `now` (Unix time, UTC).

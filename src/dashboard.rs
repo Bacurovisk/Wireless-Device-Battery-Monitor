@@ -513,13 +513,15 @@ impl Dash {
         if !list.iter().any(|(s, _)| s.key == self.status.key) {
             list.push((self.status.clone(), self.reported.clone()));
         }
-        let mut x = pad;
+        // Every device, in as many rows as they need.
+        let (mut x, mut y) = (pad, y);
         for (i, (s, _)) in list.iter().enumerate() {
             let sel = s.key == self.status.key;
             let label = short_name(&s.name);
-            let cw = b.measure(&label, fsel).cx + self.px(46.0);
-            if x + cw > w - pad {
-                break;
+            let cw = (b.measure(&label, fsel).cx + self.px(46.0)).min(w - 2 * pad);
+            if x + cw > w - pad && x > pad {
+                x = pad;
+                y += h + self.px(8.0);
             }
             let fill = if sel {
                 gui::mix(t.card, t.accent, 0.22)

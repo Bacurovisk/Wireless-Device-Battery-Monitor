@@ -6,7 +6,7 @@
 #![windows_subsystem = "windows"]
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::c_void;
 use std::rc::Rc;
 use std::time::Instant;
@@ -174,6 +174,7 @@ const ID_BACKGROUND: usize = 8;
 const ID_SILENT_UPDATE: usize = 9;
 const ID_ICONS_MODE: usize = 10;
 const ID_VERSIONS: usize = 11;
+const ID_DASHBOARD: usize = 12;
 const _: () = assert!(ID_INTERVAL_BASE > ID_ON_CHANGE && ID_INTERVAL_BASE + INTERVALS.len() <= ID_MONITOR_ALL, "menu ids overlap");
 /// "Show widget on": all monitors, main monitor only, or ID_MONITOR_FIRST + i for one other monitor.
 const ID_MONITOR_ALL: usize = 40;
@@ -291,6 +292,8 @@ struct App {
     manual: bool,
     /// "Refresh devices": forget every known device (no grace period) on the next result.
     forget: bool,
+    /// Devices whose status line is saved for the dashboard this session: (name, kind, via).
+    known_saved: HashMap<String, (String, u8, String)>,
     /// Whether the devices were enumerated at least once (the first read always enumerates).
     scanned: bool,
     /// The next poll was triggered by a device connecting / disconnecting: devices that are gone
@@ -2937,6 +2940,15 @@ impl App {
             settings::set_order(SETTINGS_KEY, &self.saved_order);
             dbg_log(&format!("new devices placed first: {new:?}"));
         }
+        // The dashboard lists every device with saved history, also the ones not here now.
+        for s in fresh.iter().filter(|s| s.connected && !s.key.starts_with("demo:")) {
+            let reported = self.devices.get(&s.key).map(|t| t.reported.clone()).unwrap_or_else(|| s.name.clone());
+            let line = batteryhub::dashboard::encode_status(&DeviceStatus { connected: false, percent: -1, ..s.clone() }, &reported);
+            let sig = (s.name.clone(), s.kind as u8, s.via.clone());
+            if self.known_saved.get(&s.key) != Some(&sig) && settings::set_known(SETTINGS_KEY, &s.key, &line) {
+                self.known_saved.insert(s.key.clone(), sig);
+            }
+        }
         let now = batteryhub::history::now_secs();
         let due: Vec<String> = connected.into_iter().filter(|k| self.seen_saved.get(k).is_none_or(|t| now.saturating_sub(*t) >= 3600)).collect();
         if !due.is_empty() && settings::mark_seen(SETTINGS_KEY, &due, now) {
@@ -3174,10 +3186,31 @@ impl App {
     /// Fresh readings for open dashboards (they show the live level and state).
     fn send_to_dashboards(&self) {
         if batteryhub::dashboard::any_open() {
-            let list: Vec<(DeviceStatus, String)> =
-                self.order.iter().filter_map(|k| self.devices.get(k)).map(|t| (t.status.clone(), t.reported.clone())).collect();
-            batteryhub::dashboard::send_statuses(self.main, &list);
+            batteryhub::dashboard::send_statuses(self.main, &self.dashboard_devices());
         }
+    }
+
+    /// The devices the dashboard lists: the ones read now (in the strip's order), then every other
+    /// device that has saved history, shown as not connected with its last saved level.
+    fn dashboard_devices(&self) -> Vec<(DeviceStatus, String)> {
+        let mut list: Vec<(DeviceStatus, String)> =
+            self.order.iter().filter_map(|k| self.devices.get(k)).map(|t| (t.status.clone(), t.reported.clone())).collect();
+        for (key, line) in settings::known(SETTINGS_KEY) {
+            if list.iter().any(|(s, _)| s.key == key) {
+                continue;
+            }
+            let Some(last) = self.history.latest(&key) else { continue };
+            let Some((mut s, reported)) = batteryhub::dashboard::decode_status(&line) else { continue };
+            s.key = key;
+            if let Some(n) = self.names.get(&s.key) {
+                s.name = n.clone();
+            }
+            s.connected = false;
+            s.percent = last.level as i32;
+            s.charging = false;
+            list.push((s, reported));
+        }
+        list
     }
 
     /// Names chosen with "Rename device" were changed: show them everywhere.
@@ -3821,6 +3854,11 @@ unsafe fn show_menu() {
         let mut icons = ui::MenuIcons::new(main, dark);
         if let Ok(menu) = CreatePopupMenu() {
             ui::MenuIcons::check_or_icon(menu);
+            // The dashboard at once (it opens on the first device; the others are a click away).
+            let has_any = !devices.is_empty() || with_app(|a| !a.dashboard_devices().is_empty()).unwrap_or(false);
+            let _ = AppendMenuW(menu, MF_STRING | if has_any { MF_ENABLED } else { MF_GRAYED }, ID_DASHBOARD, &windows::core::HSTRING::from(tr("Dashboard...")));
+            icons.set(menu, ID_DASHBOARD as u32, false, ui::glyph::DASHBOARD);
+            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             // One submenu per device: dashboard, history, statistics, rename and its warnings.
             settings::append_device_menus(menu, &devices, SETTINGS_KEY, &renamed, &hidden, vertical, &mut icons);
             if !devices.is_empty() {
@@ -4020,6 +4058,11 @@ unsafe fn show_menu() {
                 }
                 ID_REFRESH_DEVICES => {
                     with_app(|a| a.manual_refresh(true));
+                }
+                ID_DASHBOARD => {
+                    if let Some((first, _)) = with_app(|a| a.dashboard_devices().into_iter().next()).flatten() {
+                        device_action(&first, settings::DeviceAction::Dashboard(0), &devices);
+                    }
                 }
                 ID_REFRESH_LEVELS => {
                     with_app(|a| a.manual_refresh(false));
