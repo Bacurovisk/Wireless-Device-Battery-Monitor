@@ -10,9 +10,10 @@
 //!                                     sum of bytes 4..63 (2E), length 2E
 //!   reply    AA 30 .. .. .. .. .. .. LL PP    LL = level %, PP non-zero on USB power
 //!
-//! Other reports (e.g. the unsolicited AA FA ...) are skipped. Only this read is sent; the
-//! configuration-write command and the Bluetooth OTA service are never touched. A level of 0 from the
-//! receiver means the mouse is off or out of range.
+//! On receiver collections with 64-byte input/output reports, the F0 30 battery query is tried when
+//! the existing query fails or gets no valid reply.
+//! Only this read is sent; the configuration-write command and the Bluetooth OTA service are never
+//! touched. A level of 0 from the receiver means the mouse is off or out of range.
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{HidColl, HidDev};
 use crate::util::{Deadline, hex4};
@@ -32,22 +33,85 @@ pub fn request() -> [u8; 65] {
     r
 }
 
+fn freq_request() -> [u8; 64] {
+    let mut r = [0u8; 64];
+    r[..8].copy_from_slice(&[0xF0, CMD_BATTERY, 0xA5, 0x0B, 0x2E, 0x01, 0x01, 0x01]);
+    r
+}
+
 /// Battery reply (64 bytes, no report ID): Some((level, on USB power)).
 pub fn decode(r: &[u8]) -> Option<(i32, bool)> {
     (r.len() >= 10 && r[0] == 0xAA && r[1] == CMD_BATTERY && r[8] <= 100).then(|| (r[8] as i32, r[9] != 0))
 }
 
-fn read(c: &HidColl) -> Option<(i32, bool)> {
-    let d = HidDev::open(c)?;
-    d.flush();
-    if !d.write(&request()) {
+fn decode_freq_reply(r: &[u8]) -> Option<(i32, bool)> {
+    if r.len() != 64
+        || r[0] != 0xF0
+        || r[1] != CMD_BATTERY
+        || r[2] != 0xA5
+        || r[3] != 0x95
+        || r[4] != 0x2E
+        || r[5..8] != [0x01, 0x01, 0x01]
+        || r[8] > 100
+        || r[9] > 1
+    {
         return None;
     }
-    let end = Deadline::in_ms(WAIT_MS);
-    while !end.passed() {
-        if let Some(v) = d.read(end.left_ms()).and_then(|r| decode(&r)) {
-            return Some(v);
+    Some((r[8] as i32, r[9] == 1))
+}
+
+fn supported_collection(c: &HidColl) -> bool {
+    let min_len = if c.vid == CABLE_VID { 65 } else { 64 };
+    (c.vid == RECEIVER_VID || c.vid == CABLE_VID)
+        && c.pid == PID
+        && c.page() == 0xFF01
+        && c.usage() == 0x0010
+        && c.out_len() >= min_len
+        && c.in_len() >= min_len
+}
+
+fn uses_freq_query(c: &HidColl, receiver: bool) -> bool {
+    receiver && c.vid == RECEIVER_VID && c.pid == PID && c.page() == 0xFF01 && c.usage() == 0x0010 && c.out_len() == 64 && c.in_len() == 64
+}
+
+fn should_try_freq_query(eligible: bool, legacy_request_sent: bool, legacy_wait_expired: bool) -> bool {
+    eligible && (!legacy_request_sent || legacy_wait_expired)
+}
+
+fn read(c: &HidColl, receiver: bool) -> Option<(i32, bool)> {
+    let d = HidDev::open(c)?;
+    d.flush();
+    let f0_eligible = uses_freq_query(c, receiver);
+    let legacy_request_sent = d.write(&request());
+    let mut request_sent = legacy_request_sent;
+    let mut freq_attempted = false;
+    if should_try_freq_query(f0_eligible, legacy_request_sent, false) {
+        freq_attempted = true;
+        request_sent |= d.write(&freq_request());
+    }
+    if !request_sent {
+        return None;
+    }
+    let mut end = Deadline::in_ms(WAIT_MS);
+    loop {
+        while !end.passed() {
+            if let Some(r) = d.read(end.left_ms()) {
+                if let Some(v) = decode(&r) {
+                    return Some(v);
+                }
+                if let Some(v) = decode_freq_reply(&r) {
+                    return Some(v);
+                }
+            }
         }
+        if !freq_attempted && should_try_freq_query(f0_eligible, legacy_request_sent, true) {
+            freq_attempted = true;
+            if d.write(&freq_request()) {
+                end = Deadline::in_ms(WAIT_MS);
+                continue;
+            }
+        }
+        break;
     }
     None
 }
@@ -57,7 +121,7 @@ pub fn poll(ctx: &mut PollContext) {
         if ctx.is_claimed(vid, PID) {
             continue;
         }
-        let colls = ctx.find(vid, PID, |c| c.page() == 0xFF01 && c.usage() == 0x0010 && c.out_len() >= 65 && c.in_len() >= 65);
+        let colls = ctx.find(vid, PID, supported_collection);
         if colls.is_empty() {
             continue;
         }
@@ -71,7 +135,7 @@ pub fn poll(ctx: &mut PollContext) {
             grace_sec: 1800,
             ..Default::default()
         };
-        let s = match colls.iter().find_map(read) {
+        let s = match colls.iter().find_map(|c| read(c, !cable)) {
             Some((level, power)) if cable || level > 0 => DeviceStatus { percent: level, charging: power || cable, ..base },
             _ if cable => continue, // the cable alone gives nothing to show
             _ => DeviceStatus { connected: false, ..base },
@@ -103,12 +167,139 @@ mod tests {
     #[test]
     fn other_reports() {
         let mut r = vec![0u8; 64];
-        r[..2].copy_from_slice(&[0xAA, 0xFA]); // unsolicited event
+        r[..2].copy_from_slice(&[0xAA, 0xFA]);
         r[8] = 50;
         assert_eq!(decode(&r), None);
         r[1] = 0x30;
         r[8] = 0xFF;
         assert_eq!(decode(&r), None);
         assert_eq!(decode(&request()[1..]), None); // our own request read back
+    }
+
+    #[test]
+    fn collection_size_boundary() {
+        let mut c = HidColl { vid: RECEIVER_VID, pid: PID, usage_page: 0xFF01, usage_id: 0x0010, input_len: 64, output_len: 64, ..Default::default() };
+        assert!(supported_collection(&c));
+
+        c.input_len = 63;
+        assert!(!supported_collection(&c));
+        c.input_len = 64;
+        c.output_len = 63;
+        assert!(!supported_collection(&c));
+    }
+
+    #[test]
+    fn cable_requires_65_byte_collection() {
+        let mut c = HidColl { vid: CABLE_VID, pid: PID, usage_page: 0xFF01, usage_id: 0x0010, input_len: 64, output_len: 64, ..Default::default() };
+        assert!(!supported_collection(&c));
+
+        c.input_len = 65;
+        c.output_len = 65;
+        assert!(supported_collection(&c));
+    }
+
+    fn freq_reply(percent: u8, charging: u8) -> Vec<u8> {
+        let mut r = vec![0u8; 64];
+        r[..8].copy_from_slice(&[0xF0, 0x30, 0xA5, 0x95, 0x2E, 0x01, 0x01, 0x01]);
+        r[8] = percent;
+        r[9] = charging;
+        r
+    }
+
+    #[test]
+    fn freq_request_frame() {
+        let r = freq_request();
+        assert_eq!(&r[..8], &[0xF0, 0x30, 0xA5, 0x0B, 0x2E, 0x01, 0x01, 0x01]);
+        assert!(r[8..].iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn freq_battery_reply() {
+        assert_eq!(decode_freq_reply(&freq_reply(100, 0)), Some((100, false)));
+        assert_eq!(decode_freq_reply(&freq_reply(37, 1)), Some((37, true)));
+    }
+
+    #[test]
+    fn freq_battery_reply_rejects_invalid_reports() {
+        let mut r = freq_reply(50, 0);
+        r[0] = 0xF1;
+        assert_eq!(decode_freq_reply(&r), None);
+
+        let mut r = freq_reply(50, 0);
+        r[1] = 0x31;
+        assert_eq!(decode_freq_reply(&r), None);
+
+        let mut r = freq_reply(50, 0);
+        r[2] = 0xA4;
+        assert_eq!(decode_freq_reply(&r), None);
+
+        let mut r = freq_reply(50, 0);
+        r[4] = 0x2D;
+        assert_eq!(decode_freq_reply(&r), None);
+
+        assert_eq!(decode_freq_reply(&freq_reply(101, 0)), None);
+        assert_eq!(decode_freq_reply(&freq_reply(50, 2)), None);
+        assert_eq!(decode_freq_reply(&freq_reply(50, 0)[..63]), None);
+    }
+
+    #[test]
+    fn freq_battery_reply_rejects_mismatched_response_fields() {
+        for (index, value) in [(3, 0x94), (5, 0), (6, 0), (7, 0)] {
+            let mut r = freq_reply(50, 0);
+            r[index] = value;
+            assert_eq!(decode_freq_reply(&r), None, "unexpected response field at byte {index}");
+        }
+    }
+
+    #[test]
+    fn f0_query_requires_receiver_64_byte_collection() {
+        let mut c = HidColl { vid: RECEIVER_VID, pid: PID, usage_page: 0xFF01, usage_id: 0x0010, input_len: 64, output_len: 64, ..Default::default() };
+        assert!(uses_freq_query(&c, true));
+        assert!(!uses_freq_query(&c, false));
+
+        c.vid = CABLE_VID;
+        assert!(!uses_freq_query(&c, true));
+        c.vid = RECEIVER_VID;
+        c.input_len = 65;
+        assert!(!uses_freq_query(&c, true));
+        c.input_len = 64;
+        c.output_len = 65;
+        assert!(!uses_freq_query(&c, true));
+        c.output_len = 64;
+        c.pid = 0x2256;
+        assert!(!uses_freq_query(&c, true));
+        c.pid = PID;
+        c.usage_page = 0xFF02;
+        assert!(!uses_freq_query(&c, true));
+        c.usage_page = 0xFF01;
+        c.usage_id = 0x0011;
+        assert!(!uses_freq_query(&c, true));
+    }
+
+    #[test]
+    fn f0_receiver_keeps_generic_name() {
+        let mut ctx = PollContext::default();
+        ctx.colls.push(HidColl {
+            path: String::new(),
+            vid: RECEIVER_VID,
+            pid: PID,
+            usage_page: 0xFF01,
+            usage_id: 0x0010,
+            input_len: 64,
+            output_len: 64,
+            ..Default::default()
+        });
+
+        poll(&mut ctx);
+
+        assert_eq!(ctx.out[0].name, "AJAZZ wireless mouse");
+    }
+
+    #[test]
+    fn freq_fallback_waits_for_legacy_timeout() {
+        assert!(should_try_freq_query(true, false, false));
+        assert!(!should_try_freq_query(true, true, false));
+        assert!(should_try_freq_query(true, true, true));
+        assert!(!should_try_freq_query(false, true, true));
     }
 }
