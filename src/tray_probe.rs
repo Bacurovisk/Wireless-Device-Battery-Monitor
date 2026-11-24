@@ -64,10 +64,7 @@ pub fn tray_left(bar: HWND, bar_rect: RECT, notify: HWND, msg: u32) -> TrayEdge 
         let mut g = CACHE.lock().unwrap_or_else(|e| e.into_inner());
         let c = g.get_or_insert_with(Cache::default);
         match c.known.get(&key) {
-            Some(e) => (
-                e.from_right.map_or(TrayEdge::Unknown, |d| TrayEdge::Known(r.2 - d)),
-                e.dirty || e.bar != r || e.at.elapsed() >= REFRESH,
-            ),
+            Some(e) => (e.from_right.map_or(TrayEdge::Unknown, |d| TrayEdge::Known(r.2 - d)), e.dirty || e.bar != r || e.at.elapsed() >= REFRESH),
             None => {
                 let since = *c.asked.entry(key).or_insert_with(Instant::now);
                 (if since.elapsed() < FIRST_WAIT { TrayEdge::Pending } else { TrayEdge::Unknown }, true)

@@ -8,8 +8,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use windows::Devices::Bluetooth::Advertisement::{
-    BluetoothLEAdvertisementReceivedEventArgs, BluetoothLEAdvertisementWatcher, BluetoothLEAdvertisementWatcherStatus,
-    BluetoothLEScanningMode,
+    BluetoothLEAdvertisementReceivedEventArgs, BluetoothLEAdvertisementWatcher, BluetoothLEAdvertisementWatcherStatus, BluetoothLEScanningMode,
 };
 use windows::Foundation::TypedEventHandler;
 use windows::Storage::Streams::{DataReader, IBuffer};
@@ -37,11 +36,7 @@ fn fast_pair_map() -> &'static Mutex<HashMap<u64, FastPairBattery>> {
 
 fn fp_component(b: u8) -> (i32, bool) {
     let level = (b & 0x7F) as i32;
-    if level <= 100 {
-        (level, b & 0x80 != 0)
-    } else {
-        (-1, false)
-    }
+    if level <= 100 { (level, b & 0x80 != 0) } else { (-1, false) }
 }
 
 /// Service data of 16-bit UUID 0xFE2C after the UUID: [0] version 0, then fields with header
@@ -69,10 +64,27 @@ fn parse_fast_pair(d: &[u8]) -> Option<FastPairBattery> {
     None
 }
 
+/// Broadcasts are kept this long, and at most this many addresses (phones and earbuds nearby
+/// rotate their random addresses every few minutes, so without limits a crowded place would grow
+/// the map without end).
+pub const KEEP_SECS: u64 = 300;
+pub const MAX_ADDRESSES: usize = 64;
+
+/// Inserts `v` for `addr`, drops entries older than `keep_secs`, and evicts the oldest entries
+/// beyond `max`.
+pub fn insert_bounded<V>(m: &mut HashMap<u64, V>, addr: u64, v: V, at: impl Fn(&V) -> Instant, keep_secs: u64, max: usize) {
+    m.insert(addr, v);
+    m.retain(|_, v| at(v).elapsed().as_secs() < keep_secs);
+    while m.len() > max {
+        let Some(oldest) = m.iter().min_by_key(|(_, v)| at(v)).map(|(k, _)| *k) else { break };
+        m.remove(&oldest);
+    }
+}
+
 /// Latest broadcast of the device with this Bluetooth address, if heard in the last 5 minutes.
 pub fn fast_pair_lookup(addr: u64) -> Option<FastPairBattery> {
     let m = fast_pair_map().lock().ok()?;
-    m.get(&addr).filter(|b| b.at.elapsed().as_secs() < 300).copied()
+    m.get(&addr).filter(|b| b.at.elapsed().as_secs() < KEEP_SECS).copied()
 }
 
 // ---- watcher -----------------------------------------------------------------------------------
@@ -107,14 +119,14 @@ fn on_received(args: &BluetoothLEAdvertisementReceivedEventArgs) -> windows::cor
     // AD type 0x16 = Service Data, 16-bit UUID; 2C FE (LE) = Google Fast Pair.
     let sections = adv.GetSectionsByType(0x16)?;
     for i in 0..sections.Size()? {
-        if let Some(bytes) = sections.GetAt(i).and_then(|s| s.Data()).ok().and_then(|b| buffer_bytes(&b)) {
-            if bytes.len() > 2 && bytes[0] == 0x2C && bytes[1] == 0xFE {
-                if let Some(b) = parse_fast_pair(&bytes[2..]) {
-                    if let Ok(mut m) = fast_pair_map().lock() {
-                        m.insert(addr, b);
-                    }
-                }
-            }
+        if let Some(bytes) = sections.GetAt(i).and_then(|s| s.Data()).ok().and_then(|b| buffer_bytes(&b))
+            && bytes.len() > 2
+            && bytes[0] == 0x2C
+            && bytes[1] == 0xFE
+            && let Some(b) = parse_fast_pair(&bytes[2..])
+            && let Ok(mut m) = fast_pair_map().lock()
+        {
+            insert_bounded(&mut m, addr, b, |v| v.at, KEEP_SECS, MAX_ADDRESSES);
         }
     }
     Ok(())
@@ -149,14 +161,12 @@ pub fn ensure_watcher() -> bool {
     let start = || -> windows::core::Result<BluetoothLEAdvertisementWatcher> {
         let w = BluetoothLEAdvertisementWatcher::new()?;
         w.SetScanningMode(BluetoothLEScanningMode::Passive)?;
-        w.Received(&TypedEventHandler::new(
-            |_, args: windows::core::Ref<BluetoothLEAdvertisementReceivedEventArgs>| {
-                if let Some(a) = args.as_ref() {
-                    let _ = on_received(a);
-                }
-                Ok(())
-            },
-        ))?;
+        w.Received(&TypedEventHandler::new(|_, args: windows::core::Ref<BluetoothLEAdvertisementReceivedEventArgs>| {
+            if let Some(a) = args.as_ref() {
+                let _ = on_received(a);
+            }
+            Ok(())
+        }))?;
         w.Start()?;
         Ok(w)
     };
@@ -173,10 +183,10 @@ pub fn ensure_watcher() -> bool {
 /// heard so far stay available; the next read starts the watcher again and waits for fresh ones.
 pub fn stop_watcher() {
     let Ok(guard) = watcher().lock() else { return };
-    if let Some(w) = guard.as_ref() {
-        if w.Status().ok() == Some(BluetoothLEAdvertisementWatcherStatus::Started) {
-            let _ = w.Stop();
-        }
+    if let Some(w) = guard.as_ref()
+        && w.Status().ok() == Some(BluetoothLEAdvertisementWatcherStatus::Started)
+    {
+        let _ = w.Stop();
     }
 }
 
@@ -195,5 +205,20 @@ mod tests {
         assert_eq!(b.left, 40);
         // Discoverable-mode model id only: no battery.
         assert!(parse_fast_pair(&[0x12, 0x34, 0x56]).is_none());
+    }
+
+    #[test]
+    fn broadcast_caches_stay_bounded() {
+        let mut m: HashMap<u64, Instant> = HashMap::new();
+        for addr in 0..1000u64 {
+            insert_bounded(&mut m, addr, Instant::now(), |v| *v, KEEP_SECS, MAX_ADDRESSES);
+        }
+        assert_eq!(m.len(), MAX_ADDRESSES);
+        assert!(m.contains_key(&999)); // the newest stay
+        // Entries past their time are dropped.
+        let old = Instant::now() - std::time::Duration::from_secs(KEEP_SECS + 1);
+        let mut m: HashMap<u64, Instant> = HashMap::from([(1, old), (2, old)]);
+        insert_bounded(&mut m, 3, Instant::now(), |v| *v, KEEP_SECS, MAX_ADDRESSES);
+        assert_eq!(m.keys().copied().collect::<Vec<_>>(), vec![3]);
     }
 }

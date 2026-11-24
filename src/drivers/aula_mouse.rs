@@ -59,7 +59,7 @@ pub fn decode(r: &[u8]) -> Option<Frame> {
         return None;
     }
     let (level, state) = (r[8], r[9]);
-    Some(Frame::Battery((level >= 1 && level <= 100 && state <= 2).then(|| (level as i32, state != 0))))
+    Some(Frame::Battery(((1..=100).contains(&level) && state <= 2).then_some((level as i32, state != 0))))
 }
 
 enum Reading {

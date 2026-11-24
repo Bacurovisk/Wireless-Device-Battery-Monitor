@@ -121,7 +121,7 @@ pub fn poll(ctx: &mut PollContext) {
         };
         let mut st = STATE.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
-        if cable || st.next_ask.map_or(true, |t| now >= t) {
+        if cable || st.next_ask.is_none_or(|t| now >= t) {
             st.seq = st.seq % 0xFFFF + 1;
             let got = read(c, st.seq, vgn);
             st.next_ask = Some(now + if got.is_some() || cable { RECEIVER_EVERY } else { SILENT_EVERY });

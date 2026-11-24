@@ -20,14 +20,12 @@
 //! mic boom); one that arrives while waiting is just as good as the reply.
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{self, HidColl, HidDev};
-use crate::util::{hex4, Deadline};
+use crate::util::{Deadline, hex4};
 
 const VID: u16 = 0x1B1C;
 /// HeadsetControl's Corsair Void list (CorsairVoidRich::SUPPORTED_PRODUCT_IDS).
-const PIDS: [u16; 18] = [
-    0x1B1C, 0x1B27, 0x0A14, 0x0A16, 0x0A17, 0x0A1D, 0x0A1A, 0x1B2A, 0x1B23, 0x1B29, 0x0A55, 0x0A51, 0x0A52, 0x0A38, 0x0A4F, 0x0A2B,
-    0x0A75, 0x0A56,
-];
+const PIDS: [u16; 18] =
+    [0x1B1C, 0x1B27, 0x0A14, 0x0A16, 0x0A17, 0x0A1D, 0x0A1A, 0x1B2A, 0x1B23, 0x1B29, 0x0A55, 0x0A51, 0x0A52, 0x0A38, 0x0A4F, 0x0A2B, 0x0A75, 0x0A56];
 const REQUEST: [u8; 2] = [0xC9, 0x64];
 const STATUS_REPORT: u8 = 0x64;
 const WAIT_MS: u64 = 1000;
@@ -50,11 +48,7 @@ pub fn decode(r: &[u8]) -> Option<Reading> {
         return Some(off);
     }
     match r[4] {
-        1..=5 => Some(Reading {
-            level: Some(((r[2] & 0x7F) as i32).min(100)),
-            charging: r[4] == 4 || r[4] == 5,
-            full: r[4] == 4,
-        }),
+        1..=5 => Some(Reading { level: Some(((r[2] & 0x7F) as i32).min(100)), charging: r[4] == 4 || r[4] == 5, full: r[4] == 4 }),
         0 => Some(off),
         _ => None,
     }

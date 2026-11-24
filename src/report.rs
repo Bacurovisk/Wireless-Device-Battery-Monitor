@@ -10,11 +10,10 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use windows::Win32::Devices::Properties::{
-    DEVPKEY_Device_BusReportedDeviceDesc, DEVPKEY_Device_Class, DEVPKEY_Device_DeviceDesc, DEVPKEY_Device_FriendlyName,
-    DEVPKEY_Device_Service,
+    DEVPKEY_Device_BusReportedDeviceDesc, DEVPKEY_Device_Class, DEVPKEY_Device_DeviceDesc, DEVPKEY_Device_FriendlyName, DEVPKEY_Device_Service,
 };
 
-use crate::drivers::sdi::{DevNode, DevSet, CLASS_OF_DEVICE};
+use crate::drivers::sdi::{CLASS_OF_DEVICE, DevNode, DevSet};
 use crate::hid::{self, HidColl};
 
 pub const REPO: &str = crate::update::REPO;
@@ -63,11 +62,7 @@ impl Candidate {
 
     /// The line shown in the device list.
     pub fn label(&self) -> String {
-        if self.bluetooth {
-            format!("{}  (Bluetooth)", self.name)
-        } else {
-            format!("{}  ({})", self.name, self.ids())
-        }
+        if self.bluetooth { format!("{}  (Bluetooth)", self.name) } else { format!("{}  ({})", self.name, self.ids()) }
     }
 
     fn add_hid(&mut self, c: &HidColl) {
@@ -98,9 +93,7 @@ pub fn parse_ids(id: &str) -> Option<(u16, u16)> {
 
 fn interface_of(path: &str) -> i32 {
     let u = path.to_ascii_uppercase();
-    u.find("&MI_")
-        .and_then(|i| i32::from_str_radix(u.get(i + 4..i + 6)?, 16).ok())
-        .unwrap_or(-1)
+    u.find("&MI_").and_then(|i| i32::from_str_radix(u.get(i + 4..i + 6)?, 16).ok()).unwrap_or(-1)
 }
 
 fn node_name(n: &DevNode) -> String {
@@ -143,11 +136,8 @@ pub fn scan() -> Vec<Candidate> {
             let Some((vid, pid)) = parse_ids(&n.instance_id) else { continue };
             let class = n.string(&DEVPKEY_Device_Class).unwrap_or_default();
             let service = n.string(&DEVPKEY_Device_Service).unwrap_or_default();
-            let label = format!(
-                "{}{}",
-                if class.is_empty() { "unknown" } else { &class },
-                if service.is_empty() { String::new() } else { format!(" ({service})") }
-            );
+            let label =
+                format!("{}{}", if class.is_empty() { "unknown" } else { &class }, if service.is_empty() { String::new() } else { format!(" ({service})") });
             let d = by_id.entry((vid, pid)).or_insert_with(|| Candidate { vid, pid, ..Default::default() });
             let is_interface = n.instance_id.to_ascii_uppercase().contains("&MI_");
             if !is_interface {
@@ -201,11 +191,7 @@ pub fn scan() -> Vec<Candidate> {
 pub fn clean_name(s: &str) -> String {
     let t: String = s.chars().filter(|c| !c.is_control()).collect();
     let t = t.trim();
-    if t.chars().any(|c| c.is_alphanumeric()) {
-        t.to_string()
-    } else {
-        String::new()
-    }
+    if t.chars().any(|c| c.is_alphanumeric()) { t.to_string() } else { String::new() }
 }
 
 fn apply_kind(d: &mut Candidate) {
@@ -245,8 +231,8 @@ pub fn sort(list: &mut [Candidate]) {
 
 /// Windows build with update revision, e.g. "26300.9974".
 pub fn windows_build() -> String {
+    use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegGetValueW};
     use windows::core::w;
-    use windows::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RRF_RT_REG_SZ};
     let key = w!("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
     let mut build = [0u16; 32];
     let mut size = (build.len() * 2) as u32;
@@ -401,10 +387,7 @@ mod tests {
     #[test]
     fn url() {
         assert_eq!(url_encode("a b&c=ü/#"), "a%20b%26c%3D%C3%BC%2F%23");
-        assert_eq!(
-            issue_url("T 1", "x\ny"),
-            "https://github.com/ferloom/Wireless-Device-Battery-Monitor/issues/new?title=T%201&body=x%0Ay"
-        );
+        assert_eq!(issue_url("T 1", "x\ny"), "https://github.com/ferloom/Wireless-Device-Battery-Monitor/issues/new?title=T%201&body=x%0Ay");
     }
 
     #[test]

@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::HidDev;
-use crate::util::{hex4, interpolate, Deadline};
+use crate::util::{Deadline, hex4, interpolate};
 
 const VID: u16 = 0x04A5;
 const DW_RECEIVER: u16 = 0x800A;

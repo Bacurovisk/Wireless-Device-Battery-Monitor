@@ -6,7 +6,7 @@
 //! Layout reference: Linux drivers/hid/hid-playstation.c.
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::HidDev;
-use crate::util::{clamp100, fnv1a, hex4, Deadline};
+use crate::util::{Deadline, clamp100, fnv1a, hex4};
 
 fn is_ds4(pid: u16) -> bool {
     matches!(pid, 0x05C4 | 0x09CC | 0x0BA0)
@@ -52,12 +52,8 @@ fn decode_report(pid: u16, bt: bool, r: &[u8]) -> Report {
 }
 
 pub fn poll(ctx: &mut PollContext) {
-    let colls: Vec<_> = ctx
-        .colls
-        .iter()
-        .filter(|c| c.vid == 0x054C && (is_ds4(c.pid) || is_dualsense(c.pid)) && c.page() == 0x01 && c.usage() == 0x05)
-        .cloned()
-        .collect();
+    let colls: Vec<_> =
+        ctx.colls.iter().filter(|c| c.vid == 0x054C && (is_ds4(c.pid) || is_dualsense(c.pid)) && c.page() == 0x01 && c.usage() == 0x05).cloned().collect();
     for c in colls {
         let Some(d) = HidDev::open(&c) else { continue };
         let bt = c.in_len() > 64;

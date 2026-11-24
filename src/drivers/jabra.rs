@@ -18,12 +18,12 @@
 //! Only these two GETs are sent; nothing is written. A NAK for "offline" or no reply at all means the
 //! headset is off or out of range while the dongle stays plugged in: shown as disconnected.
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{HidColl, HidDev};
-use crate::util::{hex4, Deadline};
+use crate::util::{Deadline, hex4};
 
 const VID: u16 = 0x0B0E;
 const LINK_390: [u16; 4] = [0x2E50, 0x2E51, 0x2E56, 0x2E57];
@@ -76,7 +76,7 @@ pub fn parse_battery(p: &[u8]) -> Option<(i32, bool)> {
 /// Name payload: [n][n bytes UTF-8] (HeadsetControl also accepts a bare string).
 pub fn parse_name(p: &[u8]) -> Option<String> {
     let text = match p.first() {
-        Some(&n) if n as usize + 1 <= p.len() && n > 0 => &p[1..n as usize + 1],
+        Some(&n) if (n as usize) < p.len() && n > 0 => &p[1..n as usize + 1],
         _ => p,
     };
     let s = String::from_utf8_lossy(text).split('\0').next().unwrap_or("").trim().to_string();
@@ -104,7 +104,10 @@ fn query(d: &HidDev, cmd: u8, sub: u8) -> Option<Reply> {
 /// newly paired headset is picked up.
 static NAMES: Mutex<Option<HashMap<u16, String>>> = Mutex::new(None);
 
-fn read(c: &HidColl) -> Option<(Option<(i32, bool)>, Option<String>)> {
+/// (level and charging, if reported; the headset's name, if reported).
+type Reading = (Option<(i32, bool)>, Option<String>);
+
+fn read(c: &HidColl) -> Option<Reading> {
     let d = HidDev::open(c)?;
     match query(&d, STATUS, HS_BATTERY)? {
         Reply::Ok(p) => {

@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{HidColl, HidDev};
-use crate::util::{hex4, Deadline};
+use crate::util::{Deadline, hex4};
 
 const VID: u16 = 0x373B;
 const NANO_DONGLE: u16 = 0x1216;

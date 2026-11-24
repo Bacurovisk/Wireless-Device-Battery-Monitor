@@ -26,7 +26,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
-use crate::drivers::compx::{parse_power, parse_status, request, CMD_POWER, CMD_STATUS};
+use crate::drivers::compx::{CMD_POWER, CMD_STATUS, parse_power, parse_status, request};
 use crate::hid::{HidColl, HidDev};
 use crate::util::Deadline;
 
@@ -44,10 +44,13 @@ struct Product {
     cable: bool,
 }
 
-const PRODUCTS: [Product; 3] = [
+const PRODUCTS: [Product; 4] = [
     Product { vid: 0x3554, pid: 0xF5F7, name: "Scyrox V6 / V8", key: "scyrox:v6v8", cable: false },
     Product { vid: 0x3554, pid: 0xF5F6, name: "Scyrox V6 / V8", key: "scyrox:v6v8", cable: true },
     Product { vid: 0x373B, pid: 0x101B, name: "ATK 8K mouse", key: "compx:373b:101b", cable: false },
+    // "Wireless mouse 8k dongle-L": ATK A9 Ultimate (HaloBattery providers/pulsar.py), ATK F1 V2
+    // (issue #130); BatteryTray (MIT, src/providers/oem_mouse.rs) reads it with the same frame.
+    Product { vid: 0x373B, pid: 0x11D9, name: "ATK 8K mouse", key: "compx:373b:11d9", cable: false },
 ];
 
 #[derive(Debug, PartialEq, Eq)]
@@ -114,7 +117,7 @@ pub fn poll(ctx: &mut PollContext) {
         }
         let due = {
             let mut g = NEXT_TRY.lock().unwrap_or_else(|e| e.into_inner());
-            g.get_or_insert_with(HashMap::new).get(&(vid, pid)).map_or(true, |t| Instant::now() >= *t)
+            g.get_or_insert_with(HashMap::new).get(&(vid, pid)).is_none_or(|t| Instant::now() >= *t)
         };
         let reading = if due { colls.iter().find_map(read) } else { None };
         if due {

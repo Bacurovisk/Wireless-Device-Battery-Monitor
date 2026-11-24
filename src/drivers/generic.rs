@@ -3,13 +3,13 @@
 //! input report.
 use std::ffi::c_void;
 
-use windows::core::HSTRING;
 use windows::Win32::Devices::HumanInterfaceDevice::{
-    HidD_FreePreparsedData, HidD_GetFeature, HidD_GetInputReport, HidD_GetPreparsedData, HidP_Feature, HidP_GetValueCaps,
-    HidP_GetUsageValue, HidP_Input, HIDP_REPORT_TYPE, HIDP_STATUS_SUCCESS, HIDP_VALUE_CAPS, PHIDP_PREPARSED_DATA,
+    HIDP_REPORT_TYPE, HIDP_STATUS_SUCCESS, HIDP_VALUE_CAPS, HidD_FreePreparsedData, HidD_GetFeature, HidD_GetInputReport, HidD_GetPreparsedData, HidP_Feature,
+    HidP_GetUsageValue, HidP_GetValueCaps, HidP_Input, PHIDP_PREPARSED_DATA,
 };
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
+use windows::core::HSTRING;
 
 use super::sdi::container_of_interface;
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
@@ -22,26 +22,15 @@ fn is_battery_usage(page: u16, usage: u16) -> bool {
 
 fn read_battery(c: &HidColl) -> Option<i32> {
     unsafe {
-        let h = CreateFileW(
-            &HSTRING::from(c.path.as_str()),
-            0,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
-            None,
-            OPEN_EXISTING,
-            FILE_FLAGS_AND_ATTRIBUTES(0),
-            None,
-        )
-        .ok()?;
+        let h = CreateFileW(&HSTRING::from(c.path.as_str()), 0, FILE_SHARE_READ | FILE_SHARE_WRITE, None, OPEN_EXISTING, FILE_FLAGS_AND_ATTRIBUTES(0), None)
+            .ok()?;
         let mut pp = PHIDP_PREPARSED_DATA::default();
         if !HidD_GetPreparsedData(h, &mut pp) {
             let _ = CloseHandle(h);
             return None;
         }
         let mut pct = None;
-        let kinds: [(HIDP_REPORT_TYPE, u16, u16); 2] = [
-            (HidP_Feature, c.n_feature_value_caps, c.feat_len()),
-            (HidP_Input, c.n_input_value_caps, c.in_len()),
-        ];
+        let kinds: [(HIDP_REPORT_TYPE, u16, u16); 2] = [(HidP_Feature, c.n_feature_value_caps, c.feat_len()), (HidP_Input, c.n_input_value_caps, c.in_len())];
         'outer: for (ty, n, len) in kinds {
             if n == 0 || len == 0 {
                 continue;
@@ -101,12 +90,11 @@ pub fn poll(ctx: &mut PollContext) {
         if digitizers.contains(&(c.vid, c.pid)) || (c.n_feature_value_caps == 0 && c.n_input_value_caps == 0) {
             continue;
         }
-        if !ctx.bt_containers.is_empty() {
-            if let Some(cont) = container_of_interface(&c.path) {
-                if ctx.bt_containers.contains(&cont) {
-                    continue; // already shown with Windows' Bluetooth level
-                }
-            }
+        if !ctx.bt_containers.is_empty()
+            && let Some(cont) = container_of_interface(&c.path)
+            && ctx.bt_containers.contains(&cont)
+        {
+            continue; // already shown with Windows' Bluetooth level
         }
         let Some(pct) = read_battery(c) else { continue };
         let mut name = hid::product_string(c);
@@ -117,14 +105,7 @@ pub fn poll(ctx: &mut PollContext) {
         if kind == DeviceKind::Other {
             kind = guess_kind(&name);
         }
-        let s = DeviceStatus {
-            key: format!("hid:{}:{}", hex4(c.vid), hex4(c.pid)),
-            name,
-            via: "HID".into(),
-            kind,
-            percent: pct,
-            ..Default::default()
-        };
+        let s = DeviceStatus { key: format!("hid:{}:{}", hex4(c.vid), hex4(c.pid)), name, via: "HID".into(), kind, percent: pct, ..Default::default() };
         ctx.add(DeviceStatus { hw: Some((c.vid, c.pid)), ..s }, c.vid, c.pid);
     }
 }

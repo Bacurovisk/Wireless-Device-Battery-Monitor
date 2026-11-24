@@ -3,18 +3,23 @@
 #![cfg(windows)]
 
 pub mod ble;
+pub mod cardfx;
+pub mod dashboard;
 pub mod device;
 pub mod drivers;
+pub mod gui;
 pub mod hid;
 pub mod history;
 pub mod install;
 pub mod listen;
+pub mod rename;
 pub mod report;
 pub mod report_window;
 pub mod settings;
+pub mod stats;
 pub mod tray_probe;
 pub mod ui;
 pub mod update;
 pub mod util;
 
-pub use device::{poll_all_devices, DeviceKind, DeviceStatus};
+pub use device::{DeviceKind, DeviceStatus, poll_all_devices};

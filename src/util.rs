@@ -1,10 +1,8 @@
 //! Small helpers shared by drivers and the UI (port of the helpers at the end of hid.cpp).
 use std::time::{Duration, Instant};
 
+use windows::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ, RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW};
 use windows::core::{HSTRING, PCWSTR};
-use windows::Win32::System::Registry::{
-    RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ,
-};
 
 use crate::device::DeviceKind;
 
@@ -59,12 +57,7 @@ pub fn guess_kind(name: &str) -> DeviceKind {
     if has("controller") || has("gamepad") || has("xbox") || has("dualsense") || has("dualshock") || has("joy-con") {
         return DeviceKind::Gamepad;
     }
-    if [
-        "head", "buds", "pods", "ear", "wh-", "wf-", "audio", "speaker", "arctis", "cloud", "void", "virtuoso",
-    ]
-    .iter()
-    .any(|s| has(s))
-    {
+    if ["head", "buds", "pods", "ear", "wh-", "wf-", "audio", "speaker", "arctis", "cloud", "void", "virtuoso"].iter().any(|s| has(s)) {
         return DeviceKind::Headset;
     }
     DeviceKind::Other
@@ -116,15 +109,7 @@ pub fn reg_get_string(subkey: &str, value: &str) -> Option<String> {
     let mut buf = vec![0u16; 1024];
     let mut size = (buf.len() * 2) as u32;
     let r = unsafe {
-        RegGetValueW(
-            HKEY_CURRENT_USER,
-            &HSTRING::from(subkey),
-            &HSTRING::from(value),
-            RRF_RT_REG_SZ,
-            None,
-            Some(buf.as_mut_ptr().cast()),
-            Some(&mut size),
-        )
+        RegGetValueW(HKEY_CURRENT_USER, &HSTRING::from(subkey), &HSTRING::from(value), RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr().cast()), Some(&mut size))
     };
     r.is_ok().then(|| from_wide(&buf))
 }
@@ -152,17 +137,9 @@ pub fn reg_get_binary(subkey: &str, value: &str) -> Option<Vec<u8>> {
     unsafe {
         RegGetValueW(HKEY_CURRENT_USER, &k, &v, windows::Win32::System::Registry::RRF_RT_REG_BINARY, None, None, Some(&mut size)).ok().ok()?;
         let mut buf = vec![0u8; size as usize];
-        RegGetValueW(
-            HKEY_CURRENT_USER,
-            &k,
-            &v,
-            windows::Win32::System::Registry::RRF_RT_REG_BINARY,
-            None,
-            Some(buf.as_mut_ptr().cast()),
-            Some(&mut size),
-        )
-        .ok()
-        .ok()?;
+        RegGetValueW(HKEY_CURRENT_USER, &k, &v, windows::Win32::System::Registry::RRF_RT_REG_BINARY, None, Some(buf.as_mut_ptr().cast()), Some(&mut size))
+            .ok()
+            .ok()?;
         buf.truncate(size as usize);
         Some(buf)
     }
@@ -185,15 +162,7 @@ pub fn reg_set_binary(subkey: &str, value: &str, data: &[u8]) -> bool {
 pub fn reg_set_string(subkey: &str, value: &str, data: &str) -> bool {
     let w = wide(data);
     unsafe {
-        RegSetKeyValueW(
-            HKEY_CURRENT_USER,
-            &HSTRING::from(subkey),
-            &HSTRING::from(value),
-            REG_SZ.0,
-            Some(w.as_ptr().cast()),
-            (w.len() * 2) as u32,
-        )
-        .is_ok()
+        RegSetKeyValueW(HKEY_CURRENT_USER, &HSTRING::from(subkey), &HSTRING::from(value), REG_SZ.0, Some(w.as_ptr().cast()), (w.len() * 2) as u32).is_ok()
     }
 }
 
@@ -203,4 +172,25 @@ pub fn reg_delete_value(subkey: &str, value: &str) -> bool {
 
 pub fn pcwstr(w: &[u16]) -> PCWSTR {
     PCWSTR(w.as_ptr())
+}
+
+/// `%LOCALAPPDATA%\BatteryHub\<edition>`: data the program keeps (battery history). Separate from
+/// the program folder, so it survives an update and the uninstaller asks before removing it.
+pub fn data_dir(edition: &str) -> std::path::PathBuf {
+    let base = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    base.join("BatteryHub").join(edition)
+}
+
+/// Moves `from` over `to` in one step (MoveFileEx, REPLACE_EXISTING | WRITE_THROUGH): `to` is
+/// either the old or the new file, never a mix. Both must be on the same volume.
+pub fn replace_file(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    use windows::Win32::Storage::FileSystem::{MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW};
+    unsafe {
+        MoveFileExW(
+            &windows::core::HSTRING::from(from.as_os_str()),
+            &windows::core::HSTRING::from(to.as_os_str()),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    }
+    .map_err(|e| std::io::Error::from_raw_os_error(e.code().0 & 0xFFFF))
 }

@@ -20,7 +20,10 @@ const QUERY: [u8; 7] = [0x00, 0x00, 0x00, 0x02, 0x02, 0x00, 0x83];
 
 #[derive(Debug, PartialEq)]
 pub enum Reply {
-    Battery { percent: i32, charging: bool },
+    Battery {
+        percent: i32,
+        charging: bool,
+    },
     /// The receiver answered but the mouse sleeps, is off or not linked.
     Offline,
 }

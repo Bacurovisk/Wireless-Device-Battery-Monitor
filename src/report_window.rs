@@ -5,24 +5,23 @@
 use std::cell::RefCell;
 use std::ffi::c_void;
 
-use windows::core::{w, HSTRING, PCWSTR};
-use windows::Win32::Foundation::{GlobalFree, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
 use windows::Win32::Foundation::COLORREF;
+use windows::Win32::Foundation::{GlobalFree, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Dwm::{DWMWINDOWATTRIBUTE, DwmSetWindowAttribute};
 use windows::Win32::Graphics::Gdi::{
-    CreateFontIndirectW, CreateSolidBrush, DeleteObject, FillRect, GetMonitorInfoW, GetSysColor, GetSysColorBrush, InvalidateRect,
-    MonitorFromPoint, SetBkColor, SetTextColor, COLOR_BTNFACE, COLOR_WINDOW, COLOR_WINDOWTEXT, HBRUSH, HDC, HFONT, HGDIOBJ,
-    MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
+    COLOR_BTNFACE, COLOR_WINDOW, COLOR_WINDOWTEXT, CreateFontIndirectW, CreateSolidBrush, DeleteObject, FillRect, GetMonitorInfoW, GetSysColor,
+    GetSysColorBrush, HBRUSH, HDC, HFONT, HGDIOBJ, InvalidateRect, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint, SetBkColor, SetTextColor,
 };
-use windows::Win32::UI::Controls::SetWindowTheme;
 use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
 use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
+use windows::Win32::UI::Controls::SetWindowTheme;
 use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, IsWindowEnabled};
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::{HSTRING, PCWSTR, w};
 
 use crate::report::{self, Candidate, Request, TYPES};
 
@@ -127,20 +126,9 @@ pub fn show() {
         let work = mi.rcWork;
         let x = work.left + (work.right - work.left - w) / 2;
         let y = work.top + (work.bottom - work.top - h) / 2;
-        if let Ok(h) = CreateWindowExW(
-            WINDOW_EX_STYLE(0),
-            CLASS,
-            w!("BatteryHub: request support for a device"),
-            style,
-            x,
-            y,
-            w,
-            h,
-            None,
-            None,
-            Some(hinst.into()),
-            None,
-        ) {
+        if let Ok(h) =
+            CreateWindowExW(WINDOW_EX_STYLE(0), CLASS, w!("BatteryHub: request support for a device"), style, x, y, w, h, None, None, Some(hinst.into()), None)
+        {
             let _ = ShowWindow(h, SW_SHOW);
             let _ = SetForegroundWindow(h);
         }
@@ -232,13 +220,7 @@ fn add(class: PCWSTR, text: &str, style: u32, id: i32, x: i32, y: i32, w: i32, h
 fn make_font(dpi: u32) -> HFONT {
     unsafe {
         let mut ncm = NONCLIENTMETRICSW { cbSize: size_of::<NONCLIENTMETRICSW>() as u32, ..Default::default() };
-        let _ = windows::Win32::UI::HiDpi::SystemParametersInfoForDpi(
-            SPI_GETNONCLIENTMETRICS.0,
-            ncm.cbSize,
-            Some(&mut ncm as *mut _ as *mut c_void),
-            0,
-            dpi,
-        );
+        let _ = windows::Win32::UI::HiDpi::SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS.0, ncm.cbSize, Some(&mut ncm as *mut _ as *mut c_void), 0, dpi);
         CreateFontIndirectW(&ncm.lfMessageFont)
     }
 }
@@ -279,17 +261,7 @@ fn create_controls() {
     let name = add(w!("EDIT"), "", ES_AUTOHSCROLL | tab, IDC_NAME, L, 234, W, 24, edge);
     send(name, EM_LIMITTEXT, NAME_MAX, 0);
     add(w!("STATIC"), "Anything else we should know? (optional)", 0, -1, L, 266, W, 18, none);
-    let notes = add(
-        w!("EDIT"),
-        "",
-        ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL.0 | tab,
-        IDC_NOTES,
-        L,
-        284,
-        W,
-        54,
-        edge,
-    );
+    let notes = add(w!("EDIT"), "", ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL.0 | tab, IDC_NOTES, L, 284, W, 54, edge);
     send(notes, EM_LIMITTEXT, NOTES_MAX, 0);
     add(w!("STATIC"), "This is exactly what the GitHub issue will contain:", 0, -1, L, 346, W, 18, none);
     add(w!("EDIT"), "", ES_MULTILINE | ES_READONLY | WS_VSCROLL.0 | tab, IDC_PREVIEW, L, 364, W, 132, edge);
@@ -360,10 +332,7 @@ fn fill_devices(list: Vec<Candidate>) {
         s.scanned = true;
     });
     enable(IDC_DEVICE, true);
-    set_text(
-        IDC_STATUS,
-        "Pick the device that isn't shown. Devices with a vendor-specific interface or audio are listed first.",
-    );
+    set_text(IDC_STATUS, "Pick the device that isn't shown. Devices with a vendor-specific interface or audio are listed first.");
     update_preview();
 }
 
@@ -570,4 +539,3 @@ extern "system" fn proc_(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
         }
     }
 }
-

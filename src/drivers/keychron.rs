@@ -14,13 +14,14 @@
 //!   A4 is the KC_GET_BATTERY command of ldkv/qmk_firmware#1. Keychron's stock keyboard firmware
 //!   reports its battery only over Bluetooth and never answers A4 through the receiver; then the
 //!   query times out and A4 is not asked again for KB_RETRY_AFTER (nothing is shown for it).
+#![allow(clippy::doc_overindented_list_items)]
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{HidColl, HidDev};
-use crate::util::{hex4, sleep_ms, Deadline};
+use crate::util::{Deadline, hex4, sleep_ms};
 
 const VID: u16 = 0x3434;
 const RECEIVERS: [u16; 2] = [0xD030, 0xD031];

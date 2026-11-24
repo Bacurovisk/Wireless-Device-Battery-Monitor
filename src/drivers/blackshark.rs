@@ -93,7 +93,7 @@ fn listener(c: HidColl) {
     };
     let mut failures = 0;
     loop {
-        let due = with(pid, |s| s.last_query.map_or(true, |t| t.elapsed() >= QUERY_EVERY));
+        let due = with(pid, |s| s.last_query.is_none_or(|t| t.elapsed() >= QUERY_EVERY));
         if due {
             let sent = d.write(&battery_request());
             with(pid, |s| s.last_query = Some(Instant::now()));
@@ -124,10 +124,11 @@ fn listener(c: HidColl) {
             None => {}
         }
         with(pid, |s| {
-            if let Some(q) = s.last_query {
-                if q.elapsed() > REPLY_WAIT && s.last_reply.map_or(true, |r| r < q) {
-                    s.silent = true;
-                }
+            if let Some(q) = s.last_query
+                && q.elapsed() > REPLY_WAIT
+                && s.last_reply.is_none_or(|r| r < q)
+            {
+                s.silent = true;
             }
         });
         if failures >= 5 {

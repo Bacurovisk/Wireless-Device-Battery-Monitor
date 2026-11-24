@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{self, HidColl, HidDev};
-use crate::util::{hex4, Deadline};
+use crate::util::{Deadline, hex4};
 
 const RECEIVERS: [(u16, u16); 3] = [(0x3554, 0xFA09), (0x3554, 0xFB40), (0x41E4, 0x2001)];
 const REPORT: u8 = 0x13;

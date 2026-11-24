@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{HidColl, HidDev};
-use crate::util::{hex4, sleep_ms, Deadline};
+use crate::util::{Deadline, hex4, sleep_ms};
 
 const VID: u16 = 0x1532;
 const DONGLE: u16 = 0x0555;

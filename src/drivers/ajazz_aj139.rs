@@ -15,7 +15,7 @@
 //! receiver means the mouse is off or out of range.
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{HidColl, HidDev};
-use crate::util::{hex4, Deadline};
+use crate::util::{Deadline, hex4};
 
 const PID: u16 = 0x2255;
 const RECEIVER_VID: u16 = 0xA8A5;

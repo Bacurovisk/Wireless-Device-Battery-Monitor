@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::HidDev;
-use crate::util::{hex4, Deadline};
+use crate::util::{Deadline, hex4};
 
 const VID: u16 = 0x0951;
 const PIDS: [u16; 2] = [0x1723, 0x16C4];
@@ -167,11 +167,7 @@ pub fn poll(ctx: &mut PollContext) {
         if !PIDS.contains(&pid) {
             continue;
         }
-        let Some(c) = ctx
-            .find(vid, pid, |c| c.page() >= 0xFF00 && c.usage() == 0x0303 && c.in_len() == 20 && c.out_len() == 20)
-            .into_iter()
-            .next()
-        else {
+        let Some(c) = ctx.find(vid, pid, |c| c.page() >= 0xFF00 && c.usage() == 0x0303 && c.in_len() == 20 && c.out_len() == 20).into_iter().next() else {
             continue;
         };
         let reading = match recent(pid) {

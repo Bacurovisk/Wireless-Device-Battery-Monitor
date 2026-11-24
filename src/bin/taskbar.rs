@@ -8,27 +8,28 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::ffi::c_void;
+use std::rc::Rc;
 use std::time::Instant;
 
+use batteryhub::cardfx::{BlurScratch, CardBg, CardContent, Layer, compose_card};
 use batteryhub::device::Missing;
 use batteryhub::settings;
 use batteryhub::ui::{self, rgb, split};
 use batteryhub::{DeviceKind, DeviceStatus};
-use windows::core::w;
-use windows::Win32::Foundation::{GetLastError, COLORREF, ERROR_ALREADY_EXISTS, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
+use windows::Win32::Foundation::{COLORREF, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{CreateMutexW, GetCurrentProcess, SetProcessWorkingSetSize};
 use windows::Win32::UI::Controls::{
-    TOOLTIPS_CLASSW, TTF_ABSOLUTE, TTF_TRACK, TTM_ADDTOOLW, TTM_SETMAXTIPWIDTH, TTM_TRACKACTIVATE, 
-    TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
+    TOOLTIPS_CLASSW, TTF_ABSOLUTE, TTF_TRACK, TTM_ADDTOOLW, TTM_SETMAXTIPWIDTH, TTM_TRACKACTIVATE, TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
 };
-use windows::Win32::UI::HiDpi::{GetDpiForWindow, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
-use windows::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
+use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow, SetProcessDpiAwarenessContext};
+use windows::Win32::UI::Input::KeyboardAndMouse::{TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent};
 use windows::Win32::UI::Shell::{
-    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
+    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_WARNING, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::w;
 
 const WM_POLL_DONE: u32 = WM_APP + 2;
 const WM_TRAY: u32 = WM_APP + 3;
@@ -38,6 +39,8 @@ const WM_UPDATE_DOWNLOADED: u32 = WM_APP + 6;
 const WM_SHOW_UPDATED: u32 = WM_APP + 7;
 /// tray_probe found where a secondary taskbar's notification area begins.
 const WM_TRAY_PROBED: u32 = WM_APP + 8;
+/// A background write of the history finished (wparam: 1 = written).
+const WM_HISTORY_SAVED: u32 = WM_APP + 9;
 // Not exported by the windows crate's WindowsAndMessaging module.
 const WM_MOUSELEAVE: u32 = 0x02A3;
 const TIMER_POLL: usize = 1;
@@ -50,6 +53,10 @@ const TIMER_AUTO_UPDATE: usize = 6;
 const TIMER_UPDATED: usize = 7;
 /// Frames of the hover card's fade / slide (~60 per second while it runs).
 const TIMER_CARD: usize = 20;
+/// Removes the low-battery notification's temporary icon.
+const TIMER_NOTIFY: usize = 21;
+/// Notification-area id of the low-battery notification (device icons use hashes of their keys).
+const NOTIFY_UID: u32 = 0x5BA7;
 const CARD_SHOW_MS: f32 = 160.0;
 const CARD_HIDE_MS: f32 = 110.0;
 /// Old and new card blending when the mouse moves to another device (like the taskbar's previews).
@@ -71,14 +78,9 @@ const DBT_DEVICEREMOVECOMPLETE: usize = 0x8004;
 /// Seconds the strip may be impossible to place before falling back to notification-area icons.
 const FALLBACK_AFTER_TICKS: u32 = 3;
 const PBT_APMRESUMEAUTOMATIC: usize = 0x0012;
+const PBT_APMSUSPEND: usize = 0x0004;
 /// Battery refresh intervals offered in the menu, in minutes.
-const INTERVALS: [(u32, &str); 5] = [
-    (1, "1 minute"),
-    (5, "5 minutes"),
-    (10, "10 minutes"),
-    (30, "30 minutes"),
-    (60, "1 hour"),
-];
+const INTERVALS: [(u32, &str); 5] = [(1, "1 minute"), (5, "5 minutes"), (10, "10 minutes"), (30, "30 minutes"), (60, "1 hour")];
 const ID_INTERVAL_BASE: usize = 10;
 const ID_ON_CHANGE: usize = 20;
 const MIN_GRACE_SEC: u64 = 150;
@@ -92,6 +94,7 @@ const ID_AUTO_UPDATE: usize = 7;
 const ID_BACKGROUND: usize = 8;
 const ID_SILENT_UPDATE: usize = 9;
 const ID_ICONS_MODE: usize = 10;
+const ID_VERSIONS: usize = 11;
 /// "Show widget on": all monitors, main monitor only, or ID_MONITOR_FIRST + i for one other monitor.
 const ID_MONITOR_ALL: usize = 40;
 const ID_MONITOR_MAIN: usize = 41;
@@ -109,10 +112,73 @@ const HEIGHT_OFFSETS: [i32; 7] = [-15, -10, -5, 0, 5, 10, 15];
 pub const MAIN_CLASS: windows::core::PCWSTR = w!("BatteryHub.Taskbar.Main");
 const STRIP_CLASS: windows::core::PCWSTR = w!("BatteryHub.Taskbar.Strip");
 const SETTINGS_KEY: &str = batteryhub::install::TASKBAR.settings_key;
+/// Folder name of this edition's data (%LOCALAPPDATA%\BatteryHub\Taskbar).
+const EDITION: &str = batteryhub::install::TASKBAR.short;
+
+/// BH_PROFILE (measurements only): time spent on the hover card, written to the debug log
+/// (%TEMP%h2.log, with BH_DEBUG) each time the card closes.
+mod prof {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    pub static FRAMES: AtomicU64 = AtomicU64::new(0);
+    pub static COMPOSE_US: AtomicU64 = AtomicU64::new(0);
+    pub static PRESENT_US: AtomicU64 = AtomicU64::new(0);
+    pub static RENDERS: AtomicU64 = AtomicU64::new(0);
+    pub static RENDER_US: AtomicU64 = AtomicU64::new(0);
+    pub fn add(c: &AtomicU64, v: u64) {
+        c.fetch_add(v, Ordering::Relaxed);
+    }
+    pub fn report() {
+        if std::env::var_os("BH_PROFILE").is_none() {
+            return;
+        }
+        let g = |c: &AtomicU64| c.load(Ordering::Relaxed);
+        let f = g(&FRAMES).max(1);
+        super::dbg_log(&format!(
+            "card profile: {} frames, compose {} us/frame, present {} us/frame, {} renders ({} us each)",
+            g(&FRAMES),
+            g(&COMPOSE_US) / f,
+            g(&PRESENT_US) / f,
+            g(&RENDERS),
+            g(&RENDER_US) / g(&RENDERS).max(1)
+        ));
+    }
+}
+
+/// BH_DEMO (diagnostics and measurements only): two made-up devices on the strip, so the hover
+/// card can be tried and measured without devices at hand. They are never written to the history.
+fn demo_devices() -> Vec<DeviceStatus> {
+    if std::env::var_os("BH_DEMO").is_none() {
+        return Vec::new();
+    }
+    let dev = |key: &str, name: &str, kind: DeviceKind, percent: i32, charging: bool| DeviceStatus {
+        key: key.into(),
+        name: name.into(),
+        via: "Demo (BH_DEMO)".into(),
+        kind,
+        percent,
+        charging,
+        ..Default::default()
+    };
+    vec![dev("demo:headset", "Demo headset", DeviceKind::Headset, 38, true), dev("demo:mouse", "Demo mouse with a longer name", DeviceKind::Mouse, 64, false)]
+}
+
+/// A dashboard window is open (it shows the history file, so that is kept current).
+fn dashboard_open() -> bool {
+    batteryhub::dashboard::any_open()
+}
+
+fn history_path() -> std::path::PathBuf {
+    batteryhub::history::History::path(EDITION)
+}
+
+/// A notification-area icon to show: device key, text in the icon, colour, level, tooltip.
+type TrayIcon = (String, String, COLORREF, i32, String);
 
 struct Tracked {
     status: DeviceStatus,
     seen: Instant,
+    /// The name the device reports (status.name is the user's name for it, if it has one).
+    reported: String,
 }
 
 #[derive(Default)]
@@ -146,7 +212,18 @@ struct App {
     /// Hover card (device, level, last 24 hours) and the levels it charts.
     card: HWND,
     card_anim: CardAnim,
+    /// Rendered card contents of the last two devices shown (moving back and forth between two
+    /// devices reuses them instead of drawing the text and chart again).
+    card_cache: Vec<Rc<CardContent>>,
+    /// The card's bitmap, kept while the card is open (one allocation, not one per frame).
+    card_surface: Option<Surface>,
+    /// Scratch buffers of the card's blur, kept while the card is open.
+    blur_scratch: BlurScratch,
+    /// Fonts of the strip and the card for the current DPI scale.
+    fonts: Option<Fonts>,
     history: batteryhub::history::History,
+    /// Last time the history was written.
+    history_saved: Option<Instant>,
     tip_for: Option<usize>,
     tracking: bool,
     taskbar_created: u32,
@@ -155,6 +232,9 @@ struct App {
     painted_for: (i32, u32, bool),
     /// Notification-area icons instead of the strip (the taskbar cannot host it right now).
     fallback: bool,
+    /// The taskbar is on the left or right edge: the strip is a column (icon over level, devices
+    /// stacked) above the notification area, and hit ranges are along y.
+    vertical: bool,
     /// Consecutive seconds the strip could not be placed.
     fail_ticks: u32,
     /// Fallback icons: device key -> (icon id, icon handle).
@@ -175,6 +255,8 @@ struct App {
     mirrors: Vec<(HWND, HWND)>,
     /// Pixels of the last render, pushed to every mirror as well.
     pixels: Vec<u32>,
+    /// The same render on the hover plate (made once per render, not on every hover).
+    lit: Vec<u32>,
     /// Strip the tooltip belongs to (the main strip or a mirror).
     tip_on: HWND,
     /// Strip under the mouse: drawn with the taskbar's hover plate.
@@ -189,6 +271,14 @@ struct App {
     icons_mode: bool,
     /// Version the setup just updated from (shown once in "Update finished").
     updated_from: Option<String>,
+    /// Names chosen with "Rename device" (device key -> name).
+    names: std::collections::HashMap<String, String>,
+    /// "Warn at 5%" state per device.
+    critical: settings::CriticalWarnings,
+    /// Icon of the low-battery notification while it is shown.
+    notify_icon: Option<HICON>,
+    /// Registered message: a device was renamed.
+    names_msg: u32,
 }
 
 thread_local! {
@@ -212,12 +302,25 @@ struct Canvas {
 
 impl Canvas {
     /// Filled rounded rectangle [x0, x1) x [y0, y1).
+    #[allow(clippy::too_many_arguments)]
     fn fill_rrect(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, radius: i32, c: COLORREF, a: u32) {
         let r = radius.max(0).min((x1 - x0) / 2).min((y1 - y0) / 2);
         for y in y0..y1 {
             for x in x0..x1 {
-                let dx = if x < x0 + r { x0 + r - x } else if x >= x1 - r { x - (x1 - r - 1) } else { 0 };
-                let dy = if y < y0 + r { y0 + r - y } else if y >= y1 - r { y - (y1 - r - 1) } else { 0 };
+                let dx = if x < x0 + r {
+                    x0 + r - x
+                } else if x >= x1 - r {
+                    x - (x1 - r - 1)
+                } else {
+                    0
+                };
+                let dy = if y < y0 + r {
+                    y0 + r - y
+                } else if y >= y1 - r {
+                    y - (y1 - r - 1)
+                } else {
+                    0
+                };
                 if dx * dx + dy * dy <= r * r {
                     self.blend(x, y, c, a);
                 }
@@ -267,8 +370,20 @@ impl Canvas {
         let (w, h, r) = (self.w, self.h, radius.max(1));
         for y in inset..h - inset {
             for x in 0..w {
-                let dx = if x < r { r - x } else if x >= w - r { x - (w - r - 1) } else { 0 };
-                let dy = if y < inset + r { inset + r - y } else if y >= h - inset - r { y - (h - inset - r - 1) } else { 0 };
+                let dx = if x < r {
+                    r - x
+                } else if x >= w - r {
+                    x - (w - r - 1)
+                } else {
+                    0
+                };
+                let dy = if y < inset + r {
+                    inset + r - y
+                } else if y >= h - inset - r {
+                    y - (h - inset - r - 1)
+                } else {
+                    0
+                };
                 if dx * dx + dy * dy <= r * r {
                     self.blend(x, y, c, a);
                 }
@@ -409,23 +524,66 @@ struct Piece {
     gap_after: i32,
 }
 
+/// Every font the strip and the card draw with, for one DPI scale (creating a font and checking
+/// its face costs a device context each time, so they are made once, not per render).
+struct Fonts {
+    scale: f32,
+    icons: HFONT,
+    bolt: HFONT,
+    text: HFONT,
+    card_icon: HFONT,
+    card_name: HFONT,
+    card_big: HFONT,
+    card_small: HFONT,
+}
+
+impl Fonts {
+    fn new(s: f32) -> Self {
+        let px = |v: f32| (v * s).round() as i32;
+        Fonts {
+            scale: s,
+            icons: make_font(px(16.0), 400, "Segoe Fluent Icons", "Segoe MDL2 Assets", 0),
+            bolt: make_font(px(11.0), 400, "Segoe Fluent Icons", "Segoe MDL2 Assets", 0),
+            text: make_font(px(13.0), 400, "Segoe UI Variable Text", "Segoe UI", px(12.0)),
+            card_icon: make_font(px(16.0), 400, "Segoe Fluent Icons", "Segoe MDL2 Assets", 0),
+            card_name: make_font(px(15.0), 600, "Segoe UI Variable Text", "Segoe UI", 0),
+            card_big: make_font(px(30.0), 600, "Segoe UI Variable Display", "Segoe UI", 0),
+            card_small: make_font(px(12.0), 400, "Segoe UI Variable Text", "Segoe UI", 0),
+        }
+    }
+}
+
+impl Drop for Fonts {
+    fn drop(&mut self) {
+        for f in [self.icons, self.bolt, self.text, self.card_icon, self.card_name, self.card_big, self.card_small] {
+            unsafe {
+                let _ = DeleteObject(HGDIOBJ(f.0));
+            }
+        }
+    }
+}
+
 impl App {
-    fn scale(&self) -> f32 {
-        let dpi = unsafe { GetDpiForWindow(self.taskbar) };
-        if dpi == 0 {
-            1.0
-        } else {
-            dpi as f32 / 96.0
+    /// Creates the fonts for the current DPI scale when there are none yet or the scale changed.
+    fn ensure_fonts(&mut self) {
+        let s = self.scale();
+        if self.fonts.as_ref().map(|f| f.scale) != Some(s) {
+            self.fonts = Some(Fonts::new(s));
         }
     }
 
+    /// Device `i` of the strip (connected devices in strip order), without copying the list.
+    fn visible_at(&self, i: usize) -> Option<&DeviceStatus> {
+        self.order.iter().filter_map(|k| self.devices.get(k)).map(|t| &t.status).filter(|s| s.connected).nth(i)
+    }
+
+    fn scale(&self) -> f32 {
+        let dpi = unsafe { GetDpiForWindow(self.taskbar) };
+        if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 }
+    }
+
     fn visible(&self) -> Vec<DeviceStatus> {
-        self.order
-            .iter()
-            .filter_map(|k| self.devices.get(k))
-            .map(|t| t.status.clone())
-            .filter(|s| s.connected)
-            .collect()
+        self.order.iter().filter_map(|k| self.devices.get(k)).map(|t| t.status.clone()).filter(|s| s.connected).collect()
     }
 
     /// Renders the strip and hands it to the layered window.
@@ -444,21 +602,14 @@ impl App {
         // Same colours, fonts and spacing as the original C++ widget.
         let fg = if light { rgb(0, 0, 0) } else { rgb(255, 255, 255) };
         let red = ui::low_color(light);
-        let icons = make_font(px(16.0), 400, "Segoe Fluent Icons", "Segoe MDL2 Assets", 0);
-        let bolt = make_font(px(11.0), 400, "Segoe Fluent Icons", "Segoe MDL2 Assets", 0);
-        let text = make_font(px(13.0), 400, "Segoe UI Variable Text", "Segoe UI", px(12.0));
+        self.ensure_fonts();
+        let (icons, bolt, text) = self.fonts.as_ref().map(|f| (f.icons, f.bolt, f.text)).unwrap_or_default();
 
         let mut pieces: Vec<Piece> = Vec::new();
         let devices = self.visible();
         if devices.is_empty() {
             // Battery-unknown glyph, so there is always something to right-click.
-            pieces.push(Piece {
-                dev: None,
-                m: mask("\u{E996}", icons, light),
-                color: fg,
-                alpha: 110,
-                gap_after: 0,
-            });
+            pieces.push(Piece { dev: None, m: mask("\u{E996}", icons, light), color: fg, alpha: 110, gap_after: 0 });
         }
         for (i, d) in devices.iter().enumerate() {
             let alpha = if d.asleep { 120 } else { 255 };
@@ -467,13 +618,7 @@ impl App {
             // Lightning bolt on power: green while charging, blue once it reached 100%.
             let bolt_color = ui::bolt_color(d, light);
             let mark = bolt_color.is_some();
-            pieces.push(Piece {
-                dev: Some(i),
-                m: mask(&d.kind.glyph().to_string(), icons, light),
-                color: fg,
-                alpha,
-                gap_after: px(5.0),
-            });
+            pieces.push(Piece { dev: Some(i), m: mask(&d.kind.glyph().to_string(), icons, light), color: fg, alpha, gap_after: px(5.0) });
             let t = if !d.level_text.is_empty() && d.percent < 0 {
                 d.level_text.clone()
             } else if d.percent >= 0 {
@@ -481,21 +626,9 @@ impl App {
             } else {
                 "?".into()
             };
-            pieces.push(Piece {
-                dev: Some(i),
-                m: mask(&t, text, light),
-                color: if low { red } else { fg },
-                alpha,
-                gap_after: if mark { px(2.0) } else { 0 },
-            });
+            pieces.push(Piece { dev: Some(i), m: mask(&t, text, light), color: if low { red } else { fg }, alpha, gap_after: if mark { px(2.0) } else { 0 } });
             if let Some(c) = bolt_color {
-                pieces.push(Piece {
-                    dev: Some(i),
-                    m: mask("\u{E945}", bolt, light),
-                    color: c,
-                    alpha,
-                    gap_after: 0,
-                });
+                pieces.push(Piece { dev: Some(i), m: mask("\u{E945}", bolt, light), color: c, alpha, gap_after: 0 });
             }
             if i + 1 < devices.len() {
                 pieces.last_mut().unwrap().gap_after = px(14.0);
@@ -504,33 +637,21 @@ impl App {
         if self.manual && self.polling {
             // Refresh started from the menu: a small refresh glyph until it finishes.
             pieces.last_mut().unwrap().gap_after = px(10.0);
-            pieces.push(Piece {
-                dev: None,
-                m: mask("\u{E72C}", bolt, light),
-                color: fg,
-                alpha: 170,
-                gap_after: 0,
-            });
+            pieces.push(Piece { dev: None, m: mask("\u{E72C}", bolt, light), color: fg, alpha: 170, gap_after: 0 });
         }
-        for f in [icons, bolt, text] {
-            unsafe {
-                let _ = DeleteObject(HGDIOBJ(f.0));
-            }
-        }
-
         let mut tb = RECT::default();
         unsafe {
             let _ = GetClientRect(self.taskbar, &mut tb);
+        }
+        if self.vertical {
+            self.paint_column(&pieces, (tb.right - tb.left).clamp(px(32.0), px(160.0)), s, light);
+            return;
         }
         let h = (tb.bottom - tb.top).clamp(px(24.0), px(64.0));
         let pad = px(8.0);
         let w = pad * 2 + pieces.iter().map(|p| p.m.w + p.gap_after).sum::<i32>();
         // Alpha 1 everywhere: fully transparent pixels of a layered window let clicks fall through.
-        let mut cv = Canvas {
-            w,
-            h,
-            px: vec![0x0100_0000; (w * h) as usize],
-        };
+        let mut cv = Canvas { w, h, px: vec![0x0100_0000; (w * h) as usize] };
         if self.background {
             // Rounded plate in the taskbar's own colour: keeps the text readable on a transparent
             // or restyled taskbar (e.g. TranslucentTB, Windhawk's Taskbar Styler).
@@ -564,6 +685,7 @@ impl App {
         }
         self.size = SIZE { cx: w, cy: h };
         self.pixels = cv.px;
+        self.lit = self.hover_pixels();
         self.push(self.strip);
         for i in 0..self.mirrors.len() {
             self.push(self.mirrors[i].1);
@@ -576,6 +698,31 @@ impl App {
             let (bar, strip) = self.mirrors[i];
             self.place_mirror(bar, strip);
         }
+    }
+
+    /// Vertical taskbar: each device as its icon over its level (the bolt beside the level when it
+    /// fits), devices stacked, as wide as the taskbar. Hit ranges are rows (y).
+    fn paint_column(&mut self, pieces: &[Piece], w: i32, s: f32, light: bool) {
+        let px = |v: f32| (v * s).round() as i32;
+        let sizes: Vec<(Option<usize>, i32, i32)> = pieces.iter().map(|p| (p.dev, p.m.w, p.m.h)).collect();
+        let (placed, h, hits) = column_layout(&sizes, w, px(8.0), px(2.0), px(12.0), px(2.0));
+        let mut cv = Canvas { w, h, px: vec![0x0100_0000; (w * h) as usize] };
+        if self.background {
+            let plate = if light { rgb(243, 243, 243) } else { rgb(32, 32, 32) };
+            cv.round_rect(0, px(6.0), plate, 235);
+        }
+        for (p, &(x, y, show)) in pieces.iter().zip(&placed) {
+            if show {
+                cv.draw(&p.m, x, y, p.color, p.alpha);
+            }
+        }
+        self.hits = hits;
+        self.size = SIZE { cx: w, cy: h };
+        self.pixels = cv.px;
+        self.lit = self.hover_pixels();
+        self.push(self.strip);
+        self.last_place.2 = -1;
+        self.place();
     }
 
     /// The last render on the taskbar's hover plate: a rounded, slightly lighter (dark taskbar) or
@@ -634,31 +781,15 @@ impl App {
             };
             let mut bits: *mut c_void = std::ptr::null_mut();
             if let Ok(bmp) = CreateDIBSection(Some(mem), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) {
-                if strip == self.hovered {
-                    let lit = self.hover_pixels();
-                    std::ptr::copy_nonoverlapping(lit.as_ptr(), bits as *mut u32, lit.len());
+                if strip == self.hovered && self.lit.len() == self.pixels.len() {
+                    std::ptr::copy_nonoverlapping(self.lit.as_ptr(), bits as *mut u32, self.lit.len());
                 } else {
                     std::ptr::copy_nonoverlapping(self.pixels.as_ptr(), bits as *mut u32, self.pixels.len());
                 }
                 let ob = SelectObject(mem, HGDIOBJ(bmp.0));
                 let src = POINT::default();
-                let bf = BLENDFUNCTION {
-                    BlendOp: AC_SRC_OVER as u8,
-                    BlendFlags: 0,
-                    SourceConstantAlpha: 255,
-                    AlphaFormat: AC_SRC_ALPHA as u8,
-                };
-                let _ = UpdateLayeredWindow(
-                    strip,
-                    Some(screen),
-                    None,
-                    Some(&self.size),
-                    Some(mem),
-                    Some(&src),
-                    COLORREF(0),
-                    Some(&bf),
-                    ULW_ALPHA,
-                );
+                let bf = BLENDFUNCTION { BlendOp: AC_SRC_OVER as u8, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: AC_SRC_ALPHA as u8 };
+                let _ = UpdateLayeredWindow(strip, Some(screen), None, Some(&self.size), Some(mem), Some(&src), COLORREF(0), Some(&bf), ULW_ALPHA);
                 SelectObject(mem, ob);
                 let _ = DeleteObject(HGDIOBJ(bmp.0));
             }
@@ -674,7 +805,7 @@ impl App {
         let mut client = RECT::default();
         unsafe {
             let _ = GetClientRect(self.taskbar, &mut client);
-            (client.bottom - client.top, GetDpiForWindow(self.taskbar), self.light)
+            ((client.right - client.left) << 12 | (client.bottom - client.top), GetDpiForWindow(self.taskbar), self.light)
         }
     }
 
@@ -706,11 +837,12 @@ impl App {
             }
             let mut bar = RECT::default();
             let _ = GetWindowRect(self.taskbar, &mut bar);
-            if bar.bottom - bar.top > bar.right - bar.left {
-                if !self.strip.0.is_null() {
-                    let _ = ShowWindow(self.strip, SW_HIDE);
-                }
-                return false; // vertical taskbar: handled by the notification-area fallback
+            let vertical = bar.bottom - bar.top > bar.right - bar.left;
+            if vertical != self.vertical {
+                // Turned between horizontal and vertical: lay the strip out again.
+                self.vertical = vertical;
+                self.painted_for = Default::default();
+                self.last_place = Default::default();
             }
             if alive {
                 return true;
@@ -920,10 +1052,9 @@ impl App {
                 if !self.primary_hidden {
                     self.hide_tip();
                     // Windows 10 layout: give the task buttons their full width back.
-                    if let (Ok(rebar), Ok(tray)) = (
-                        FindWindowExW(Some(self.taskbar), None, w!("ReBarWindow32"), None),
-                        FindWindowExW(Some(self.taskbar), None, w!("TrayNotifyWnd"), None),
-                    ) {
+                    if let (Ok(rebar), Ok(tray)) =
+                        (FindWindowExW(Some(self.taskbar), None, w!("ReBarWindow32"), None), FindWindowExW(Some(self.taskbar), None, w!("TrayNotifyWnd"), None))
+                    {
                         let (mut rr, mut tr) = (RECT::default(), RECT::default());
                         let _ = GetWindowRect(rebar, &mut rr);
                         let _ = GetWindowRect(tray, &mut tr);
@@ -1022,12 +1153,7 @@ impl App {
     // ---- notification-area fallback ------------------------------------------------------------
 
     fn tray_data(&self, uid: u32) -> NOTIFYICONDATAW {
-        NOTIFYICONDATAW {
-            cbSize: size_of::<NOTIFYICONDATAW>() as u32,
-            hWnd: self.main,
-            uID: uid,
-            ..Default::default()
-        }
+        NOTIFYICONDATAW { cbSize: size_of::<NOTIFYICONDATAW>() as u32, hWnd: self.main, uID: uid, ..Default::default() }
     }
 
     /// One icon per device with its level drawn in it; the tooltip is the same as on the strip.
@@ -1036,19 +1162,13 @@ impl App {
         let normal = if light { rgb(20, 20, 20) } else { rgb(255, 255, 255) };
         let size = unsafe { windows::Win32::UI::HiDpi::GetSystemMetricsForDpi(SM_CXSMICON, windows::Win32::UI::HiDpi::GetDpiForSystem()) };
         let devices = self.visible();
-        let mut wanted: Vec<(String, String, COLORREF, i32, String)> = devices
+        let mut wanted: Vec<TrayIcon> = devices
             .iter()
             .enumerate()
             .map(|(i, d)| {
                 let th = settings::threshold(SETTINGS_KEY, &d.key);
                 let text = if d.percent >= 0 { d.percent.to_string() } else { "?".into() };
-                (
-                    d.key.clone(),
-                    text,
-                    ui::level_color(d, light, normal, th),
-                    d.percent,
-                    self.tip_text(i),
-                )
+                (d.key.clone(), text, ui::level_color(d, light, normal, th), d.percent, self.tip_text(i))
             })
             .collect();
         if wanted.is_empty() {
@@ -1116,8 +1236,26 @@ impl App {
             let (mut tr, mut bar) = (RECT::default(), RECT::default());
             let _ = GetWindowRect(tray, &mut tr);
             let _ = GetWindowRect(self.taskbar, &mut bar);
-            if bar.bottom - bar.top > bar.right - bar.left {
-                return; // vertical taskbar: tick() switches to the notification-area fallback
+            if self.vertical {
+                // Above the notification area, centred across the taskbar's width.
+                let mut p = POINT { x: bar.left, y: tr.top };
+                let _ = ScreenToClient(self.taskbar, &mut p);
+                let mut client = RECT::default();
+                let _ = GetClientRect(self.taskbar, &mut client);
+                let mut top = p.y - self.size.cy - (2.0 * self.scale()) as i32;
+                if self.offset > 0 {
+                    top -= (self.offset as f32 * self.scale()) as i32;
+                }
+                let top = top.max(0);
+                let left = ((client.right - self.size.cx) / 2).max(0);
+                let covered = GetWindow(self.strip, GW_HWNDPREV).is_ok_and(|h| !h.0.is_null()) || !IsWindowVisible(self.strip).as_bool();
+                let key = (tr, bar, top);
+                if !covered && self.last_place == key {
+                    return;
+                }
+                self.last_place = key;
+                let _ = SetWindowPos(self.strip, Some(HWND_TOP), left, top, self.size.cx, self.size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                return;
             }
             let mut p = POINT { x: tr.left, y: bar.top };
             let _ = ScreenToClient(self.taskbar, &mut p);
@@ -1148,33 +1286,46 @@ impl App {
                 return;
             }
             self.last_place = key;
-            let _ = SetWindowPos(
-                self.strip,
-                Some(HWND_TOP),
-                left,
-                top,
-                self.size.cx,
-                self.size.cy,
-                SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            );
+            let _ = SetWindowPos(self.strip, Some(HWND_TOP), left, top, self.size.cx, self.size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
         }
     }
 
     // ---- hover card ----------------------------------------------------------------------------
 
-    /// Records the levels of this read in the 24-hour history (one point per change, or every
-    /// 10 minutes), drops what is older than a day, and saves it when something changed.
+    /// Records the levels of this read in the 7-day history (one point per change of level or
+    /// charging state, or every 10 minutes), drops what is older than 7 days, and saves it on a
+    /// worker thread at most every 10 minutes (right away while a dashboard shows it).
     fn record_history(&mut self, fresh: &[DeviceStatus]) {
         let now = batteryhub::history::now_secs();
-        let mut changed = false;
+        let gap = batteryhub::history::gap_limit(refresh_minutes());
         for s in fresh {
-            if s.connected && !s.asleep && s.percent >= 0 {
-                changed |= self.history.record(&s.key, now, s.percent);
+            if s.connected && !s.asleep && s.percent >= 0 && !s.key.starts_with("demo:") {
+                self.history.record(&s.key, now, s.percent, s.charging, s.is_full(), gap);
             }
         }
-        changed |= self.history.prune(now);
-        if changed {
-            self.history.save(SETTINGS_KEY);
+        self.history.prune(now);
+        let live = dashboard_open();
+        if live {
+            // The dashboard reads the file: give it the latest reading too.
+            self.history.flush();
+        }
+        let due = self.history_saved.is_none_or(|t| t.elapsed().as_secs() >= batteryhub::history::STEP_SECS);
+        if self.history.is_dirty() && (due || live) {
+            let main = self.main.0 as usize;
+            let started = self.history.save_in_background(history_path(), move |ok| unsafe {
+                let _ = PostMessageW(Some(HWND(main as *mut c_void)), WM_HISTORY_SAVED, WPARAM(ok as usize), LPARAM(0));
+            });
+            if started {
+                self.history_saved = Some(Instant::now());
+            }
+        }
+    }
+
+    /// Stores what is kept in memory and writes the history now (exit, sign-out, sleep).
+    fn save_history_now(&mut self) {
+        self.history.flush();
+        if self.history.is_dirty() {
+            let _ = self.history.save_to(&history_path());
         }
     }
 
@@ -1183,10 +1334,52 @@ impl App {
         if self.light { (rgb(249, 249, 249), rgb(214, 214, 214)) } else { (rgb(44, 44, 44), rgb(70, 70, 70)) }
     }
 
+    /// What the card of `d` shows: when this changes, the card is drawn again. The minute is part
+    /// of it, so the chart's time axis moves on while the mouse rests on a device.
+    fn card_signature(&self, d: &DeviceStatus) -> u64 {
+        let h = self.history.points(&d.key);
+        let last = self.history.latest(&d.key).map(|p| (p.t, p.level, p.flags));
+        let text = format!(
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{:?}|{}",
+            d.key,
+            d.name,
+            d.percent,
+            d.level_text,
+            d.charging,
+            d.full,
+            d.asleep,
+            d.via,
+            self.light,
+            self.scale().to_bits(),
+            last,
+            h.len(),
+            batteryhub::history::now_secs() / 60
+        );
+        batteryhub::util::fnv1a(&text) as u64
+    }
+
+    /// The card's content for `d`: from the cache when nothing changed, else drawn again.
+    fn card_content(&mut self, d: &DeviceStatus) -> Rc<CardContent> {
+        let sig = self.card_signature(d);
+        if let Some(c) = self.card_cache.iter().find(|c| c.key == d.key && c.sig == sig) {
+            return c.clone();
+        }
+        let t0 = Instant::now();
+        let (w, h, px) = self.render_card(d);
+        prof::add(&prof::RENDERS, 1);
+        prof::add(&prof::RENDER_US, t0.elapsed().as_micros() as u64);
+        let c = Rc::new(CardContent { sig, key: d.key.clone(), w, h, px, half: std::cell::OnceCell::new() });
+        self.card_cache.retain(|o| o.key != d.key);
+        self.card_cache.insert(0, c.clone());
+        self.card_cache.truncate(2);
+        c
+    }
+
     /// Draws the content of the card for one device (name, level, bar, connection, last 24
     /// hours) on a transparent canvas; the rounded background is drawn per frame, so it can
     /// glide and stretch from one device's card to the next.
-    fn render_card(&self, d: &DeviceStatus) -> (i32, i32, Vec<u32>) {
+    fn render_card(&mut self, d: &DeviceStatus) -> (i32, i32, Vec<u32>) {
+        self.ensure_fonts();
         let s = self.scale();
         let px = |v: f32| (v * s).round() as i32;
         let light = self.light;
@@ -1196,12 +1389,16 @@ impl App {
         let grid = if light { rgb(200, 200, 200) } else { rgb(84, 84, 84) };
         let th = settings::threshold(SETTINGS_KEY, &d.key);
         let low = d.percent >= 0 && d.percent <= th && !d.charging;
-        let accent = if low { ui::low_color(light) } else if light { rgb(16, 124, 16) } else { rgb(108, 203, 95) };
-
-        let icon_f = make_font(px(16.0), 400, "Segoe Fluent Icons", "Segoe MDL2 Assets", 0);
-        let name_f = make_font(px(15.0), 600, "Segoe UI Variable Text", "Segoe UI", 0);
-        let big_f = make_font(px(30.0), 600, "Segoe UI Variable Display", "Segoe UI", 0);
-        let small_f = make_font(px(12.0), 400, "Segoe UI Variable Text", "Segoe UI", 0);
+        let accent = if low {
+            ui::low_color(light)
+        } else if light {
+            rgb(16, 124, 16)
+        } else {
+            rgb(108, 203, 95)
+        };
+        let charge_c = if light { rgb(0, 95, 184) } else { rgb(96, 205, 255) };
+        let Some(f) = self.fonts.as_ref() else { return (1, 1, vec![0]) };
+        let (icon_f, name_f, big_f, small_f) = (f.card_icon, f.card_name, f.card_big, f.card_small);
 
         // As wide as the name needs, 300 to 400 px; longer names end in "…".
         let pad = px(16.0);
@@ -1228,7 +1425,13 @@ impl App {
         y += px(34.0);
 
         // Big level (or the device's own word for it), then the bar.
-        let big_text = if d.percent >= 0 { format!("{}%", d.percent) } else if !d.level_text.is_empty() { d.level_text.clone() } else { "?".into() };
+        let big_text = if d.percent >= 0 {
+            format!("{}%", d.percent)
+        } else if !d.level_text.is_empty() {
+            d.level_text.clone()
+        } else {
+            "?".into()
+        };
         let big = mask(&big_text, big_f, light);
         cv.draw(&big, pad, y, if low { accent } else { fg }, 255);
         y += px(42.0); // same layout for every device, so cards share one height
@@ -1250,7 +1453,7 @@ impl App {
         cv.draw(&via, pad, y, dim, 255);
         y += px(30.0);
 
-        // Last 24 hours.
+        // Last 24 hours (the history keeps 7 days; the dashboard shows all of it).
         let title = mask("Last 24 hours", small_f, light);
         cv.draw(&title, pad, y, dim, 255);
         y += px(22.0);
@@ -1263,30 +1466,28 @@ impl App {
             }
         }
         let now = batteryhub::history::now_secs();
-        let from = now.saturating_sub(batteryhub::history::KEEP_SECS);
-        let span = batteryhub::history::KEEP_SECS as f32;
-        let pos = |t: u64, l: u8| {
-            let fx = (t.saturating_sub(from) as f32 / span).min(1.0);
-            (x0 + ((x1 - x0) as f32 * fx) as i32, bottom - (chart_h as f32 * l as f32 / 100.0) as i32)
-        };
-        let pts = self.history.points(&d.key);
+        let from = now.saturating_sub(24 * 3600);
         let lw = px(2.0).max(2);
-        for pair in pts.windows(2) {
-            let (a, b) = (pos(pair[0].0, pair[0].1), pos(pair[1].0, pair[1].1));
-            // Steps, not slopes: a level holds until the next reading.
-            cv.line(a.0, a.1, b.0, a.1, lw, accent);
-            cv.line(b.0, a.1, b.0, b.1, lw, accent);
+        let segs = batteryhub::history::segments(&self.history.series(&d.key), from, now);
+        let to_x = |t: u64| x0 + ((x1 - x0) as f32 * (t.saturating_sub(from) as f32 / (now - from).max(1) as f32).min(1.0)) as i32;
+        let to_y = |l: u8| bottom - (chart_h as f32 * l as f32 / 100.0) as i32;
+        for seg in &segs {
+            for pair in seg.windows(2) {
+                let (a, b) = (pair[0], pair[1]);
+                let c = if a.charging() { charge_c } else { accent };
+                // Steps, not slopes: a level holds until the next reading.
+                cv.line(to_x(a.t), to_y(a.level), to_x(b.t), to_y(a.level), lw, c);
+                cv.line(to_x(b.t), to_y(a.level), to_x(b.t), to_y(b.level), lw, c);
+            }
         }
-        if let Some(&(t, l)) = pts.last() {
-            let (lx, ly) = pos(t, l);
-            cv.line(lx, ly, x1, ly, lw, accent);
-            // Dotted "now" line and the latest point.
+        if let Some(last) = segs.last().and_then(|s| s.last()) {
+            // Dotted "now" line and the latest reading.
             let mut yy = top;
             while yy < bottom {
                 cv.blend(x1, yy, grid, 255);
                 yy += px(4.0).max(2);
             }
-            cv.disc(x1, ly, px(3.5), accent);
+            cv.disc(to_x(last.t), to_y(last.level), px(3.5), if last.charging() { charge_c } else { accent });
         }
         y = bottom + px(10.0);
         let ago = mask("24h ago", small_f, light);
@@ -1296,26 +1497,20 @@ impl App {
         // As much room under the bottom labels as above the header.
         let h = (y + px(14.0) + px(18.0)).min(tall);
         cv.px.truncate((w * h) as usize);
-
-        for f in [icon_f, name_f, big_f, small_f] {
-            unsafe {
-                let _ = DeleteObject(HGDIOBJ(f.0));
-            }
-        }
         (w, h, cv.px)
     }
 
     /// Shows the card for device `i` above (or below) its part of `strip`.
     fn show_card(&mut self, i: usize, strip: HWND, from: i32, to: i32) {
-        let devices = self.visible();
-        let Some(d) = devices.get(i) else { return };
+        let Some(d) = self.visible_at(i).cloned() else { return };
         if self.card.0.is_null() {
             self.card = create_card(self.main);
         }
         if self.card.0.is_null() {
             return;
         }
-        let (w, h, px) = self.render_card(d);
+        let content = self.card_content(&d);
+        let (w, h) = (content.w, content.h);
         unsafe {
             let mut rc = RECT::default();
             let _ = GetWindowRect(strip, &mut rc);
@@ -1323,20 +1518,42 @@ impl App {
             let _ = GetMonitorInfoW(MonitorFromWindow(strip, MONITOR_DEFAULTTONEAREST), &mut mi);
             let gap = (8.0 * self.scale()) as i32;
             let work = mi.rcWork;
-            let x = (rc.left + (from + to) / 2 - w / 2).clamp(work.left + gap, (work.right - w - gap).max(work.left));
-            let y = if rc.top - h - gap >= work.top { rc.top - h - gap } else { rc.bottom + gap };
-            // Slides 10 px towards its place: up when above the taskbar, down when below it.
-            let slide = (10.0 * self.scale()) as i32 * if y < rc.top { 1 } else { -1 };
+            let (x, y, slide) = if self.vertical {
+                // Beside the taskbar, level with the hovered device (no slide: it fades in).
+                let mid = (mi.rcMonitor.left + mi.rcMonitor.right) / 2;
+                let x = if rc.left < mid { rc.right + gap } else { rc.left - w - gap };
+                let y = (rc.top + (from + to) / 2 - h / 2).clamp(work.top + gap, (work.bottom - h - gap).max(work.top));
+                (x, y, 0)
+            } else {
+                let x = (rc.left + (from + to) / 2 - w / 2).clamp(work.left + gap, (work.right - w - gap).max(work.left));
+                let y = if rc.top - h - gap >= work.top { rc.top - h - gap } else { rc.bottom + gap };
+                // Slides 10 px towards its place: up when above the taskbar, down when below it.
+                (x, y, (10.0 * self.scale()) as i32 * if y < rc.top { 1 } else { -1 })
+            };
             let was_shown = self.card_anim.visible && self.card_anim.showing;
-            let same = was_shown && self.card_anim.key == d.key;
+            let old_key = self.card_anim.content.as_ref().map(|c| c.key.clone());
+            let same = was_shown && old_key.as_deref() == Some(d.key.as_str());
             let old = std::mem::take(&mut self.card_anim);
-            // Already open on another device: blend the old card into the new one.
-            let prev = (was_shown && !same && old.h == h).then(|| (old.x, old.w, old.px.clone()));
+            // Already open on another device: blend the old card into the new one. A switch while
+            // another is still running starts from what is on screen now (no jump back), and the
+            // card that is more visible at that moment is the one that fades out.
+            let prev = match (&old.content, was_shown && !same) {
+                (Some(c), true) if c.h == h => {
+                    let outgoing = match (&old.prev, old.at) {
+                        (Some((_, _, p)), Some(at)) if at.elapsed().as_secs_f32() * 1000.0 < CARD_CROSS_MS * 0.5 => p.clone(),
+                        _ => c.clone(),
+                    };
+                    let (dx, dw) = if old.drawn.1 > 0 { old.drawn } else { (old.x, c.w) };
+                    Some((dx, dw, outgoing))
+                }
+                _ => None,
+            };
             let crossing = prev.is_some();
             let (bg, border) = self.card_colors();
             let radius = (8.0 * self.scale()).round() as i32;
             let scale = self.scale();
-            self.card_anim = CardAnim { at: old.at, showing: true, visible: true, x, y, slide, w, h, px, key: d.key.clone(), prev, bg, border, radius, scale };
+            self.card_anim =
+                CardAnim { at: old.at, showing: true, visible: true, x, y, slide, content: Some(content), prev, drawn: old.drawn, bg, border, radius, scale };
             if crossing {
                 self.card_anim.at = Some(Instant::now());
                 SetTimer(Some(self.main), TIMER_CARD, 15, None);
@@ -1359,8 +1576,11 @@ impl App {
         if self.card.0.is_null() || !self.card_anim.visible || !self.card_anim.showing {
             return;
         }
+        // A switch that is still running ends where it is: the fade-out starts from that frame.
+        if self.card_anim.prev.take().is_some() {
+            self.card_frame(1.0);
+        }
         self.card_anim.showing = false;
-        self.card_anim.prev = None;
         self.card_anim.at = Some(Instant::now());
         unsafe {
             SetTimer(Some(self.main), TIMER_CARD, 15, None);
@@ -1368,31 +1588,62 @@ impl App {
     }
 
     /// One animation frame: `t` 0..1 of the running fade-in (with a short rise), fade-out, or
-    /// switch between devices (background glides and stretches, contents cross-fade).
-    fn card_frame(&self, t: f32) {
-        let a = &self.card_anim;
-        if self.card.0.is_null() || a.px.is_empty() {
+    /// switch between devices (background glides and stretches, contents cross-fade). Drawn
+    /// straight into the card's bitmap: no allocation per frame.
+    fn card_frame(&mut self, t: f32) {
+        let Some(content) = self.card_anim.content.clone() else { return };
+        if self.card.0.is_null() {
             return;
         }
         let t = t.clamp(0.0, 1.0);
-        if let (true, Some((ox, ow, opx))) = (a.showing, &a.prev) {
+        let a = &self.card_anim;
+        let (bg, border, radius, scale) = (a.bg, a.border, a.radius, a.scale);
+        let h = content.h;
+        let (pos, size, bx, bw, layers, alpha): (POINT, SIZE, i32, i32, Vec<Layer>, u8);
+        if let (true, Some((ox, ow, old))) = (a.showing, &a.prev) {
             // Ease in-out, like the taskbar's window previews moving between buttons.
             let e = if t < 0.5 { 4.0 * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(3) / 2.0 };
             let lerp = |p: i32, q: i32| p + ((q - p) as f32 * e).round() as i32;
-            let (bx, bw) = (lerp(*ox, a.x), lerp(*ow, a.w));
-            let (ux0, ux1) = (a.x.min(*ox), (a.x + a.w).max(ox + ow));
+            let (cx, cw) = (lerp(*ox, a.x), lerp(*ow, content.w));
+            let (ux0, ux1) = (a.x.min(*ox), (a.x + content.w).max(ox + ow));
             // Old content blurs away while the new one comes into focus.
-            let (ro, rn) = ((BLUR_MAX * e * a.scale).round() as i32, (BLUR_MAX * (1.0 - e) * a.scale).round() as i32);
-            let buf = compose_card(ux1 - ux0, a.h, bx - ux0, bw, a, &[(opx.as_slice(), *ow, 1.0 - e, ro), (a.px.as_slice(), a.w, e, rn)]);
-            push_pixels(self.card, POINT { x: ux0, y: a.y }, SIZE { cx: ux1 - ux0, cy: a.h }, &buf, 255);
-            return;
+            let (ro, rn) = ((BLUR_MAX * e * scale).round() as i32, (BLUR_MAX * (1.0 - e) * scale).round() as i32);
+            pos = POINT { x: ux0, y: a.y };
+            size = SIZE { cx: ux1 - ux0, cy: h };
+            (bx, bw) = (cx - ux0, cw);
+            layers = vec![(old.clone(), 1.0 - e, ro), (content.clone(), e, rn)];
+            alpha = 255;
+            self.card_anim.drawn = (cx, cw);
+        } else {
+            let ease = 1.0 - (1.0 - t).powi(3); // ease-out cubic, like Windows 11 flyouts
+            let (fade, dy) = if a.showing { (ease, a.slide as f32 * (1.0 - ease)) } else { (1.0 - t, 0.0) };
+            // Comes into focus while appearing, goes slightly out of focus while disappearing.
+            let r = if a.showing { BLUR_MAX * (1.0 - ease) } else { BLUR_MAX * 0.6 * t };
+            pos = POINT { x: a.x, y: a.y + dy.round() as i32 };
+            size = SIZE { cx: content.w, cy: h };
+            (bx, bw) = (0, content.w);
+            layers = vec![(content.clone(), 1.0, (r * scale).round() as i32)];
+            alpha = (fade * 255.0).round() as u8;
+            self.card_anim.drawn = (a.x, content.w);
         }
-        let ease = 1.0 - (1.0 - t).powi(3); // ease-out cubic, like Windows 11 flyouts
-        let (alpha, dy) = if a.showing { (ease, a.slide as f32 * (1.0 - ease)) } else { (1.0 - t, 0.0) };
-        // Comes into focus while appearing, goes slightly out of focus while disappearing.
-        let r = if a.showing { BLUR_MAX * (1.0 - ease) } else { BLUR_MAX * 0.6 * t };
-        let buf = compose_card(a.w, a.h, 0, a.w, a, &[(a.px.as_slice(), a.w, 1.0, (r * a.scale).round() as i32)]);
-        push_pixels(self.card, POINT { x: a.x, y: a.y + dy.round() as i32 }, SIZE { cx: a.w, cy: a.h }, &buf, (alpha * 255.0).round() as u8);
+        let surface = match self.card_surface.take() {
+            Some(s) if s.w >= size.cx && s.h >= size.cy => Some(s),
+            // A quarter more than needed now: switching between neighbouring devices (the usual
+            // case) then reuses the bitmap.
+            _ => Surface::new(size.cx + content.w / 4, size.cy),
+        };
+        let Some(mut surface) = surface else { return };
+        let stride = surface.w as usize;
+        let dst = surface.pixels();
+        let bgc = CardBg { bx, bw, h, radius, bg, border };
+        let t0 = Instant::now();
+        compose_card(dst, stride, size.cx, size.cy, &bgc, &layers, &mut self.blur_scratch);
+        let t1 = Instant::now();
+        surface.present(self.card, pos, size, alpha);
+        prof::add(&prof::FRAMES, 1);
+        prof::add(&prof::COMPOSE_US, (t1 - t0).as_micros() as u64);
+        prof::add(&prof::PRESENT_US, t1.elapsed().as_micros() as u64);
+        self.card_surface = Some(surface);
     }
 
     /// TIMER_CARD: advances the card's animation; stops the timer (and hides) when done.
@@ -1419,8 +1670,12 @@ impl App {
                 let _ = KillTimer(Some(self.main), TIMER_CARD);
                 if !self.card_anim.showing {
                     let _ = ShowWindow(self.card, SW_HIDE);
-                    self.card_anim.visible = false;
-                    self.card_anim.px = Vec::new();
+                    prof::report();
+                    // Closed: the bitmap, blur buffers and cached contents go back to Windows.
+                    self.card_anim = CardAnim::default();
+                    self.card_surface = None;
+                    self.blur_scratch = BlurScratch::default();
+                    self.card_cache.clear();
                 }
             }
         }
@@ -1473,7 +1728,9 @@ impl App {
         format!("{}: {level}{state}", d.name)
     }
 
-    fn hover(&mut self, on: HWND, x: i32) {
+    /// Mouse at (x, y) on a strip: the device under it (along x, or along y on a vertical taskbar).
+    fn hover(&mut self, on: HWND, x: i32, y: i32) {
+        let x = if self.vertical { y } else { x };
         self.set_hovered(on);
         if self.tip.0.is_null() {
             return;
@@ -1485,12 +1742,7 @@ impl App {
         }
         unsafe {
             if !self.tracking {
-                let mut tme = TRACKMOUSEEVENT {
-                    cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
-                    dwFlags: TME_LEAVE,
-                    hwndTrack: on,
-                    dwHoverTime: 0,
-                };
+                let mut tme = TRACKMOUSEEVENT { cbSize: size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: on, dwHoverTime: 0 };
                 self.tracking = TrackMouseEvent(&mut tme).is_ok();
             }
             let hit = self.hits.iter().find(|h| x >= h.0 && x < h.1).map(|h| (h.2, h.0, h.1));
@@ -1515,12 +1767,7 @@ impl App {
         if !self.tip.0.is_null() {
             unsafe {
                 let mut ti = tool_info(self.main, &mut [0u16]);
-                SendMessageW(
-                    self.tip,
-                    TTM_TRACKACTIVATE,
-                    Some(WPARAM(0)),
-                    Some(LPARAM(&mut ti as *mut _ as isize)),
-                );
+                SendMessageW(self.tip, TTM_TRACKACTIVATE, Some(WPARAM(0)), Some(LPARAM(&mut ti as *mut _ as isize)));
             }
         }
     }
@@ -1541,11 +1788,7 @@ impl App {
         // reuses the device list (and still notices added / removed HID devices).
         let rescan = !self.scanned || self.devchange || self.forget;
         self.scanned = true;
-        dbg_log(&format!(
-            "poll started (device change: {}, rescan: {rescan}, interval: {} min)",
-            self.devchange,
-            refresh_minutes()
-        ));
+        dbg_log(&format!("poll started (device change: {}, rescan: {rescan}, interval: {} min)", self.devchange, refresh_minutes()));
         ui::poll_async(self.main, WM_POLL_DONE, rescan);
     }
 
@@ -1560,12 +1803,7 @@ impl App {
         ids.extend(self.devices.values().filter(|t| t.status.asleep).filter_map(|t| t.status.hw));
         // Headsets on a 2.4 GHz dongle are switched off and on all the time, and the dongle stays
         // plugged in, so Windows reports nothing: check them too (one short status report each).
-        ids.extend(
-            self.devices
-                .values()
-                .filter(|t| t.status.kind == DeviceKind::Headset)
-                .filter_map(|t| t.status.hw),
-        );
+        ids.extend(self.devices.values().filter(|t| t.status.kind == DeviceKind::Headset).filter_map(|t| t.status.hw));
         if ids.is_empty() {
             return;
         }
@@ -1611,7 +1849,7 @@ impl App {
     fn merge(&mut self, fresh: Vec<DeviceStatus>) {
         self.record_history(&fresh);
         let now = Instant::now();
-        for s in fresh {
+        for mut s in fresh {
             if !self.order.contains(&s.key) {
                 self.order.push(s.key.clone());
             }
@@ -1622,10 +1860,79 @@ impl App {
                 self.devices.remove(&s.key);
                 continue;
             }
-            self.devices.insert(s.key.clone(), Tracked { status: s, seen: now });
+            let reported = std::mem::take(&mut s.name);
+            s.name = self.names.get(&s.key).cloned().unwrap_or_else(|| reported.clone());
+            self.check_critical(&s);
+            self.devices.insert(s.key.clone(), Tracked { status: s, seen: now, reported });
         }
         self.order.retain(|k| self.devices.contains_key(k));
         self.paint();
+        self.send_to_dashboards();
+    }
+
+    /// Fresh readings for open dashboards (they show the live level and state).
+    fn send_to_dashboards(&self) {
+        if batteryhub::dashboard::any_open() {
+            let list: Vec<(DeviceStatus, String)> = self.devices.values().map(|t| (t.status.clone(), t.reported.clone())).collect();
+            batteryhub::dashboard::send_statuses(self.main, &list);
+        }
+    }
+
+    /// Names chosen with "Rename device" were changed: show them everywhere.
+    fn reload_names(&mut self) {
+        self.names = settings::names(SETTINGS_KEY);
+        for (k, t) in self.devices.iter_mut() {
+            t.status.name = self.names.get(k).cloned().unwrap_or_else(|| t.reported.clone());
+        }
+        self.card_cache.clear();
+        self.paint();
+        self.send_to_dashboards();
+    }
+
+    /// "Warn at 5%": one notification when a device on battery falls to 5% (see settings).
+    fn check_critical(&mut self, s: &DeviceStatus) {
+        if !s.connected || s.asleep || !settings::warn_critical(SETTINGS_KEY, &s.key) {
+            return;
+        }
+        if self.critical.check(&s.key, s.percent, s.charging) {
+            self.notify_low(&s.name, s.percent);
+        }
+    }
+
+    /// Shows a Windows notification (a balloon of a temporary notification-area icon, which
+    /// Windows 10 / 11 show as a toast). The icon is removed when the notification is gone.
+    fn notify_low(&mut self, name: &str, level: i32) {
+        let size = unsafe { windows::Win32::UI::HiDpi::GetSystemMetricsForDpi(SM_CXSMICON, windows::Win32::UI::HiDpi::GetDpiForSystem()) };
+        let Some(icon) = ui::number_icon(&level.to_string(), ui::low_color(self.light), level, size, self.light) else { return };
+        let mut d = self.tray_data(NOTIFY_UID);
+        d.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE | NIF_INFO;
+        d.uCallbackMessage = WM_TRAY;
+        d.hIcon = icon;
+        d.dwInfoFlags = NIIF_WARNING;
+        ui::fill_wide(&mut d.szTip, &format!("{name}: {level}%"));
+        ui::fill_wide(&mut d.szInfoTitle, &format!("{name}: battery at {level}%"));
+        ui::fill_wide(&mut d.szInfo, "Charge it soon. BatteryHub warns once per discharge (right-click the device to turn this off).");
+        unsafe {
+            if !Shell_NotifyIconW(NIM_MODIFY, &d).as_bool() {
+                let _ = Shell_NotifyIconW(NIM_ADD, &d);
+            }
+            if let Some(old) = self.notify_icon.replace(icon) {
+                let _ = DestroyIcon(old);
+            }
+            SetTimer(Some(self.main), TIMER_NOTIFY, 60_000, None);
+        }
+        dbg_log(&format!("low-battery notification: {name} {level}%"));
+    }
+
+    /// Removes the temporary notification icon.
+    fn end_notify(&mut self) {
+        if let Some(icon) = self.notify_icon.take() {
+            unsafe {
+                let _ = Shell_NotifyIconW(NIM_DELETE, &self.tray_data(NOTIFY_UID));
+                let _ = DestroyIcon(icon);
+                let _ = KillTimer(Some(self.main), TIMER_NOTIFY);
+            }
+        }
     }
 
     /// Menu refresh: `devices` = full rescan that drops devices that are gone right away;
@@ -1637,7 +1944,8 @@ impl App {
         self.paint(); // shows the ↻ indicator
     }
 
-    fn on_result(&mut self, fresh: Vec<DeviceStatus>) {
+    fn on_result(&mut self, mut fresh: Vec<DeviceStatus>) {
+        fresh.extend(demo_devices());
         self.polling = false;
         self.loaded = true;
         self.manual = false;
@@ -1723,12 +2031,7 @@ fn check_for_updates(main: HWND, silent: bool) {
 fn message(owner: HWND, text: &str, style: MESSAGEBOX_STYLE) -> MESSAGEBOX_RESULT {
     unsafe {
         let _ = SetForegroundWindow(owner);
-        MessageBoxW(
-            Some(owner),
-            &windows::core::HSTRING::from(text),
-            UPDATE_TITLE,
-            style | MB_SETFOREGROUND | MB_TOPMOST,
-        )
+        MessageBoxW(Some(owner), &windows::core::HSTRING::from(text), UPDATE_TITLE, style | MB_SETFOREGROUND | MB_TOPMOST)
     }
 }
 
@@ -1751,11 +2054,7 @@ fn on_update_checked(main: HWND, check: batteryhub::update::Check) {
             UPDATE_BUSY.store(false, std::sync::atomic::Ordering::Relaxed);
             message(
                 main,
-                &format!(
-                    "No new updates.\n\nYou have the latest version ({}).\nLatest release on GitHub: {}.",
-                    version_label(),
-                    label_of(&latest)
-                ),
+                &format!("No new updates.\n\nYou have the latest version ({}).\nLatest release on GitHub: {}.", version_label(), label_of(&latest)),
                 MB_OK | MB_ICONINFORMATION,
             );
         }
@@ -1763,10 +2062,7 @@ fn on_update_checked(main: HWND, check: batteryhub::update::Check) {
             UPDATE_BUSY.store(false, std::sync::atomic::Ordering::Relaxed);
             message(
                 main,
-                &format!(
-                    "Could not check for updates:\n{e}\n\nNew versions are also on GitHub:\nhttps://github.com/{}/releases",
-                    batteryhub::update::REPO
-                ),
+                &format!("Could not check for updates:\n{e}\n\nNew versions are also on GitHub:\nhttps://github.com/{}/releases", batteryhub::update::REPO),
                 MB_OK | MB_ICONWARNING,
             );
         }
@@ -1790,31 +2086,68 @@ fn on_update_checked(main: HWND, check: batteryhub::update::Check) {
     }
 }
 
-fn on_update_downloaded(main: HWND, result: Result<std::path::PathBuf, String>) {
+fn on_update_downloaded(main: HWND, result: Result<batteryhub::update::Verified, String>) {
     UPDATE_BUSY.store(false, std::sync::atomic::Ordering::Relaxed);
     trim_memory();
     if UPDATE_QUIET.swap(false, std::sync::atomic::Ordering::Relaxed) {
-        // No console window (CREATE_NO_WINDOW) and no "Update finished" box afterwards. A failed
-        // download or start is not shown either; the next start tries again.
+        // No console window and no "Update finished" box afterwards. A failed download or start
+        // is not shown either; the next start tries again.
         if let Ok(setup) = result {
-            use std::os::windows::process::CommandExt;
-            let _ = std::process::Command::new(&setup).args(["/update", "/S", "/nonotify"]).creation_flags(0x0800_0000).spawn();
+            let _ = setup.start(&["/update", "/S", "/nonotify"], true);
         }
         return;
     }
     match result {
         // The setup closes this program (and starts the new version) itself.
         Ok(setup) => {
-            if let Err(e) = std::process::Command::new(&setup).arg("/update").spawn() {
+            let path = setup.path.clone();
+            if let Err(e) = setup.start(&["/update"], false) {
                 message(
                     main,
-                    &format!("Could not start the setup:\n{e}\n\n{}", setup.display()),
+                    &format!(
+                        "Could not start the setup:
+{e}
+
+{}",
+                        path.display()
+                    ),
                     MB_OK | MB_ICONWARNING,
                 );
             }
         }
         Err(e) => {
-            message(main, &format!("The update could not be downloaded:\n{e}"), MB_OK | MB_ICONWARNING);
+            message(
+                main,
+                &format!(
+                    "The update could not be downloaded:
+{e}"
+                ),
+                MB_OK | MB_ICONWARNING,
+            );
+        }
+    }
+}
+
+/// "Install another version...": the setup kept next to the program opens on its version list
+/// (any release, also an older one; verified like an update).
+fn open_version_list(main: HWND) {
+    let setup = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("BatteryHub-Setup.exe")));
+    match setup {
+        Some(s) if s.exists() => {
+            let _ = std::process::Command::new(s).arg("/versions").spawn();
+        }
+        _ => {
+            message(
+                main,
+                &format!(
+                    "The setup is not next to this program (it is kept there by an installation).
+
+All versions are on GitHub:
+https://github.com/{}/releases",
+                    batteryhub::update::REPO
+                ),
+                MB_OK | MB_ICONINFORMATION,
+            );
         }
     }
 }
@@ -1830,9 +2163,7 @@ fn trim_memory() {
 
 /// Battery refresh interval in minutes (menu choice, default 1 minute).
 fn refresh_minutes() -> u32 {
-    batteryhub::util::reg_get_dword(SETTINGS_KEY, "RefreshMinutes")
-        .filter(|m| INTERVALS.iter().any(|(v, _)| v == m))
-        .unwrap_or(1)
+    batteryhub::util::reg_get_dword(SETTINGS_KEY, "RefreshMinutes").filter(|m| INTERVALS.iter().any(|(v, _)| v == m)).unwrap_or(1)
 }
 
 /// Refresh when a device connects or disconnects (default on). Read from the registry once and
@@ -2047,11 +2378,7 @@ fn tool_info(owner: HWND, text: &mut [u16]) -> TTTOOLINFOW {
 fn dbg_log(msg: &str) {
     if std::env::var_os("BH_DEBUG").is_some() {
         use std::io::Write;
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(std::env::temp_dir().join("bh2.log"))
-        {
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(std::env::temp_dir().join("bh2.log")) {
             let _ = writeln!(f, "{msg}");
         }
     }
@@ -2060,19 +2387,25 @@ fn dbg_log(msg: &str) {
 /// The right-click menu (strip and fallback icons): per-device warning levels, refresh options, exit.
 unsafe fn show_menu() {
     unsafe {
-        let (main, devices) = with_app(|a| {
+        let (main, devices, renamed) = with_app(|a| {
             a.hide_tip();
-            (a.main, a.visible())
+            let renamed: HashSet<String> = a.names.keys().cloned().collect();
+            (a.main, a.visible(), renamed)
         })
         .unwrap_or_default();
+        let dark = !ui::taskbar_is_light();
+        let mut icons = ui::MenuIcons::new(main, dark);
         if let Ok(menu) = CreatePopupMenu() {
-            // One submenu per device: its charge state and the red warning level (50 ... 5%).
-            settings::append_device_menus(menu, &devices, SETTINGS_KEY);
+            ui::MenuIcons::check_or_icon(menu);
+            // One submenu per device: dashboard, history, statistics, rename and its warnings.
+            settings::append_device_menus(menu, &devices, SETTINGS_KEY, &renamed, &mut icons);
             if !devices.is_empty() {
                 let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             }
             let _ = AppendMenuW(menu, MF_STRING, ID_REFRESH_DEVICES, w!("Refresh devices"));
+            icons.set(menu, ID_REFRESH_DEVICES as u32, false, ui::glyph::SYNC);
             let _ = AppendMenuW(menu, MF_STRING, ID_REFRESH_LEVELS, w!("Refresh battery levels"));
+            icons.set(menu, ID_REFRESH_LEVELS as u32, false, ui::glyph::REFRESH);
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             // How often the battery levels are read, and whether a device change triggers a read.
             if let Ok(sub) = CreatePopupMenu() {
@@ -2081,32 +2414,19 @@ unsafe fn show_menu() {
                     let check = if *m == current { MF_CHECKED } else { MF_UNCHECKED };
                     let _ = AppendMenuW(sub, MF_STRING | check, ID_INTERVAL_BASE + j, &windows::core::HSTRING::from(*label));
                 }
+                let n = GetMenuItemCount(Some(menu));
                 let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Refresh battery every"));
+                icons.set(menu, n as u32, true, ui::glyph::HISTORY);
             }
             let on_change = if refresh_on_change() { MF_CHECKED } else { MF_UNCHECKED };
-            let _ = AppendMenuW(
-                menu,
-                MF_STRING | on_change,
-                ID_ON_CHANGE,
-                w!("Refresh when a device connects or disconnects"),
-            );
+            let _ = AppendMenuW(menu, MF_STRING | on_change, ID_ON_CHANGE, w!("Refresh when a device connects or disconnects"));
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
             // Look of the widget: plate behind it, position, and which monitors show it.
             let (choice, offset, background, offset_y, icons_mode) =
                 with_app(|a| (a.choice.clone(), a.offset, a.background, a.offset_y, a.icons_mode)).unwrap_or_default();
-            let _ = AppendMenuW(
-                menu,
-                MF_STRING | check(icons_mode),
-                ID_ICONS_MODE,
-                w!("Show as notification-area icons (Windows arranges them)"),
-            );
-            let _ = AppendMenuW(
-                menu,
-                MF_STRING | check(background),
-                ID_BACKGROUND,
-                w!("Background behind taskbar text (for translucent taskbars)"),
-            );
+            let _ = AppendMenuW(menu, MF_STRING | check(icons_mode), ID_ICONS_MODE, w!("Show as notification-area icons (Windows arranges them)"));
+            let _ = AppendMenuW(menu, MF_STRING | check(background), ID_BACKGROUND, w!("Background behind taskbar text (for translucent taskbars)"));
             if let Ok(sub) = CreatePopupMenu() {
                 let mut checked = ID_POSITION_CUSTOM;
                 for (i, px) in POSITION_OFFSETS.iter().enumerate() {
@@ -2122,7 +2442,9 @@ unsafe fn show_menu() {
                     let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_POSITION_CUSTOM, &windows::core::HSTRING::from(label));
                 }
                 let _ = CheckMenuRadioItem(sub, ID_POSITION_FIRST as u32, ID_POSITION_CUSTOM as u32, checked as u32, MF_BYCOMMAND.0);
+                let n = GetMenuItemCount(Some(menu));
                 let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Position on the taskbar"));
+                icons.set(menu, n as u32, true, ui::glyph::SETTINGS);
             }
             if let Ok(sub) = CreatePopupMenu() {
                 let mut checked = ID_HEIGHT_CUSTOM;
@@ -2142,30 +2464,34 @@ unsafe fn show_menu() {
                     let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_HEIGHT_CUSTOM, &windows::core::HSTRING::from(label));
                 }
                 let _ = CheckMenuRadioItem(sub, ID_HEIGHT_FIRST as u32, ID_HEIGHT_CUSTOM as u32, checked as u32, MF_BYCOMMAND.0);
+                let n = GetMenuItemCount(Some(menu));
                 let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Height on the taskbar"));
+                icons.set(menu, n as u32, true, ui::glyph::SETTINGS);
             }
             // With more than one monitor: all of them, the main one only, or one other monitor only.
             let others: Vec<(String, String)> =
                 secondary_taskbars().into_iter().take(ID_MONITOR_GONE - ID_MONITOR_FIRST).map(|b| (monitor_id(b), monitor_label(b))).collect();
-            if !others.is_empty() {
-                if let Ok(sub) = CreatePopupMenu() {
-                    let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_ALL, w!("All monitors"));
-                    let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_MAIN, w!("Main monitor only"));
-                    let ids: Vec<String> = others.iter().map(|o| o.0.clone()).collect();
-                    let checked = match choice.as_str() {
-                        "all" => ID_MONITOR_ALL,
-                        "main" => ID_MONITOR_MAIN,
-                        id => find_monitor(&ids, id).map(|i| ID_MONITOR_FIRST + i).unwrap_or(ID_MONITOR_GONE),
-                    };
-                    for (i, (_, label)) in others.iter().enumerate() {
-                        let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_FIRST + i, &windows::core::HSTRING::from(format!("{label} only")));
-                    }
-                    if checked == ID_MONITOR_GONE {
-                        let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_MONITOR_GONE, w!("Chosen monitor (not connected, shown on main)"));
-                    }
-                    let _ = CheckMenuRadioItem(sub, ID_MONITOR_ALL as u32, ID_MONITOR_GONE as u32, checked as u32, MF_BYCOMMAND.0);
-                    let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Show widget on"));
+            if !others.is_empty()
+                && let Ok(sub) = CreatePopupMenu()
+            {
+                let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_ALL, w!("All monitors"));
+                let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_MAIN, w!("Main monitor only"));
+                let ids: Vec<String> = others.iter().map(|o| o.0.clone()).collect();
+                let checked = match choice.as_str() {
+                    "all" => ID_MONITOR_ALL,
+                    "main" => ID_MONITOR_MAIN,
+                    id => find_monitor(&ids, id).map(|i| ID_MONITOR_FIRST + i).unwrap_or(ID_MONITOR_GONE),
+                };
+                for (i, (_, label)) in others.iter().enumerate() {
+                    let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_FIRST + i, &windows::core::HSTRING::from(format!("{label} only")));
                 }
+                if checked == ID_MONITOR_GONE {
+                    let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_MONITOR_GONE, w!("Chosen monitor (not connected, shown on main)"));
+                }
+                let _ = CheckMenuRadioItem(sub, ID_MONITOR_ALL as u32, ID_MONITOR_GONE as u32, checked as u32, MF_BYCOMMAND.0);
+                let n = GetMenuItemCount(Some(menu));
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Show widget on"));
+                icons.set(menu, n as u32, true, ui::glyph::MONITOR);
             }
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             let _ = AppendMenuW(menu, MF_STRING | check(ui::autostart_enabled(autostart_name())), ID_AUTOSTART, w!("Automatically start with Windows"));
@@ -2178,29 +2504,21 @@ unsafe fn show_menu() {
             );
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             let _ = AppendMenuW(menu, MF_STRING, ID_REQUEST, w!("Request support for a device..."));
+            icons.set(menu, ID_REQUEST as u32, false, ui::glyph::MAIL);
             let busy = UPDATE_BUSY.load(std::sync::atomic::Ordering::Relaxed);
             let label = if busy { "Checking for updates..." } else { "Check for updates..." };
-            let _ = AppendMenuW(
-                menu,
-                MF_STRING | if busy { MF_GRAYED } else { MF_ENABLED },
-                ID_CHECK_UPDATES,
-                &windows::core::HSTRING::from(label),
-            );
+            let _ = AppendMenuW(menu, MF_STRING | if busy { MF_GRAYED } else { MF_ENABLED }, ID_CHECK_UPDATES, &windows::core::HSTRING::from(label));
+            icons.set(menu, ID_CHECK_UPDATES as u32, false, ui::glyph::DOWNLOAD);
+            let _ = AppendMenuW(menu, MF_STRING, ID_VERSIONS, w!("Install another version..."));
+            icons.set(menu, ID_VERSIONS as u32, false, ui::glyph::HISTORY);
             let _ = AppendMenuW(menu, MF_STRING, ID_EXIT, w!("Exit"));
+            icons.set(menu, ID_EXIT as u32, false, ui::glyph::EXIT);
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
             // Menu colours follow the taskbar: dark on a dark taskbar, light on a light one.
-            ui::set_menu_theme(main, !ui::taskbar_is_light());
+            ui::set_menu_theme(main, dark);
             let _ = SetForegroundWindow(main);
-            let cmd = TrackPopupMenu(
-                menu,
-                TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN,
-                pt.x,
-                pt.y,
-                None,
-                main,
-                None,
-            );
+            let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, pt.x, pt.y, None, main, None);
             let _ = PostMessageW(Some(main), WM_NULL, WPARAM(0), LPARAM(0));
             let _ = DestroyMenu(menu);
             match cmd.0 as usize {
@@ -2214,6 +2532,7 @@ unsafe fn show_menu() {
                     with_app(|a| a.manual_refresh(false));
                 }
                 ID_CHECK_UPDATES => check_for_updates(main, false),
+                ID_VERSIONS => open_version_list(main),
                 ID_ICONS_MODE => {
                     let on = with_app(|a| {
                         a.icons_mode = !a.icons_mode;
@@ -2325,14 +2644,41 @@ Windows places these icons like any other: drag them to reorder, or move them in
                     SetTimer(Some(main), TIMER_POLL, minutes * 60_000, None);
                 }
                 id => {
-                    if let Some((dev, level)) = settings::decode_menu_id(id) {
-                        if let Some(d) = devices.get(dev) {
-                            settings::set_threshold(SETTINGS_KEY, &d.key, level);
-                            with_app(|a| a.paint());
-                        }
+                    if let Some((dev, action)) = settings::decode_menu_id(id)
+                        && let Some(d) = devices.get(dev)
+                    {
+                        device_action(d, action);
                     }
                 }
             }
+        }
+    }
+}
+
+/// An item of a device's submenu was chosen.
+fn device_action(d: &DeviceStatus, action: settings::DeviceAction) {
+    use settings::DeviceAction;
+    let reported = with_app(|a| a.devices.get(&d.key).map(|t| t.reported.clone())).flatten().unwrap_or_else(|| d.name.clone());
+    match action {
+        DeviceAction::Dashboard(tab) => {
+            // The dashboard reads the history file: write the latest readings first.
+            with_app(|a| a.save_history_now());
+            batteryhub::dashboard::open(d, &reported, tab);
+        }
+        DeviceAction::Rename => batteryhub::rename::open(d, &reported),
+        DeviceAction::ResetName => {
+            settings::set_name(SETTINGS_KEY, &d.key, None);
+            with_app(|a| a.reload_names());
+        }
+        DeviceAction::ToggleWarn5 => {
+            settings::set_warn_critical(SETTINGS_KEY, &d.key, !settings::warn_critical(SETTINGS_KEY, &d.key));
+        }
+        DeviceAction::Threshold(level) => {
+            settings::set_threshold(SETTINGS_KEY, &d.key, level);
+            with_app(|a| {
+                a.card_cache.clear();
+                a.paint();
+            });
         }
     }
 }
@@ -2403,6 +2749,69 @@ fn avoid_widgets(bar: HWND, left: i32, w: i32, gap: i32) -> i32 {
     shift_left_of(left, w, gap, &others)
 }
 
+/// Placed pieces (x, y, shown), total height, device rows (from, to, device).
+type ColumnLayout = (Vec<(i32, i32, bool)>, i32, Vec<(i32, i32, usize)>);
+
+/// Lays out strip pieces (device, width, height) as a column `w` wide: per device its first
+/// piece (the icon) on one line and the rest (level, bolt) centred on the next; a piece that does
+/// not fit beside the level is left out. Pieces of no device get a line of their own. Returns
+/// (x, y, shown) per piece, the total height, and the y range of each device (from, to, device).
+fn column_layout(pieces: &[(Option<usize>, i32, i32)], w: i32, pad: i32, line_gap: i32, dev_gap: i32, piece_gap: i32) -> ColumnLayout {
+    let mut out = vec![(0, 0, false); pieces.len()];
+    let mut hits: Vec<(i32, i32, usize)> = Vec::new();
+    let mut y = pad;
+    let mut i = 0;
+    while i < pieces.len() {
+        let dev = pieces[i].0;
+        let mut j = i + 1;
+        while dev.is_some() && j < pieces.len() && pieces[j].0 == dev {
+            j += 1;
+        }
+        let start = y;
+        // First line: the icon.
+        let (_, iw, ih) = pieces[i];
+        out[i] = ((w - iw) / 2, y, true);
+        y += ih;
+        // Second line: the level and what fits beside it.
+        if j > i + 1 {
+            y += line_gap;
+            let mut line_w = 0;
+            let mut last = i + 1;
+            #[allow(clippy::needless_range_loop)]
+            for k in i + 1..j {
+                let add = pieces[k].1 + if k > i + 1 { piece_gap } else { 0 };
+                if k > i + 1 && line_w + add > w - 2 {
+                    break;
+                }
+                line_w += add;
+                last = k;
+            }
+            let line_h = (i + 1..=last).map(|k| pieces[k].2).max().unwrap_or(0);
+            let mut x = (w - line_w) / 2;
+            for k in i + 1..=last {
+                out[k] = (x, y + (line_h - pieces[k].2) / 2, true);
+                x += pieces[k].1 + piece_gap;
+            }
+            y += line_h;
+        }
+        if let Some(d) = dev {
+            hits.push((start - dev_gap / 2, y + dev_gap / 2, d));
+        }
+        i = j;
+        if i < pieces.len() {
+            y += dev_gap;
+        }
+    }
+    let h = y + pad;
+    if let Some(first) = hits.first_mut() {
+        first.0 = 0;
+    }
+    if let Some(last) = hits.last_mut() {
+        last.1 = h;
+    }
+    (out, h, hits)
+}
+
 fn shift_left_of(mut left: i32, w: i32, gap: i32, others: &[(i32, i32)]) -> i32 {
     for _ in 0..16 {
         match others.iter().filter(|(a, b)| *a < left + w && *b > left).map(|(a, _)| *a).min() {
@@ -2413,7 +2822,7 @@ fn shift_left_of(mut left: i32, w: i32, gap: i32, others: &[(i32, i32)]) -> i32 
     left
 }
 
-/// The hover card's animation: the rendered card, where it ends up, and how far it slides.
+/// The hover card's animation: what it shows, where it ends up, and how far it slides.
 #[derive(Default)]
 struct CardAnim {
     /// Start of the running fade, None when it is at rest.
@@ -2425,14 +2834,12 @@ struct CardAnim {
     x: i32,
     y: i32,
     slide: i32,
-    w: i32,
-    h: i32,
-    px: Vec<u32>,
-    /// Device shown.
-    key: String,
-    /// While switching devices: the previous card (x, width, content), fading out as the
-    /// background glides to the new card.
-    prev: Option<(i32, i32, Vec<u32>)>,
+    content: Option<Rc<CardContent>>,
+    /// While switching devices: where the background started (x, width) and the previous card's
+    /// content, fading out as the background glides to the new card.
+    prev: Option<(i32, i32, Rc<CardContent>)>,
+    /// Background drawn in the last frame (screen x, width): the next switch starts there.
+    drawn: (i32, i32),
     bg: COLORREF,
     border: COLORREF,
     radius: i32,
@@ -2440,76 +2847,69 @@ struct CardAnim {
     scale: f32,
 }
 
-/// One frame of the card: rounded background at [bx, bx + bw) in a `w` x `h` window, with each
-/// content layer (pixels, width, opacity) drawn from bx and clipped to the background.
-/// Blurs premultiplied pixels with two box passes per axis (close to a Gaussian), radius `r` px.
-fn blur(src: &[u32], w: i32, h: i32, r: i32) -> Vec<u32> {
-    if r <= 0 || w <= 0 || h <= 0 {
-        return src.to_vec();
-    }
-    let (w, h) = (w as usize, h as usize);
-    let mut ch: [Vec<u32>; 4] = std::array::from_fn(|k| src.iter().map(|p| (p >> (k * 8)) & 0xFF).collect());
-    let mut tmp = vec![0u32; w * h];
-    let r = r as usize;
-    let div = (2 * r + 1) as u32;
-    for c in ch.iter_mut() {
-        for _ in 0..2 {
-            // Horizontal, then vertical; edges repeat the border pixel.
-            for y in 0..h {
-                let row = &c[y * w..y * w + w];
-                let mut sum: u32 = (0..=2 * r).map(|i| row[i.saturating_sub(r).min(w - 1)]).sum();
-                for x in 0..w {
-                    tmp[y * w + x] = sum / div;
-                    sum += row[(x + r + 1).min(w - 1)];
-                    sum -= row[x.saturating_sub(r)];
-                }
-            }
-            for x in 0..w {
-                let at = |y: usize| tmp[y.min(h - 1) * w + x];
-                let mut sum: u32 = (0..=2 * r).map(|i| at(i.saturating_sub(r))).sum();
-                for y in 0..h {
-                    c[y * w + x] = sum / div;
-                    sum += at(y + r + 1);
-                    sum -= at(y.saturating_sub(r));
-                }
-            }
-        }
-    }
-    (0..w * h).map(|i| ch[3][i] << 24 | ch[2][i] << 16 | ch[1][i] << 8 | ch[0][i]).collect()
+/// The card's bitmap and memory DC, kept while the card is open.
+struct Surface {
+    dc: HDC,
+    bmp: HBITMAP,
+    old: HGDIOBJ,
+    bits: *mut u32,
+    w: i32,
+    h: i32,
 }
 
-fn compose_card(w: i32, h: i32, bx: i32, bw: i32, a: &CardAnim, layers: &[(&[u32], i32, f32, i32)]) -> Vec<u32> {
-    let mut cv = Canvas { w, h, px: vec![0; (w * h) as usize] };
-    cv.fill_rrect(bx, 0, bx + bw, h, a.radius, a.border, 255);
-    cv.fill_rrect(bx + 1, 1, bx + bw - 1, h - 1, a.radius - 1, a.bg, 250);
-    for &(src, sw, f, r) in layers {
-        let f = (f.clamp(0.0, 1.0) * 255.0) as u32;
-        if f == 0 {
-            continue;
-        }
-        let blurred;
-        let src: &[u32] = if r > 0 {
-            blurred = blur(src, sw, src.len() as i32 / sw.max(1), r);
-            &blurred
-        } else {
-            src
-        };
-        for y in 0..h.min(src.len() as i32 / sw.max(1)) {
-            for x in 0..sw.min(bw) {
-                let c = src[(y * sw + x) as usize];
-                let ca = (c >> 24) * f / 255;
-                if ca == 0 {
-                    continue;
+impl Surface {
+    fn new(w: i32, h: i32) -> Option<Self> {
+        unsafe {
+            let dc = CreateCompatibleDC(None);
+            let bmi = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: w,
+                    biHeight: -h,
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut bits: *mut c_void = std::ptr::null_mut();
+            match CreateDIBSection(Some(dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) {
+                Ok(bmp) if !bits.is_null() => {
+                    let old = SelectObject(dc, HGDIOBJ(bmp.0));
+                    Some(Surface { dc, bmp, old, bits: bits.cast(), w, h })
                 }
-                let d = &mut cv.px[(y * w + bx + x) as usize];
-                let inv = 255 - ca;
-                // Premultiplied "over" with the layer's opacity.
-                let ch = |sh: u32| ((((c >> sh) & 0xFF) * f / 255) + ((*d >> sh) & 0xFF) * inv / 255).min(255);
-                *d = ch(24) << 24 | ch(16) << 16 | ch(8) << 8 | ch(0);
+                _ => {
+                    let _ = DeleteDC(dc);
+                    None
+                }
             }
         }
     }
-    cv.px
+
+    fn pixels(&mut self) -> &mut [u32] {
+        unsafe { std::slice::from_raw_parts_mut(self.bits, (self.w * self.h) as usize) }
+    }
+
+    /// Shows the top-left `size` of the bitmap at `pt` (screen coordinates) with opacity `alpha`.
+    fn present(&self, hwnd: HWND, pt: POINT, size: SIZE, alpha: u8) {
+        unsafe {
+            let _ = GdiFlush();
+            let src = POINT::default();
+            let bf = BLENDFUNCTION { BlendOp: AC_SRC_OVER as u8, BlendFlags: 0, SourceConstantAlpha: alpha, AlphaFormat: AC_SRC_ALPHA as u8 };
+            let _ = UpdateLayeredWindow(hwnd, None, Some(&pt), Some(&size), Some(self.dc), Some(&src), COLORREF(0), Some(&bf), ULW_ALPHA);
+        }
+    }
+}
+
+impl Drop for Surface {
+    fn drop(&mut self) {
+        unsafe {
+            SelectObject(self.dc, self.old);
+            let _ = DeleteObject(HGDIOBJ(self.bmp.0));
+            let _ = DeleteDC(self.dc);
+        }
+    }
 }
 
 const CARD_CLASS: windows::core::PCWSTR = w!("BatteryHub.Taskbar.Card");
@@ -2546,43 +2946,11 @@ extern "system" fn card_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
     }
 }
 
-/// Hands premultiplied BGRA pixels to a layered window at `pt` (screen coordinates).
-fn push_pixels(hwnd: HWND, pt: POINT, size: SIZE, pixels: &[u32], alpha: u8) {
-    unsafe {
-        let screen = GetDC(None);
-        let mem = CreateCompatibleDC(Some(screen));
-        let bmi = BITMAPINFO {
-            bmiHeader: BITMAPINFOHEADER {
-                biSize: size_of::<BITMAPINFOHEADER>() as u32,
-                biWidth: size.cx,
-                biHeight: -size.cy,
-                biPlanes: 1,
-                biBitCount: 32,
-                biCompression: BI_RGB.0,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let mut bits: *mut c_void = std::ptr::null_mut();
-        if let Ok(bmp) = CreateDIBSection(Some(mem), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) {
-            std::ptr::copy_nonoverlapping(pixels.as_ptr(), bits as *mut u32, pixels.len());
-            let ob = SelectObject(mem, HGDIOBJ(bmp.0));
-            let src = POINT::default();
-            let bf = BLENDFUNCTION { BlendOp: AC_SRC_OVER as u8, BlendFlags: 0, SourceConstantAlpha: alpha, AlphaFormat: AC_SRC_ALPHA as u8 };
-            let _ = UpdateLayeredWindow(hwnd, Some(screen), Some(&pt), Some(&size), Some(mem), Some(&src), COLORREF(0), Some(&bf), ULW_ALPHA);
-            SelectObject(mem, ob);
-            let _ = DeleteObject(HGDIOBJ(bmp.0));
-        }
-        let _ = DeleteDC(mem);
-        ReleaseDC(None, screen);
-    }
-}
-
 extern "system" fn strip_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     unsafe {
         match msg {
             WM_MOUSEMOVE => {
-                with_app(|a| a.hover(hwnd, (lp.0 & 0xFFFF) as i16 as i32));
+                with_app(|a| a.hover(hwnd, (lp.0 & 0xFFFF) as i16 as i32, ((lp.0 >> 16) & 0xFFFF) as i16 as i32));
                 LRESULT(0)
             }
             WM_MOUSELEAVE => {
@@ -2597,7 +2965,7 @@ extern "system" fn strip_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> L
                         let mut c = pt;
                         let _ = ScreenToClient(hwnd, &mut c);
                         a.tip_for = None;
-                        a.hover(hwnd, c.x);
+                        a.hover(hwnd, c.x, c.y);
                     });
                 } else {
                     with_app(|a| a.hide_tip());
@@ -2640,6 +3008,7 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                         a.start_poll();
                     }
                     TIMER_QUICK => a.start_quick(),
+                    TIMER_NOTIFY => a.end_notify(),
                     TIMER_UPDATED => {
                         let _ = KillTimer(Some(hwnd), TIMER_UPDATED);
                         if let Some(old) = a.updated_from.take() {
@@ -2709,8 +3078,18 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                 LRESULT(0)
             }
             WM_UPDATE_DOWNLOADED => {
-                let result = *Box::from_raw(lp.0 as *mut Result<std::path::PathBuf, String>);
+                let result = *Box::from_raw(lp.0 as *mut Result<batteryhub::update::Verified, String>);
                 on_update_downloaded(hwnd, result);
+                LRESULT(0)
+            }
+            WM_TRAY if wp.0 as u32 == NOTIFY_UID => {
+                // The low-battery notification closed or was clicked: its icon goes.
+                const NIN_BALLOONHIDE: u32 = 0x403;
+                const NIN_BALLOONTIMEOUT: u32 = 0x404;
+                const NIN_BALLOONUSERCLICK: u32 = 0x405;
+                if matches!((lp.0 & 0xFFFF) as u32, NIN_BALLOONHIDE | NIN_BALLOONTIMEOUT | NIN_BALLOONUSERCLICK) {
+                    with_app(|a| a.end_notify());
+                }
                 LRESULT(0)
             }
             WM_TRAY => {
@@ -2718,6 +3097,25 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                     show_menu();
                 }
                 LRESULT(0)
+            }
+            WM_HISTORY_SAVED => {
+                with_app(|a| {
+                    if wp.0 == 0 {
+                        a.history.mark_dirty(); // try again at the next read
+                    }
+                });
+                // An open dashboard reads the new file.
+                batteryhub::dashboard::notify_history_changed();
+                LRESULT(0)
+            }
+            // Sign-out, restart or shutdown: write the history before the process is ended.
+            WM_ENDSESSION if wp.0 != 0 => {
+                with_app(|a| a.save_history_now());
+                LRESULT(0)
+            }
+            WM_POWERBROADCAST if wp.0 == PBT_APMSUSPEND => {
+                with_app(|a| a.save_history_now());
+                LRESULT(1)
             }
             WM_POWERBROADCAST if wp.0 == PBT_APMRESUMEAUTOMATIC => {
                 if refresh_on_change() {
@@ -2734,6 +3132,8 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
             }
             WM_DESTROY => {
                 with_app(|a| {
+                    a.save_history_now();
+                    a.end_notify();
                     if !a.strip.0.is_null() {
                         let _ = DestroyWindow(a.strip);
                     }
@@ -2743,7 +3143,11 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                 LRESULT(0)
             }
             _ => {
-                let tc = with_app(|a| a.taskbar_created).unwrap_or(0);
+                let (tc, nm) = with_app(|a| (a.taskbar_created, a.names_msg)).unwrap_or((0, 0));
+                if nm != 0 && msg == nm {
+                    with_app(|a| a.reload_names());
+                    return LRESULT(0);
+                }
                 if tc != 0 && msg == tc {
                     // Explorer restarted. The 1 s timer may already have put a new strip on the new
                     // taskbar, so the strip is not thrown away blindly (that left a second, orphaned
@@ -2776,6 +3180,18 @@ fn main() {
         }
         // `--listen VID:PID`: diagnostic recording of a device's HID reports (see listen.rs).
         let args: Vec<String> = std::env::args().collect();
+        // `--dashboard <tab> <device>` / `--rename <device>`: windows opened from the device menu,
+        // each in its own short-lived process.
+        if let Some(i) = args.iter().position(|a| a == "--dashboard") {
+            let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+            batteryhub::dashboard::run_standalone(&args[i + 1..]);
+            return;
+        }
+        if let Some(i) = args.iter().position(|a| a == "--rename") {
+            let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+            batteryhub::rename::run_standalone(&args[i + 1..]);
+            return;
+        }
         if let Some(i) = args.iter().position(|a| a == "--listen") {
             batteryhub::listen::run(args.get(i + 1).map(|s| s.as_str()));
             return;
@@ -2795,14 +3211,9 @@ fn main() {
 
         let hinst = GetModuleHandleW(None).unwrap_or_default();
         let arrow = LoadCursorW(None, IDC_ARROW).unwrap_or_default();
-        for (class, proc_) in [
-            (
-                MAIN_CLASS,
-                main_proc as unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,
-            ),
-            (STRIP_CLASS, strip_proc),
-            (CARD_CLASS, card_proc),
-        ] {
+        for (class, proc_) in
+            [(MAIN_CLASS, main_proc as unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT), (STRIP_CLASS, strip_proc), (CARD_CLASS, card_proc)]
+        {
             let wc = WNDCLASSEXW {
                 cbSize: size_of::<WNDCLASSEXW>() as u32,
                 lpfnWndProc: Some(proc_),
@@ -2813,20 +3224,8 @@ fn main() {
             };
             RegisterClassExW(&wc);
         }
-        let Ok(main) = CreateWindowExW(
-            WS_EX_TOOLWINDOW,
-            MAIN_CLASS,
-            w!("BatteryHub Taskbar"),
-            WS_POPUP,
-            0,
-            0,
-            0,
-            0,
-            None,
-            None,
-            Some(hinst.into()),
-            None,
-        ) else {
+        let Ok(main) = CreateWindowExW(WS_EX_TOOLWINDOW, MAIN_CLASS, w!("BatteryHub Taskbar"), WS_POPUP, 0, 0, 0, 0, None, None, Some(hinst.into()), None)
+        else {
             return;
         };
         let taskbar_created = RegisterWindowMessageW(w!("TaskbarCreated"));
@@ -2844,7 +3243,9 @@ fn main() {
             a.taskbar_created = taskbar_created;
             a.refresh_settings();
             a.create_tooltip();
-            a.history = batteryhub::history::History::load(SETTINGS_KEY);
+            a.history = batteryhub::history::History::load(EDITION, SETTINGS_KEY);
+            a.names = settings::names(SETTINGS_KEY);
+            a.names_msg = batteryhub::rename::names_changed_message();
             // BH_FORCE_FALLBACK (diagnostics): start with notification-area icons. Otherwise the
             // fallback is decided by tick() after FALLBACK_AFTER_TICKS, so a taskbar that is not
             // ready yet at sign-in does not make icons flash up for a second.
@@ -2888,18 +3289,27 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{blur, shift_left_of};
+    use super::*;
 
     #[test]
-    fn blur_keeps_flat_areas_and_spreads_a_dot() {
-        let flat = vec![0x8040_2010u32; 30 * 10];
-        assert_eq!(blur(&flat, 30, 10, 3), flat);
-        let mut dot = vec![0u32; 21 * 21];
-        dot[10 * 21 + 10] = 0xFF00_00FF;
-        let b = blur(&dot, 21, 21, 2);
-        assert!(b[10 * 21 + 10] >> 24 > 0 && b[10 * 21 + 10] >> 24 < 255);
-        assert!(b[10 * 21 + 12] >> 24 > 0);
-        assert_eq!(blur(&dot, 21, 21, 0), dot);
+    fn vertical_taskbar_column() {
+        // Two devices (icon, level, bolt) and one (icon, level) in a 48 px wide column.
+        let pieces = [(Some(0), 16, 16), (Some(0), 26, 14), (Some(0), 8, 11), (Some(1), 16, 16), (Some(1), 30, 14)];
+        let (pos, h, hits) = column_layout(&pieces, 48, 8, 2, 12, 2);
+        assert_eq!(pos[0], (16, 8, true)); // icon centred on its own line
+        assert_eq!(pos[1].1, 8 + 16 + 2); // level on the next line
+        assert!(pos[2].2 && pos[2].0 >= pos[1].0 + 26); // bolt beside the level (fits)
+        assert!(pos.iter().all(|p| p.0 >= 0 && p.0 < 48));
+        assert_eq!(hits.len(), 2);
+        assert_eq!((hits[0].0, hits[1].1), (0, h)); // the rows cover the whole column
+        assert_eq!(hits[0].1, hits[1].0); // and touch each other
+        assert!(pos[3].1 > pos[1].1 + 14); // second device below the first
+        // Too narrow for the bolt: it is left out instead of overflowing.
+        let (pos, _, _) = column_layout(&pieces[..3], 32, 8, 2, 12, 2);
+        assert!(!pos[2].2);
+        // The "no devices" glyph alone.
+        let (pos, h, hits) = column_layout(&[(None, 16, 16)], 40, 8, 2, 12, 2);
+        assert_eq!((pos[0], h, hits.len()), ((12, 8, true), 32, 0));
     }
 
     #[test]

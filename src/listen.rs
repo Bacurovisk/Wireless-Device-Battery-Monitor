@@ -6,9 +6,9 @@ use std::fmt::Write as _;
 use std::sync::mpsc;
 use std::time::Instant;
 
-use windows::core::HSTRING;
 use windows::Win32::Foundation::GetLastError;
-use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONINFORMATION, MB_OK, MB_OKCANCEL, IDOK};
+use windows::Win32::UI::WindowsAndMessaging::{IDOK, MB_ICONINFORMATION, MB_OK, MB_OKCANCEL, MessageBoxW};
+use windows::core::HSTRING;
 
 use crate::hid::{self, HidColl, HidDev};
 use crate::util::hex4;
@@ -23,15 +23,7 @@ fn hex(b: &[u8]) -> String {
 }
 
 fn label(c: &HidColl) -> String {
-    format!(
-        "if{} {}:{} in/out/feature {}/{}/{}",
-        c.iface,
-        hex4(c.page()),
-        hex4(c.usage()),
-        c.in_len(),
-        c.out_len(),
-        c.feat_len()
-    )
+    format!("if{} {}:{} in/out/feature {}/{}/{}", c.iface, hex4(c.page()), hex4(c.usage()), c.in_len(), c.out_len(), c.feat_len())
 }
 
 fn message(text: &str, flags: windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE) -> bool {
@@ -39,13 +31,13 @@ fn message(text: &str, flags: windows::Win32::UI::WindowsAndMessaging::MESSAGEBO
 }
 
 fn desktop_dir() -> std::path::PathBuf {
-    use windows::Win32::UI::Shell::{FOLDERID_Desktop, SHGetKnownFolderPath, KF_FLAG_DEFAULT};
+    use windows::Win32::UI::Shell::{FOLDERID_Desktop, KF_FLAG_DEFAULT, SHGetKnownFolderPath};
     unsafe {
-        if let Ok(p) = SHGetKnownFolderPath(&FOLDERID_Desktop, KF_FLAG_DEFAULT, None) {
-            if let Ok(s) = p.to_string() {
-                windows::Win32::System::Com::CoTaskMemFree(Some(p.0 as *const _));
-                return s.into();
-            }
+        if let Ok(p) = SHGetKnownFolderPath(&FOLDERID_Desktop, KF_FLAG_DEFAULT, None)
+            && let Ok(s) = p.to_string()
+        {
+            windows::Win32::System::Com::CoTaskMemFree(Some(p.0 as *const _));
+            return s.into();
         }
     }
     std::env::temp_dir()
@@ -71,17 +63,17 @@ pub fn listen(vid: u16, pid: u16, ms: u64) -> String {
             // Collections without report IDs answer every id the same way: print each answer once.
             let (mut last_in, mut last_feat) = (None, None);
             for id in 0u8..=8 {
-                if c.in_len() > 0 {
-                    if let Some(r) = d.get_input_report(id).filter(|r| Some(&r[1..]) != last_in.as_deref()) {
-                        let _ = writeln!(out, "  get input   #{id}: {}", hex(&r));
-                        last_in = Some(r[1..].to_vec());
-                    }
+                if c.in_len() > 0
+                    && let Some(r) = d.get_input_report(id).filter(|r| Some(&r[1..]) != last_in.as_deref())
+                {
+                    let _ = writeln!(out, "  get input   #{id}: {}", hex(&r));
+                    last_in = Some(r[1..].to_vec());
                 }
-                if c.feat_len() > 0 {
-                    if let Some(r) = d.get_feature(id).filter(|r| Some(&r[1..]) != last_feat.as_deref()) {
-                        let _ = writeln!(out, "  get feature #{id}: {}", hex(&r));
-                        last_feat = Some(r[1..].to_vec());
-                    }
+                if c.feat_len() > 0
+                    && let Some(r) = d.get_feature(id).filter(|r| Some(&r[1..]) != last_feat.as_deref())
+                {
+                    let _ = writeln!(out, "  get feature #{id}: {}", hex(&r));
+                    last_feat = Some(r[1..].to_vec());
                 }
             }
         }

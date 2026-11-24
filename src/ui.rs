@@ -1,20 +1,18 @@
 //! Win32 / GDI helpers (fonts, colours, background polling, autostart).
 use std::ffi::c_void;
 
-use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    CreateBitmap, CreateCompatibleDC, CreateDIBSection, CreateFontW, DeleteDC, DeleteObject, DrawTextW,
-    GetTextExtentPoint32W, SelectObject, SetBkMode, SetTextColor, ANTIALIASED_QUALITY, BITMAPINFO, BITMAPINFOHEADER,
-    BI_RGB, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DIB_RGB_COLORS, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER,
-    HDC, HFONT, HGDIOBJ, OUT_DEFAULT_PRECIS, TRANSPARENT,
+    ANTIALIASED_QUALITY, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CLIP_DEFAULT_PRECIS, CreateBitmap, CreateCompatibleDC, CreateDIBSection, CreateFontW,
+    DEFAULT_CHARSET, DIB_RGB_COLORS, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteDC, DeleteObject, DrawTextW, GetTextExtentPoint32W, HDC, HFONT,
+    HGDIOBJ, OUT_DEFAULT_PRECIS, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
 };
-use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
-use windows::Win32::UI::WindowsAndMessaging::{CreateIconIndirect, PostMessageW, HICON, ICONINFO};
+use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
+use windows::Win32::UI::WindowsAndMessaging::{CreateIconIndirect, HICON, ICONINFO, PostMessageW};
+use windows::core::{HSTRING, PCWSTR};
 
 use crate::device::DeviceStatus;
 use crate::util;
-
 
 /// Windows "apps / taskbar use light theme" setting.
 pub fn light_theme(value: &str) -> bool {
@@ -93,22 +91,7 @@ pub fn level_color(s: &DeviceStatus, light: bool, normal: COLORREF, threshold: i
 
 pub fn font(height: i32, weight: i32, face: &str) -> HFONT {
     unsafe {
-        CreateFontW(
-            -height,
-            0,
-            0,
-            0,
-            weight,
-            0,
-            0,
-            0,
-            DEFAULT_CHARSET,
-            OUT_DEFAULT_PRECIS,
-            CLIP_DEFAULT_PRECIS,
-            ANTIALIASED_QUALITY,
-            0,
-            &HSTRING::from(face),
-        )
+        CreateFontW(-height, 0, 0, 0, weight, 0, 0, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, 0, &HSTRING::from(face))
     }
 }
 
@@ -186,11 +169,7 @@ pub fn number_icon(text: &str, color: COLORREF, level: i32, size: i32, light: bo
             let fill_w = ((size - 2) * level.clamp(0, 100) + 50) / 100;
             for y in size - bar_h..size {
                 for x in 1..size - 1 {
-                    px[(y * size + x) as usize] = if x - 1 < fill_w.max(1) {
-                        premul(r, g, b, 255)
-                    } else {
-                        premul(track.0, track.1, track.2, track.3)
-                    };
+                    px[(y * size + x) as usize] = if x - 1 < fill_w.max(1) { premul(r, g, b, 255) } else { premul(track.0, track.1, track.2, track.3) };
                 }
             }
         }
@@ -228,7 +207,7 @@ struct UxTheme {
 fn uxtheme() -> &'static UxTheme {
     static UX: std::sync::OnceLock<UxTheme> = std::sync::OnceLock::new();
     UX.get_or_init(|| unsafe {
-        use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};
+        use windows::Win32::System::LibraryLoader::{GetProcAddress, LOAD_LIBRARY_SEARCH_SYSTEM32, LoadLibraryExW};
         let Ok(m) = LoadLibraryExW(windows::core::w!("uxtheme.dll"), None, LOAD_LIBRARY_SEARCH_SYSTEM32) else {
             return UxTheme { set_mode: None, flush: None, allow_window: None };
         };
@@ -358,5 +337,141 @@ mod tests {
         assert_eq!(level_color(&dev(31, false, false), false, normal, 30), normal);
         assert_eq!(level_color(&dev(10, true, false), false, normal, 30), charging_color(false));
         assert_eq!(level_color(&dev(50, false, false), false, normal, 50), low_color(false));
+    }
+}
+
+// ---- menu icons --------------------------------------------------------------------------------
+
+/// Segoe Fluent Icons code points used in the menus (one icon set, the one Windows 11 uses).
+pub mod glyph {
+    pub const DASHBOARD: char = '\u{F246}';
+    /// Segoe MDL2 Assets (Windows 10) has no dashboard glyph: four tiles instead.
+    pub const DASHBOARD_MDL2: char = '\u{E80A}';
+    pub const HISTORY: char = '\u{E81C}';
+    pub const STATISTICS: char = '\u{E9D2}';
+    pub const RENAME: char = '\u{E8AC}';
+    pub const RESET: char = '\u{E7A7}';
+    pub const WARNING: char = '\u{E7BA}';
+    pub const BELL: char = '\u{EA8F}';
+    pub const REFRESH: char = '\u{E72C}';
+    pub const SYNC: char = '\u{E895}';
+    pub const SETTINGS: char = '\u{E713}';
+    pub const MONITOR: char = '\u{E7F4}';
+    pub const POWER: char = '\u{E7E8}';
+    pub const DOWNLOAD: char = '\u{E896}';
+    pub const MAIL: char = '\u{E715}';
+    pub const EXIT: char = '\u{E8BB}';
+    pub const INFO: char = '\u{E946}';
+}
+
+/// Whether Segoe Fluent Icons is installed (Windows 11); otherwise Segoe MDL2 Assets is used.
+pub fn has_fluent_icons() -> bool {
+    static HAS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *HAS.get_or_init(|| unsafe {
+        use windows::Win32::Graphics::Gdi::GetTextFaceW;
+        let f = font(16, 400, "Segoe Fluent Icons");
+        let dc = CreateCompatibleDC(None);
+        let old = SelectObject(dc, HGDIOBJ(f.0));
+        let mut face = [0u16; 64];
+        GetTextFaceW(dc, Some(&mut face));
+        SelectObject(dc, old);
+        let _ = DeleteDC(dc);
+        let _ = DeleteObject(HGDIOBJ(f.0));
+        util::from_wide(&face).eq_ignore_ascii_case("Segoe Fluent Icons")
+    })
+}
+
+pub fn icon_font_face() -> &'static str {
+    if has_fluent_icons() { "Segoe Fluent Icons" } else { "Segoe MDL2 Assets" }
+}
+
+/// A glyph as a 32-bit premultiplied bitmap of `size` px for a menu item (white on dark menus,
+/// black on light ones). The caller deletes it after the menu closed.
+pub fn glyph_bitmap(g: char, size: i32, dark: bool) -> Option<windows::Win32::Graphics::Gdi::HBITMAP> {
+    let g = if g == glyph::DASHBOARD && !has_fluent_icons() { glyph::DASHBOARD_MDL2 } else { g };
+    unsafe {
+        let dc = CreateCompatibleDC(None);
+        let bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: size,
+                biHeight: -size,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut bits: *mut c_void = std::ptr::null_mut();
+        let bmp = CreateDIBSection(Some(dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0).ok()?;
+        let f = font(size, 400, icon_font_face());
+        let old_b = SelectObject(dc, HGDIOBJ(bmp.0));
+        let old_f = SelectObject(dc, HGDIOBJ(f.0));
+        let px = std::slice::from_raw_parts_mut(bits as *mut u32, (size * size) as usize);
+        px.fill(0);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, rgb(255, 255, 255));
+        let mut rc = RECT { left: 0, top: 0, right: size, bottom: size };
+        draw_text(dc, &g.to_string(), &mut rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        let _ = windows::Win32::Graphics::Gdi::GdiFlush();
+        let (r, gg, b) = if dark { (255, 255, 255) } else { (0, 0, 0) };
+        for p in px.iter_mut() {
+            let a = (((*p & 0xFF) + ((*p >> 8) & 0xFF) + ((*p >> 16) & 0xFF)) / 3) as u8;
+            *p = premul(r, gg, b, a);
+        }
+        SelectObject(dc, old_f);
+        SelectObject(dc, old_b);
+        let _ = DeleteObject(HGDIOBJ(f.0));
+        let _ = DeleteDC(dc);
+        Some(bmp)
+    }
+}
+
+/// Icons of one popup menu and its submenus: set while building, deleted on drop (after
+/// TrackPopupMenu returned).
+pub struct MenuIcons {
+    size: i32,
+    dark: bool,
+    bitmaps: Vec<windows::Win32::Graphics::Gdi::HBITMAP>,
+}
+
+impl MenuIcons {
+    pub fn new(owner: HWND, dark: bool) -> Self {
+        use windows::Win32::UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi};
+        use windows::Win32::UI::WindowsAndMessaging::SM_CXSMICON;
+        let dpi = unsafe { GetDpiForWindow(owner) }.max(96);
+        let size = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, dpi) }.max(16);
+        MenuIcons { size, dark, bitmaps: Vec::new() }
+    }
+
+    /// Gives menu item `item` (a command id, or a position when `by_pos`) the icon `g`.
+    pub fn set(&mut self, menu: windows::Win32::UI::WindowsAndMessaging::HMENU, item: u32, by_pos: bool, g: char) {
+        use windows::Win32::UI::WindowsAndMessaging::{MENUITEMINFOW, MIIM_BITMAP, SetMenuItemInfoW};
+        let Some(bmp) = glyph_bitmap(g, self.size, self.dark) else { return };
+        let mii = MENUITEMINFOW { cbSize: size_of::<MENUITEMINFOW>() as u32, fMask: MIIM_BITMAP, hbmpItem: bmp, ..Default::default() };
+        unsafe {
+            let _ = SetMenuItemInfoW(menu, item, by_pos, &mii);
+        }
+        self.bitmaps.push(bmp);
+    }
+
+    /// A checked item shows its check mark instead of its icon (no overlap in the gutter).
+    pub fn check_or_icon(menu: windows::Win32::UI::WindowsAndMessaging::HMENU) {
+        use windows::Win32::UI::WindowsAndMessaging::{MENUINFO, MIM_STYLE, MNS_CHECKORBMP, SetMenuInfo};
+        let mi = MENUINFO { cbSize: size_of::<MENUINFO>() as u32, fMask: MIM_STYLE, dwStyle: MNS_CHECKORBMP, ..Default::default() };
+        unsafe {
+            let _ = SetMenuInfo(menu, &mi);
+        }
+    }
+}
+
+impl Drop for MenuIcons {
+    fn drop(&mut self) {
+        for b in self.bitmaps.drain(..) {
+            unsafe {
+                let _ = DeleteObject(HGDIOBJ(b.0));
+            }
+        }
     }
 }

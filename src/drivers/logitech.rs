@@ -24,7 +24,7 @@
 //!     0x04 (connect failed) = unreachable, 0x08 = no device with that index.
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{self, HidColl, HidDev};
-use crate::util::{guess_kind, hex4, interpolate, Deadline};
+use crate::util::{Deadline, guess_kind, hex4, interpolate};
 
 const SW_ID: u8 = 0x0D;
 
@@ -95,9 +95,7 @@ impl Hidpp {
     }
 
     fn feature_index(&self, idx: u8, feature_id: u16) -> u8 {
-        self.call(idx, 0x00, 0, &[(feature_id >> 8) as u8, feature_id as u8])
-            .and_then(|p| p.first().copied())
-            .unwrap_or(0)
+        self.call(idx, 0x00, 0, &[(feature_id >> 8) as u8, feature_id as u8]).and_then(|p| p.first().copied()).unwrap_or(0)
     }
 
     /// Sends a short HID++ 1.0 message to the receiver and returns every report read within `ms`
@@ -189,10 +187,11 @@ fn receiver_slots(h: &Hidpp) -> Option<Vec<Slot>> {
         return None;
     }
     // Wireless notifications on (Solaar does the same), then ask for one 0x41 per paired device.
-    if let Reply::Ok(f) = h.request(0xFF, 0x81, 0x00, &[], true, 900) {
-        if f.len() >= 3 && f[1] & 0x01 == 0 {
-            let _ = h.request(0xFF, 0x80, 0x00, &[f[0], f[1] | 0x01, f[2]], true, 900);
-        }
+    if let Reply::Ok(f) = h.request(0xFF, 0x81, 0x00, &[], true, 900)
+        && f.len() >= 3
+        && f[1] & 0x01 == 0
+    {
+        let _ = h.request(0xFF, 0x80, 0x00, &[f[0], f[1] | 0x01, f[2]], true, 900);
     }
     for r in h.send_and_collect(0x80, 0x02, &[0x02], 400) {
         if let Some((idx, up)) = parse_link_notification(&r) {
@@ -219,11 +218,7 @@ fn headset_percent(pid: u16, mv: i32) -> i32 {
     match pid {
         0x0A66 => interpolate(mv, &[4200, 3850, 3790, 3750, 3680, 3330], &P6),
         0x0AC4 => interpolate(mv, &[4175, 3817, 3766, 3730, 3664, 3310], &P6),
-        0x0A5C | 0x0A89 | 0x0A5B | 0x0A87 | 0x0AFE => interpolate(
-            mv,
-            &[4100, 3950, 3850, 3750, 3650, 3500, 3300, 3150],
-            &[100, 80, 60, 40, 20, 10, 5, 0],
-        ),
+        0x0A5C | 0x0A89 | 0x0A5B | 0x0A87 | 0x0AFE => interpolate(mv, &[4100, 3950, 3850, 3750, 3650, 3500, 3300, 3150], &[100, 80, 60, 40, 20, 10, 5, 0]),
         0x0AB5 => interpolate(
             mv,
             &[4175, 4127, 4086, 4054, 4001, 3968, 3944, 3914, 3875, 3840, 3818, 3800, 3783, 3771, 3759, 3744, 3725, 3695, 3675, 3630, 3341],
@@ -252,63 +247,63 @@ fn kind_from_type(t: u8) -> DeviceKind {
 /// Fills battery fields from whichever battery feature the device has. Returns false if none.
 fn read_battery20(h: &Hidpp, idx: u8, pid: u16, s: &mut DeviceStatus) -> bool {
     let f = h.feature_index(idx, 0x1004); // UNIFIED_BATTERY: get_status (fn 1)
-    if f != 0 {
-        if let Some(p) = h.call(idx, f, 1, &[]).filter(|p| p.len() >= 3) {
-            let (soc, level, st) = (p[0] as i32, p[1], p[2]);
-            if soc > 0 && soc <= 100 {
-                s.percent = soc;
-            } else if level != 0 {
-                let (pct, txt) = if level & 8 != 0 {
-                    (100, "Full")
-                } else if level & 4 != 0 {
-                    (60, "Good")
-                } else if level & 2 != 0 {
-                    (20, "Low")
-                } else {
-                    (5, "Critical")
-                };
-                s.percent = pct;
-                s.level_text = txt.into();
-            }
-            s.charging = matches!(st, 1..=3);
-            s.full = st == 3;
-            return true;
+    if f != 0
+        && let Some(p) = h.call(idx, f, 1, &[]).filter(|p| p.len() >= 3)
+    {
+        let (soc, level, st) = (p[0] as i32, p[1], p[2]);
+        if soc > 0 && soc <= 100 {
+            s.percent = soc;
+        } else if level != 0 {
+            let (pct, txt) = if level & 8 != 0 {
+                (100, "Full")
+            } else if level & 4 != 0 {
+                (60, "Good")
+            } else if level & 2 != 0 {
+                (20, "Low")
+            } else {
+                (5, "Critical")
+            };
+            s.percent = pct;
+            s.level_text = txt.into();
         }
+        s.charging = matches!(st, 1..=3);
+        s.full = st == 3;
+        return true;
     }
     let f = h.feature_index(idx, 0x1000); // BATTERY_STATUS
-    if f != 0 {
-        if let Some(p) = h.call(idx, f, 0, &[]).filter(|p| p.len() >= 3) {
-            let st = p[2];
-            s.charging = (1..=4).contains(&st);
-            s.full = st == 3;
-            s.percent = if p[0] <= 100 { p[0] as i32 } else { -1 };
-            if s.percent == 0 && st == 3 {
-                s.percent = 100;
-            }
-            return true;
+    if f != 0
+        && let Some(p) = h.call(idx, f, 0, &[]).filter(|p| p.len() >= 3)
+    {
+        let st = p[2];
+        s.charging = (1..=4).contains(&st);
+        s.full = st == 3;
+        s.percent = if p[0] <= 100 { p[0] as i32 } else { -1 };
+        if s.percent == 0 && st == 3 {
+            s.percent = 100;
         }
+        return true;
     }
     let f = h.feature_index(idx, 0x1001); // BATTERY_VOLTAGE
-    if f != 0 {
-        if let Some(p) = h.call(idx, f, 0, &[]).filter(|p| p.len() >= 3) {
-            s.millivolts = ((p[0] as i32) << 8) | p[1] as i32;
-            s.charging = p[2] & 0x80 != 0;
-            if s.millivolts != 0 {
-                s.percent = li_ion_percent(s.millivolts);
-            }
-            return true;
+    if f != 0
+        && let Some(p) = h.call(idx, f, 0, &[]).filter(|p| p.len() >= 3)
+    {
+        s.millivolts = ((p[0] as i32) << 8) | p[1] as i32;
+        s.charging = p[2] & 0x80 != 0;
+        if s.millivolts != 0 {
+            s.percent = li_ion_percent(s.millivolts);
         }
+        return true;
     }
     let f = h.feature_index(idx, 0x1F20); // ADC_MEASUREMENT (headsets)
-    if f != 0 {
-        if let Some(p) = h.call(idx, f, 0, &[]).filter(|p| p.len() >= 3) {
-            s.millivolts = ((p[0] as i32) << 8) | p[1] as i32;
-            s.charging = p[2] == 0x03;
-            if s.millivolts != 0 {
-                s.percent = headset_percent(pid, s.millivolts);
-            }
-            return true;
+    if f != 0
+        && let Some(p) = h.call(idx, f, 0, &[]).filter(|p| p.len() >= 3)
+    {
+        s.millivolts = ((p[0] as i32) << 8) | p[1] as i32;
+        s.charging = p[2] == 0x03;
+        if s.millivolts != 0 {
+            s.percent = headset_percent(pid, s.millivolts);
         }
+        return true;
     }
     false
 }
@@ -335,11 +330,7 @@ fn read_name_and_type20(h: &Hidpp, idx: u8, s: &mut DeviceStatus) {
             }
         }
         if !name.is_empty() {
-            s.name = if name.starts_with("Logitech") || name.starts_with("G ") || name.starts_with("MX") {
-                name
-            } else {
-                format!("Logitech {name}")
-            };
+            s.name = if name.starts_with("Logitech") || name.starts_with("G ") || name.starts_with("MX") { name } else { format!("Logitech {name}") };
         }
     }
     if let Some(p) = h.call(idx, f, 2, &[]).filter(|p| !p.is_empty()) {
@@ -363,28 +354,31 @@ fn read_unit_id20(h: &Hidpp, idx: u8) -> String {
 
 /// HID++ 1.0 devices: register 0x0D (battery %) or 0x07 (battery level 1..7).
 fn read_battery10(h: &Hidpp, idx: u8, s: &mut DeviceStatus) -> bool {
-    if let Reply::Ok(p) = h.request(idx, 0x81, 0x0D, &[], true, 500) {
-        if p.len() >= 3 && p[0] != 0 && p[0] <= 100 {
-            s.percent = p[0] as i32;
-            s.charging = (0x21..=0x26).contains(&p[2]);
-            return true;
-        }
+    if let Reply::Ok(p) = h.request(idx, 0x81, 0x0D, &[], true, 500)
+        && p.len() >= 3
+        && p[0] != 0
+        && p[0] <= 100
+    {
+        s.percent = p[0] as i32;
+        s.charging = (0x21..=0x26).contains(&p[2]);
+        return true;
     }
-    if let Reply::Ok(p) = h.request(idx, 0x81, 0x07, &[], true, 500) {
-        if p.len() >= 2 && p[0] != 0 {
-            const PCT: [i32; 8] = [0, 5, 10, 20, 35, 50, 75, 100];
-            let lvl = p[0].min(7);
-            s.percent = PCT[lvl as usize];
-            s.level_text = match lvl {
-                7 => "Full",
-                5 | 6 => "Good",
-                3 | 4 => "Low",
-                _ => "Critical",
-            }
-            .into();
-            s.charging = (0x21..=0x26).contains(&p[1]);
-            return true;
+    if let Reply::Ok(p) = h.request(idx, 0x81, 0x07, &[], true, 500)
+        && p.len() >= 2
+        && p[0] != 0
+    {
+        const PCT: [i32; 8] = [0, 5, 10, 20, 35, 50, 75, 100];
+        let lvl = p[0].min(7);
+        s.percent = PCT[lvl as usize];
+        s.level_text = match lvl {
+            7 => "Full",
+            5 | 6 => "Good",
+            3 | 4 => "Low",
+            _ => "Critical",
         }
+        .into();
+        s.charging = (0x21..=0x26).contains(&p[1]);
+        return true;
     }
     false
 }
@@ -427,12 +421,7 @@ fn poll_device(ctx: &mut PollContext, pid: u16, shorts: &[HidColl], longs: &[Hid
     };
     let ping = |idx: u8| ping_ms(idx, 400);
     crate::util::debug_log(|| {
-        format!(
-            "logitech {}: product '{product}', receiver {is_receiver}, bluetooth {bluetooth}, short {}, long {}",
-            hex4(pid),
-            shorts.len(),
-            longs.len()
-        )
+        format!("logitech {}: product '{product}', receiver {is_receiver}, bluetooth {bluetooth}, short {}, long {}", hex4(pid), shorts.len(), longs.len())
     });
     // A receiver that lists its paired devices: ping only those, give a sleeping device time to
     // answer, and skip those the receiver reports as not linked.
@@ -460,10 +449,10 @@ fn poll_device(ctx: &mut PollContext, pid: u16, shorts: &[HidColl], longs: &[Hid
         s.kind = if passthrough { DeviceKind::Mouse } else { guess_kind(&s.name) };
 
         let slot = slots.as_ref().and_then(|v| v.iter().find(|s| s.idx == idx).copied());
-        if let Some(sl) = slot {
-            if sl.kind != DeviceKind::Other {
-                s.kind = sl.kind;
-            }
+        if let Some(sl) = slot
+            && sl.kind != DeviceKind::Other
+        {
+            s.kind = sl.kind;
         }
         let mut found = false;
         let reply = match slot {
@@ -528,13 +517,11 @@ pub fn poll(ctx: &mut PollContext) {
         }
         let passthrough = is_passthrough_dongle(pid);
         let all_shorts = ctx.find(vid, pid, |c| {
-            c.out_len() == 7
-                && ((c.page() == 0xFF00 && c.usage() == 0x0001) || (passthrough && c.page() == 0xFF43 && c.usage() == 0x0301))
+            c.out_len() == 7 && ((c.page() == 0xFF00 && c.usage() == 0x0001) || (passthrough && c.page() == 0xFF43 && c.usage() == 0x0301))
         });
         let all_longs = ctx.find(vid, pid, |c| {
             c.out_len() == 20
-                && ((c.page() == 0xFF00 && c.usage() == 0x0002)
-                    || (c.page() == 0xFF43 && (c.usage() == 0x0202 || (passthrough && c.usage() == 0x0302))))
+                && ((c.page() == 0xFF00 && c.usage() == 0x0002) || (c.page() == 0xFF43 && (c.usage() == 0x0202 || (passthrough && c.usage() == 0x0302))))
         });
         let mut groups: Vec<String> = Vec::new();
         for c in all_shorts.iter().chain(all_longs.iter()) {

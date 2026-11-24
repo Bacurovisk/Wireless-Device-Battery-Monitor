@@ -7,24 +7,21 @@
 //!    unnumbered reports and the report ID for numbered ones.
 use std::ffi::c_void;
 
-use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
-    SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInterfaces, SetupDiGetClassDevsW,
-    SetupDiGetDeviceInterfaceDetailW, DIGCF_DEVICEINTERFACE, DIGCF_PRESENT, SP_DEVICE_INTERFACE_DATA,
-    SP_DEVICE_INTERFACE_DETAIL_DATA_W,
+    DIGCF_DEVICEINTERFACE, DIGCF_PRESENT, SP_DEVICE_INTERFACE_DATA, SP_DEVICE_INTERFACE_DETAIL_DATA_W, SetupDiDestroyDeviceInfoList,
+    SetupDiEnumDeviceInterfaces, SetupDiGetClassDevsW, SetupDiGetDeviceInterfaceDetailW,
 };
 use windows::Win32::Devices::HumanInterfaceDevice::{
-    HidD_FlushQueue, HidD_FreePreparsedData, HidD_GetAttributes, HidD_GetFeature, HidD_GetHidGuid,
-    HidD_GetInputReport, HidD_GetPreparsedData, HidD_GetProductString, HidD_SetFeature, HidD_SetOutputReport,
-    HidP_GetCaps, HIDD_ATTRIBUTES, HIDP_CAPS, PHIDP_PREPARSED_DATA,
+    HIDD_ATTRIBUTES, HIDP_CAPS, HidD_FlushQueue, HidD_FreePreparsedData, HidD_GetAttributes, HidD_GetFeature, HidD_GetHidGuid, HidD_GetInputReport,
+    HidD_GetPreparsedData, HidD_GetProductString, HidD_SetFeature, HidD_SetOutputReport, HidP_GetCaps, PHIDP_PREPARSED_DATA,
 };
-use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_IO_PENDING, GENERIC_READ, GENERIC_WRITE, HANDLE, WAIT_OBJECT_0};
+use windows::Win32::Foundation::{CloseHandle, ERROR_IO_PENDING, GENERIC_READ, GENERIC_WRITE, GetLastError, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, ReadFile, WriteFile, FILE_FLAGS_AND_ATTRIBUTES, FILE_FLAG_OVERLAPPED, FILE_SHARE_READ,
-    FILE_SHARE_WRITE, OPEN_EXISTING,
+    CreateFileW, FILE_FLAG_OVERLAPPED, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, ReadFile, WriteFile,
 };
+use windows::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
-use windows::Win32::System::IO::{CancelIo, GetOverlappedResult, OVERLAPPED};
+use windows::core::{HSTRING, PCWSTR};
 
 use crate::device::DeviceKind;
 
@@ -65,19 +62,7 @@ impl HidColl {
 
 fn open_raw(path: &str, access: u32, overlapped: bool) -> Option<HANDLE> {
     let flags = if overlapped { FILE_FLAG_OVERLAPPED } else { FILE_FLAGS_AND_ATTRIBUTES(0) };
-    unsafe {
-        CreateFileW(
-            &HSTRING::from(path),
-            access,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
-            None,
-            OPEN_EXISTING,
-            flags,
-            None,
-        )
-        .ok()
-        .filter(|h| !h.is_invalid())
-    }
+    unsafe { CreateFileW(&HSTRING::from(path), access, FILE_SHARE_READ | FILE_SHARE_WRITE, None, OPEN_EXISTING, flags, None).ok().filter(|h| !h.is_invalid()) }
 }
 
 /// Paths of all present HID interfaces (sorted). Cheap: SetupAPI only, no device is opened - used
@@ -211,15 +196,22 @@ impl HidDev {
         &self.c
     }
 
+    /// Waits for one overlapped operation. On timeout exactly this operation is cancelled
+    /// (CancelIoEx with its OVERLAPPED), and the wait for its completion that follows is required:
+    /// the buffer and the OVERLAPPED belong to the caller's stack frame, so the kernel must be done
+    /// with them before this returns. A cancelled operation ends with ERROR_OPERATION_ABORTED and
+    /// gives None; one that completed in the meantime still gives its data.
     fn wait_io(&self, ov: &mut OVERLAPPED, ev: &Event, timeout_ms: u32) -> Option<u32> {
         let mut n = 0u32;
         unsafe {
             if timeout_ms > 0 && WaitForSingleObject(ev.0, timeout_ms) == WAIT_OBJECT_0 {
-                GetOverlappedResult(self.h, ov, &mut n, false).ok().map(|_| n)
-            } else {
-                let _ = CancelIo(self.h);
-                // It may have completed meanwhile.
-                GetOverlappedResult(self.h, ov, &mut n, true).ok().map(|_| n)
+                return GetOverlappedResult(self.h, ov, &mut n, false).ok().map(|_| n);
+            }
+            let _ = CancelIoEx(self.h, Some(ov as *const OVERLAPPED));
+            match GetOverlappedResult(self.h, ov, &mut n, true) {
+                Ok(()) => Some(n),
+                Err(e) if e.code() == windows::Win32::Foundation::ERROR_OPERATION_ABORTED.to_hresult() => None,
+                Err(_) => None,
             }
         }
     }

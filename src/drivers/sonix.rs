@@ -15,7 +15,7 @@
 //! keyboards on 05AC:024F (no FF60 collection on interface 3) are not touched.
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{self, HidColl, HidDev};
-use crate::util::{hex4, Deadline};
+use crate::util::{Deadline, hex4};
 
 const DONGLES: [(u16, u16); 3] = [(0x05AC, 0x024F), (0x0C45, 0xFEFE), (0x0C45, 0xFDFD)];
 const IFACE: i32 = 3;
@@ -59,11 +59,7 @@ fn read(c: &HidColl) -> Option<u8> {
 fn name(c: &HidColl) -> String {
     let n = hid::product_string(c);
     let n = n.trim().trim_end_matches(" 2.4G").trim();
-    if n.is_empty() || n.eq_ignore_ascii_case("usb dongle") || n.to_ascii_lowercase().ends_with("dongle") {
-        "Wireless keyboard".into()
-    } else {
-        n.to_string()
-    }
+    if n.is_empty() || n.eq_ignore_ascii_case("usb dongle") || n.to_ascii_lowercase().ends_with("dongle") { "Wireless keyboard".into() } else { n.to_string() }
 }
 
 pub fn poll(ctx: &mut PollContext) {

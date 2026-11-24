@@ -1,16 +1,16 @@
 //! SetupAPI helpers for device-node properties (used by the Bluetooth fallback and AirPods).
-use windows::core::{GUID, HSTRING, PCWSTR};
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
-    SetupDiCreateDeviceInfoList, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW,
-    SetupDiGetDeviceInstanceIdW, SetupDiGetDeviceInterfaceDetailW, SetupDiGetDevicePropertyW,
-    SetupDiOpenDeviceInterfaceW, DIGCF_ALLCLASSES, DIGCF_PRESENT, HDEVINFO, SP_DEVICE_INTERFACE_DATA, SP_DEVINFO_DATA,
+    DIGCF_ALLCLASSES, DIGCF_PRESENT, HDEVINFO, SP_DEVICE_INTERFACE_DATA, SP_DEVINFO_DATA, SetupDiCreateDeviceInfoList, SetupDiDestroyDeviceInfoList,
+    SetupDiEnumDeviceInfo, SetupDiGetClassDevsW, SetupDiGetDeviceInstanceIdW, SetupDiGetDeviceInterfaceDetailW, SetupDiGetDevicePropertyW,
+    SetupDiOpenDeviceInterfaceW,
 };
 use windows::Win32::Devices::Properties::{
-    DEVPKEY_Device_ContainerId, DEVPROPTYPE, DEVPROP_TYPE_BOOLEAN, DEVPROP_TYPE_BYTE, DEVPROP_TYPE_GUID,
-    DEVPROP_TYPE_STRING, DEVPROP_TYPE_STRING_LIST, DEVPROP_TYPE_UINT32,
+    DEVPKEY_Device_ContainerId, DEVPROP_TYPE_BOOLEAN, DEVPROP_TYPE_BYTE, DEVPROP_TYPE_GUID, DEVPROP_TYPE_STRING, DEVPROP_TYPE_STRING_LIST, DEVPROP_TYPE_UINT32,
+    DEVPROPTYPE,
 };
 use windows::Win32::Foundation::DEVPROPKEY;
 use windows::Win32::System::Com::StringFromGUID2;
+use windows::core::{GUID, HSTRING, PCWSTR};
 
 use crate::util::from_wide;
 
@@ -75,9 +75,7 @@ impl Drop for DevSet {
 impl DevNode<'_> {
     fn raw(&self, key: &DEVPROPKEY, buf: &mut [u8]) -> Option<DEVPROPTYPE> {
         let mut t = DEVPROPTYPE::default();
-        unsafe { SetupDiGetDevicePropertyW(self.set.0, &self.data, key, &mut t, Some(buf), None, 0) }
-            .ok()
-            .map(|_| t)
+        unsafe { SetupDiGetDevicePropertyW(self.set.0, &self.data, key, &mut t, Some(buf), None, 0) }.ok().map(|_| t)
     }
 
     pub fn string(&self, key: &DEVPROPKEY) -> Option<String> {
@@ -86,7 +84,7 @@ impl DevNode<'_> {
         if t != DEVPROP_TYPE_STRING && t != DEVPROP_TYPE_STRING_LIST {
             return None;
         }
-        let w: Vec<u16> = buf.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let w: Vec<u16> = buf.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
         Some(from_wide(&w)).filter(|s| !s.is_empty())
     }
 
@@ -128,10 +126,10 @@ pub fn forget_containers() {
 
 /// Container id of the physical device a device interface (e.g. a HID path) belongs to (cached).
 pub fn container_of_interface(path: &str) -> Option<String> {
-    if let Ok(c) = CONTAINERS.lock() {
-        if let Some(hit) = c.as_ref().and_then(|m| m.get(path)) {
-            return hit.clone();
-        }
+    if let Ok(c) = CONTAINERS.lock()
+        && let Some(hit) = c.as_ref().and_then(|m| m.get(path))
+    {
+        return hit.clone();
     }
     let found = lookup_container(path);
     if let Ok(mut c) = CONTAINERS.lock() {

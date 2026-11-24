@@ -13,7 +13,7 @@
 //! A voltage below the lowest calibration point is not a valid reading. Read-only.
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{HidColl, HidDev};
-use crate::util::{interpolate, Deadline};
+use crate::util::{Deadline, interpolate};
 
 const VID: u16 = 0x046D;
 pub const PID: u16 = 0x0A66;

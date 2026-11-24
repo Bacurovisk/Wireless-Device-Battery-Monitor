@@ -16,7 +16,7 @@
 //! No link or no reply: the mouse sleeps or is off and is left out (the app keeps its last level).
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{HidColl, HidDev};
-use crate::util::{hex4, Deadline};
+use crate::util::{Deadline, hex4};
 
 const VID: u16 = 0x248A;
 /// (receiver pid, mouse pid, name)
@@ -38,8 +38,7 @@ pub fn bond_linked(r: &[u8], mouse: u16) -> bool {
 
 /// The level from an identity reply (report id included) of `mouse`.
 pub fn identity_level(r: &[u8], mouse: u16) -> Option<i32> {
-    (r.len() >= 12 && r[0] == FEATURE && r[1] == OP_IDENTITY && r[2] == 1 && id(r, 4) == VID && id(r, 6) == mouse && r[11] <= 100)
-        .then(|| r[11] as i32)
+    (r.len() >= 12 && r[0] == FEATURE && r[1] == OP_IDENTITY && r[2] == 1 && id(r, 4) == VID && id(r, 6) == mouse && r[11] <= 100).then(|| r[11] as i32)
 }
 
 /// Input report 54 E4 02: the receiver has no link to the mouse.

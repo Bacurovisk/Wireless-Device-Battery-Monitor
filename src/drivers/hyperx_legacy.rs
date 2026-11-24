@@ -18,19 +18,25 @@
 //!     battery     reply [9] = 03 discharging / 05 charging / 06 full, [11..12] = mV (little endian)
 //!   The PlayStation receivers can hand back a previous report; their battery reply starts FF 12 05,
 //!   so there it is read again (up to 10 x 20 ms) until it does.
+//! * Cloud Alpha Wireless (03F0:098D), from HeadsetControl (lib/devices/hyperx_cloud_alpha_wireless.hpp).
+//!   Report 21 on the 31-byte FF43:0202 collection: `21 BB CC`, reply `21 .. CC VV`:
+//!     03 = link (VV 01: headset not connected), 0C = charging (VV 01), 0B = level (VV %)
 //!
 //! Read-only: only these queries are sent. A dongle whose headset does not answer is shown off.
+#![allow(clippy::doc_overindented_list_items)]
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{HidColl, HidDev};
-use crate::util::{hex4, interpolate, sleep_ms, Deadline};
+use crate::util::{Deadline, hex4, interpolate, sleep_ms};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Proto {
     Flight,
     Stinger { ps: bool },
+    Alpha,
 }
 
-const MODELS: [(u16, u16, &str, Proto); 6] = [
+const MODELS: [(u16, u16, &str, Proto); 7] = [
+    (0x03F0, 0x098D, "HyperX Cloud Alpha Wireless", Proto::Alpha),
     (0x0951, 0x16C4, "HyperX Cloud Flight", Proto::Flight),
     (0x0951, 0x1723, "HyperX Cloud Flight", Proto::Flight),
     (0x0951, 0x170B, "HyperX Cloud Stinger Core Wireless", Proto::Stinger { ps: false }),
@@ -102,8 +108,7 @@ fn flight(c: &HidColl) -> Option<Reading> {
 
 // ---- Cloud Stinger Core ------------------------------------------------------------------------
 
-const STINGER_CONNECTION: [u8; 20] =
-    [0xFF, 0x07, 0x00, 0xFD, 0x04, 0x00, 0x00, 0x02, 0x82, 0x03, 0x05, 0x29, 0x0F, 0x00, 0x00, 0x03, 0x68, 0x10, 0x00, 0x00];
+const STINGER_CONNECTION: [u8; 20] = [0xFF, 0x07, 0x00, 0xFD, 0x04, 0x00, 0x00, 0x02, 0x82, 0x03, 0x05, 0x29, 0x0F, 0x00, 0x00, 0x03, 0x68, 0x10, 0x00, 0x00];
 const STINGER_BATTERY: [u8; 12] = [0xFF, 0x07, 0x00, 0xFD, 0x04, 0x0C, 0xF1, 0x02, 0x01, 0x04, 0xF0, 0x0C];
 const STINGER_PCT: [i32; 11] = [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0];
 const STINGER_CHARGING_MV: [i32; 11] = [4130, 4090, 4050, 4000, 3967, 3946, 3930, 3916, 3871, 3831, 3400];
@@ -160,10 +165,51 @@ fn stinger(c: &HidColl, ps: bool) -> Option<Reading> {
     Some(exchange(&STINGER_BATTERY, &ok).and_then(|r| stinger_battery(&r)).unwrap_or(Reading { on: true, ..Default::default() }))
 }
 
+// ---- Cloud Alpha Wireless ----------------------------------------------------------------------
+
+const ALPHA_LINK: u8 = 0x03;
+const ALPHA_LEVEL: u8 = 0x0B;
+const ALPHA_CHARGING: u8 = 0x0C;
+
+pub fn alpha_request(cmd: u8) -> [u8; 3] {
+    [0x21, 0xBB, cmd]
+}
+
+/// Value byte of the reply to `cmd` (report id included).
+pub fn alpha_parse(r: &[u8], cmd: u8) -> Option<u8> {
+    (r.len() >= 4 && r[0] == 0x21 && r[2] == cmd).then(|| r[3])
+}
+
+fn alpha_query(d: &HidDev, cmd: u8) -> Option<u8> {
+    d.flush();
+    if !d.write(&alpha_request(cmd)) {
+        return None;
+    }
+    let end = Deadline::in_ms(1000);
+    while !end.passed() {
+        if let Some(v) = d.read(end.left_ms()).and_then(|r| alpha_parse(&r, cmd)) {
+            return Some(v);
+        }
+    }
+    None
+}
+
+fn alpha(c: &HidColl) -> Option<Reading> {
+    let d = HidDev::open(c)?;
+    if alpha_query(&d, ALPHA_LINK)? == 0x01 {
+        return Some(Reading::default()); // headset not connected
+    }
+    let mut out = Reading { on: true, ..Default::default() };
+    out.charging = alpha_query(&d, ALPHA_CHARGING) == Some(0x01);
+    out.percent = alpha_query(&d, ALPHA_LEVEL).filter(|l| *l <= 100).map(|l| l as i32);
+    Some(out)
+}
+
 // ---- Polling -----------------------------------------------------------------------------------
 
 fn collections(ctx: &PollContext, vid: u16, pid: u16, proto: Proto) -> Vec<HidColl> {
     match proto {
+        Proto::Alpha => ctx.find(vid, pid, |c| c.page() == 0xFF43 && c.usage() == 0x0202 && c.out_len() >= 4 && c.in_len() >= 4),
         Proto::Flight => ctx.find(vid, pid, |c| c.page() == 0xFF90 && c.usage() == 0x0303 && c.out_len() == 20 && c.in_len() >= 5),
         Proto::Stinger { .. } => ctx.find(vid, pid, |c| c.page() == 0xFF00 && c.usage() == 0x0001 && c.feat_len() >= 32),
     }
@@ -178,6 +224,7 @@ pub fn poll(ctx: &mut PollContext) {
         let found = colls.iter().find_map(|c| match proto {
             Proto::Flight => flight(c),
             Proto::Stinger { ps } => stinger(c, ps),
+            Proto::Alpha => alpha(c),
         });
         let Some(r) = found else { continue };
         let base = DeviceStatus {
@@ -242,5 +289,15 @@ mod tests {
         assert_eq!(stinger_battery(&r).map(|b| (b.percent, b.charging)), Some((Some(70), true)));
         r[9] = 0x01;
         assert_eq!(stinger_battery(&r), None);
+    }
+
+    #[test]
+    fn alpha_frames() {
+        assert_eq!(alpha_request(ALPHA_LEVEL), [0x21, 0xBB, 0x0B]);
+        assert_eq!(alpha_parse(&pad(&[0x21, 0xBB, 0x0B, 77], 31), ALPHA_LEVEL), Some(77));
+        assert_eq!(alpha_parse(&pad(&[0x21, 0xBB, 0x03, 0x01], 31), ALPHA_LINK), Some(0x01));
+        assert_eq!(alpha_parse(&pad(&[0x21, 0xBB, 0x0C, 0x01], 31), ALPHA_LEVEL), None); // another command
+        assert_eq!(alpha_parse(&pad(&[0x22, 0xBB, 0x0B, 77], 31), ALPHA_LEVEL), None);
+        assert_eq!(alpha_parse(&[0x21, 0xBB, 0x0B], ALPHA_LEVEL), None);
     }
 }

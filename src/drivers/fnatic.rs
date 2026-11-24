@@ -54,11 +54,7 @@ fn cache() -> &'static Mutex<BatteryCache> {
 
 /// Input report payload after HidDev strips a possible zero report ID.
 pub fn decode(payload: &[u8]) -> Option<i32> {
-    if payload.len() == 64 && payload[0] == BATTERY_COMMAND && payload[1] <= 100 {
-        Some(payload[1] as i32)
-    } else {
-        None
-    }
+    if payload.len() == 64 && payload[0] == BATTERY_COMMAND && payload[1] <= 100 { Some(payload[1] as i32) } else { None }
 }
 
 fn query(d: &HidDev) -> Option<i32> {
@@ -81,10 +77,7 @@ fn query(d: &HidDev) -> Option<i32> {
 
 fn read_wireless(ctx: &PollContext) -> Option<i32> {
     // Interface 1: vendor-defined HID collection, 65 byte input/output.
-    let colls = ctx.find(VID, RECEIVER, |c| {
-        c.iface == 1 && c.page() == 0x00FF && c.usage() == 0x0001
-            && c.in_len() == 65 && c.out_len() == 65
-    });
+    let colls = ctx.find(VID, RECEIVER, |c| c.iface == 1 && c.page() == 0x00FF && c.usage() == 0x0001 && c.in_len() == 65 && c.out_len() == 65);
     colls.iter().find_map(|c| HidDev::open(c).and_then(|d| query(&d)))
 }
 
@@ -94,15 +87,13 @@ pub fn poll(ctx: &mut PollContext) {
     if !cable_present && !dongle_present {
         return;
     }
-    if (cable_present && ctx.is_claimed(VID, CABLE))
-        || (dongle_present && ctx.is_claimed(VID, RECEIVER)) {
+    if (cable_present && ctx.is_claimed(VID, CABLE)) || (dongle_present && ctx.is_claimed(VID, RECEIVER)) {
         return;
     }
 
     // The 0204 cable may report 100% incorrectly indefinitely. Do not query it.
     let wireless = if dongle_present { read_wireless(ctx) } else { None };
-    let (percent, cached) = cache().lock().unwrap_or_else(|e| e.into_inner())
-        .select(wireless, Instant::now());
+    let (percent, cached) = cache().lock().unwrap_or_else(|e| e.into_inner()).select(wireless, Instant::now());
 
     let selected_pid = if cable_present { CABLE } else { RECEIVER };
     let mut status = DeviceStatus {
@@ -114,7 +105,9 @@ pub fn poll(ctx: &mut PollContext) {
         grace_sec: 60,
         ..Default::default()
     };
-    if let Some(p) = percent { status.percent = p; }
+    if let Some(p) = percent {
+        status.percent = p;
+    }
     // USB presence is known; the charge flag itself is not known.
     status.charging = cable_present && percent != Some(100);
     if cable_present {
@@ -133,8 +126,12 @@ pub fn poll(ctx: &mut PollContext) {
         status.connected = false;
     }
     ctx.add(status, VID, selected_pid);
-    if cable_present { ctx.claim(VID, CABLE); }
-    if dongle_present { ctx.claim(VID, RECEIVER); }
+    if cable_present {
+        ctx.claim(VID, CABLE);
+    }
+    if dongle_present {
+        ctx.claim(VID, RECEIVER);
+    }
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-# BatteryHub v1.5 (Rust)
+# BatteryHub v1.6 (Rust)
 
 An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor). All credit for the original idea, look and device protocols goes to the original project.
 
@@ -6,10 +6,21 @@ An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of 
 
 | File | |
 |---|---|
-| `BatteryHub-Taskbar-Setup-v1.5.exe` | Setup: Install / Update / Uninstall |
+| `BatteryHub-Taskbar-Setup-v1.6.exe` | Setup: Install / Update / Uninstall |
 | `SHA256SUMS.txt` | Checksum |
 
-Already installed? Use *Check for updates...* in the right-click menu (v1.1 and later), or run the new setup and choose **[2] Update**. Your settings and autostart choice are kept.
+Already installed? Use *Check for updates...* in the right-click menu (v1.1 and later), or run the new setup and click **Update**. Your settings and autostart choice are kept.
+
+## New in v1.6
+
+- **New devices:** Logitech G PRO X 2 LIGHTSPEED (#112) and G321 (#107), Razer Nari (#110), Corsair Virtuoso XT (#118) and HS80 MAX (#121), HyperX Cloud Alpha Wireless (#116), ASUS ROG Pelta (#133), ATK N9 Pro / N9 Ultra (#115, #129), ATK Mercury I (#134), ATK F1 V2 8K dongle (#130), MCHOSE K99 V3 / G75 V2 keyboards (#123, #126), Endgame Gear XM2w / OP1w 4k (#128), Redragon 2.4G receivers (#109, and SinoWealth from NeroHole in #111).
+- **New setup** in a Windows 11 style window: install, update, reinstall, go back to any older release, and uninstall from Settings > Apps, keeping your settings and history unless you choose otherwise.
+- **Device dashboard** (right-click a device): 7-day chart with charging marked, charge and discharge sessions, battery life and time left.
+- **Battery history kept 7 days** and across restarts; nothing is made up where BatteryHub wasn't running.
+- **Rename devices** and get a **notification at 5%**; device menu with icons.
+- **Left or right taskbar** works (#127).
+- **Hover card about 10x lighter** on the CPU when moving between devices.
+- **Safer updates:** a release is installed only with a matching SHA-256 checksum.
 
 ## New in v1.5
 

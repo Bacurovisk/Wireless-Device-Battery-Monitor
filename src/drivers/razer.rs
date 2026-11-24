@@ -3,7 +3,7 @@
 //!   [6] command class  [7] command id  [8..87] arguments  [88] crc (xor of 2..87)  [89] reserved
 //! Battery: class 07 id 80 -> args[1] = 0..255. Charging: class 07 id 84 -> args[1] = 1.
 //! Reference: OpenRazer.
-use crate::device::{DeviceKind, PollContext, DeviceStatus};
+use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{self, HidColl, HidDev};
 use crate::util::{clamp100, guess_kind, hex4, sleep_ms};
 
@@ -42,7 +42,13 @@ fn command(d: &HidDev, tid: u8, cls: u8, id: u8, size: u8) -> (Rz, Vec<u8>) {
         if send && !d.set_feature(&rep) {
             return (Rz::NoReply, vec![]);
         }
-        sleep_ms(if kb { 5 } else if attempt == 0 { 15 } else { 40 });
+        sleep_ms(if kb {
+            5
+        } else if attempt == 0 {
+            15
+        } else {
+            40
+        });
         send = true;
         res = Rz::NoReply;
         let Some(resp) = d.get_feature(0).filter(|r| r.len() >= 91) else { continue };
@@ -68,11 +74,7 @@ fn clean_name(mut n: String) -> String {
             n.truncate(n.len() - suf.len());
         }
     }
-    if n.is_empty() {
-        "Razer device".into()
-    } else {
-        n
-    }
+    if n.is_empty() { "Razer device".into() } else { n }
 }
 
 fn kind(colls: &[HidColl], vid: u16, pid: u16, name: &str) -> DeviceKind {

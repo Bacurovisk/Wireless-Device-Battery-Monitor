@@ -13,7 +13,7 @@
 //! read properties are asked for. No reply means the headset is off or out of range.
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{HidColl, HidDev};
-use crate::util::{hex4, Deadline};
+use crate::util::{Deadline, hex4};
 
 const VID: u16 = 0x1532;
 const PID: u16 = 0x0574;

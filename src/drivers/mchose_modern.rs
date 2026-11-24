@@ -18,7 +18,7 @@
 //! Only this read is sent; nothing is written to the mouse.
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{self, HidColl, HidDev};
-use crate::util::{hex4, sleep_ms, Deadline};
+use crate::util::{Deadline, hex4, sleep_ms};
 
 const VID: u16 = 0x3837;
 const RECEIVERS: [u16; 5] = [0x1014, 0x1018, 0x1016, 0x102C, 0x102D];

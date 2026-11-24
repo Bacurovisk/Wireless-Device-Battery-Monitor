@@ -37,18 +37,11 @@ fn adverts() -> &'static Mutex<HashMap<u64, Advert>> {
 }
 
 fn level(n: u8) -> i32 {
-    if n <= 10 {
-        n as i32 * 10
-    } else {
-        -1
-    }
+    if n <= 10 { n as i32 * 10 } else { -1 }
 }
 
 fn is_single_battery_model(m: u16) -> bool {
-    matches!(
-        m,
-        0x200A | 0x201F | 0x202D | 0x2003 | 0x2005 | 0x2006 | 0x2009 | 0x200C | 0x200D | 0x2010 | 0x2017 | 0x2025
-    )
+    matches!(m, 0x200A | 0x201F | 0x202D | 0x2003 | 0x2005 | 0x2006 | 0x2009 | 0x200C | 0x200D | 0x2010 | 0x2017 | 0x2025)
 }
 
 fn parse_proximity(d: &[u8]) -> Option<Advert> {
@@ -62,18 +55,7 @@ fn parse_proximity(d: &[u8]) -> Option<Advert> {
     let single = is_single_battery_model(model);
     let left_broadcasts = d[5] & 0x20 != 0;
     let (cur, other, chg) = (d[6] & 0x0F, d[6] >> 4, d[7] >> 4);
-    let mut a = Advert {
-        model,
-        single,
-        left: -1,
-        right: -1,
-        case: -1,
-        left_chg: false,
-        right_chg: false,
-        case_chg: false,
-        rssi: -127,
-        at: Instant::now(),
-    };
+    let mut a = Advert { model, single, left: -1, right: -1, case: -1, left_chg: false, right_chg: false, case_chg: false, rssi: -127, at: Instant::now() };
     if single {
         let (mut pct, mut charging) = (level(cur), chg & 0x01 != 0);
         if cur == 0 && (1..=10).contains(&other) {
@@ -104,10 +86,10 @@ fn parse(buf: &[u8]) -> Option<Advert> {
         if i + 2 + len > buf.len() {
             break;
         }
-        if ty == 0x07 {
-            if let Some(a) = parse_proximity(&buf[i..i + 2 + len]) {
-                return Some(a);
-            }
+        if ty == 0x07
+            && let Some(a) = parse_proximity(&buf[i..i + 2 + len])
+        {
+            return Some(a);
         }
         i += 2 + len;
     }
@@ -119,8 +101,8 @@ pub fn on_advert(addr: u64, rssi: i32, data: &[u8]) {
     let Some(mut a) = parse(data) else { return };
     a.rssi = rssi;
     if let Ok(mut m) = adverts().lock() {
-        m.insert(addr, a);
-        m.retain(|_, v| v.at.elapsed().as_secs() < 600); // addresses rotate: drop old ones
+        // Addresses rotate: old ones are dropped, and the map never grows past a fixed size.
+        crate::ble::insert_bounded(&mut m, addr, a, |v| v.at, 600, crate::ble::MAX_ADDRESSES);
     }
 }
 
@@ -184,9 +166,7 @@ fn pick(dev: &AppleDevice) -> Option<Advert> {
         }
         let better = match &best {
             None => true,
-            Some(b) => {
-                (fresh(a) && !fresh(b)) || (fresh(a) && fresh(b) && a.rssi > b.rssi) || (!fresh(a) && !fresh(b) && a.at > b.at)
-            }
+            Some(b) => (fresh(a) && !fresh(b)) || (fresh(a) && fresh(b) && a.rssi > b.rssi) || (!fresh(a) && !fresh(b) && a.at > b.at),
         };
         if better {
             best = Some(*a);
@@ -217,11 +197,7 @@ fn pick(dev: &AppleDevice) -> Option<Advert> {
 }
 
 fn pct(v: i32) -> String {
-    if v < 0 {
-        "?".into()
-    } else {
-        format!("{v}%")
-    }
+    if v < 0 { "?".into() } else { format!("{v}%") }
 }
 
 pub fn poll(ctx: &mut PollContext) {
@@ -283,15 +259,7 @@ pub fn poll(ctx: &mut PollContext) {
                 s.charging = a.case_chg;
             }
             let z = |c: bool| if c { "⚡" } else { "" };
-            s.detail = format!(
-                "L {}{}  R {}{}  case {}{}",
-                pct(a.left),
-                z(a.left_chg),
-                pct(a.right),
-                z(a.right_chg),
-                pct(a.case),
-                z(a.case_chg)
-            );
+            s.detail = format!("L {}{}  R {}{}  case {}{}", pct(a.left), z(a.left_chg), pct(a.right), z(a.right_chg), pct(a.case), z(a.case_chg));
         }
         ctx.out.push(s);
     }

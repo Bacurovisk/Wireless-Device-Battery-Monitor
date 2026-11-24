@@ -3,10 +3,10 @@
 //! Fast Pair earbuds get their left / right / case split from BLE broadcasts.
 use std::collections::{BTreeMap, BTreeSet};
 
-use windows::Win32::Devices::DeviceAndDriverInstallation::{CM_Get_DevNode_Status, CM_DEVNODE_STATUS_FLAGS, CM_PROB, CR_SUCCESS, DN_HAS_PROBLEM};
-use windows::Win32::Devices::Properties::{DEVPKEY_DeviceContainer_Category, DEVPKEY_Device_DeviceDesc, DEVPKEY_Device_FriendlyName};
+use windows::Win32::Devices::DeviceAndDriverInstallation::{CM_DEVNODE_STATUS_FLAGS, CM_Get_DevNode_Status, CM_PROB, CR_SUCCESS, DN_HAS_PROBLEM};
+use windows::Win32::Devices::Properties::{DEVPKEY_Device_DeviceDesc, DEVPKEY_Device_FriendlyName, DEVPKEY_DeviceContainer_Category};
 
-use super::sdi::{container_of_interface, DevSet, BT_BATTERY, CLASS_OF_DEVICE, IS_CONNECTED};
+use super::sdi::{BT_BATTERY, CLASS_OF_DEVICE, DevSet, IS_CONNECTED, container_of_interface};
 use crate::ble;
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid;
@@ -58,9 +58,7 @@ fn strip_service_suffix(n: String) -> String {
 
 /// Vendor drivers (AirPods, ...) also say "Bluetooth"; dedupe them by name, our own entries by key.
 fn is_duplicate(candidate: &DeviceStatus, existing: &[DeviceStatus]) -> bool {
-    existing
-        .iter()
-        .any(|o| o.key == candidate.key || (!o.key.starts_with("bt:") && o.name == candidate.name))
+    existing.iter().any(|o| o.key == candidate.key || (!o.key.starts_with("bt:") && o.name == candidate.name))
 }
 
 fn apply_fast_pair(s: &mut DeviceStatus, b: &ble::FastPairBattery) {
@@ -131,10 +129,7 @@ pub fn poll(ctx: &mut PollContext) {
             continue;
         }
         let cid = n.container().unwrap_or_else(|| inst.clone());
-        let name = n
-            .string(&DEVPKEY_Device_FriendlyName)
-            .or_else(|| n.string(&DEVPKEY_Device_DeviceDesc))
-            .unwrap_or_default();
+        let name = n.string(&DEVPKEY_Device_FriendlyName).or_else(|| n.string(&DEVPKEY_Device_DeviceDesc)).unwrap_or_default();
         if inst.starts_with("BTHENUM\\DEV_") || inst.starts_with("BTHLE\\DEV_") {
             container_name.insert(cid.clone(), name.clone());
             if let Some(a) = bt_address(inst) {
@@ -160,10 +155,11 @@ pub fn poll(ctx: &mut PollContext) {
         if pct > 100 {
             continue;
         }
-        if let Some(prev) = battery.get(&cid) {
-            if prev.connected && !conn {
-                continue; // prefer a live node
-            }
+        if let Some(prev) = battery.get(&cid)
+            && prev.connected
+            && !conn
+        {
+            continue; // prefer a live node
         }
         battery.insert(cid, Found { pct, name: strip_service_suffix(name), connected: conn });
     }
@@ -200,10 +196,10 @@ pub fn poll(ctx: &mut PollContext) {
         s.via = "Bluetooth".into();
         s.percent = f.pct as i32;
         s.kind = container_cod.get(cid).map(|&c| kind_from_class_of_device(c)).unwrap_or_default();
-        if s.kind == DeviceKind::Other {
-            if let Some(cat) = container_cat.get(cid) {
-                s.kind = kind_from_category(cat);
-            }
+        if s.kind == DeviceKind::Other
+            && let Some(cat) = container_cat.get(cid)
+        {
+            s.kind = kind_from_category(cat);
         }
         if let Some(&(vid, pid)) = hid_ids.get(cid) {
             s.vid = vid;
@@ -214,27 +210,27 @@ pub fn poll(ctx: &mut PollContext) {
         if s.kind == DeviceKind::Other {
             s.kind = guess_kind(&s.name);
         }
-        if s.kind == DeviceKind::Headset {
-            if let Some(&addr) = container_addr.get(cid) {
-                let mut just_started = false;
-                if !watching {
-                    watching = true;
-                    just_started = ble::ensure_watcher();
-                }
-                let mut got = ble::fast_pair_lookup(addr);
-                if got.is_none() && just_started && !waited {
-                    for _ in 0..15 {
-                        sleep_ms(200);
-                        got = ble::fast_pair_lookup(addr);
-                        if got.is_some() {
-                            break;
-                        }
+        if s.kind == DeviceKind::Headset
+            && let Some(&addr) = container_addr.get(cid)
+        {
+            let mut just_started = false;
+            if !watching {
+                watching = true;
+                just_started = ble::ensure_watcher();
+            }
+            let mut got = ble::fast_pair_lookup(addr);
+            if got.is_none() && just_started && !waited {
+                for _ in 0..15 {
+                    sleep_ms(200);
+                    got = ble::fast_pair_lookup(addr);
+                    if got.is_some() {
+                        break;
                     }
                 }
-                waited |= just_started;
-                if let Some(b) = got {
-                    apply_fast_pair(&mut s, &b);
-                }
+            }
+            waited |= just_started;
+            if let Some(b) = got {
+                apply_fast_pair(&mut s, &b);
             }
         }
         ctx.out.push(s);

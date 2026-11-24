@@ -2,7 +2,7 @@
 //! Headset protocols follow HeadsetControl, mouse protocols rivalcfg (see the original steelseries.cpp).
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{HidColl, HidDev};
-use crate::util::{clamp100, hex4, map_to_100, Deadline};
+use crate::util::{Deadline, clamp100, hex4, map_to_100};
 
 fn write_read(d: &HidDev, req: &[u8], timeout_ms: u32) -> Option<Vec<u8>> {
     d.flush();
@@ -72,10 +72,10 @@ fn arctis_pro_wireless(d: &HidDev, pid: u16) -> Option<DeviceStatus> {
     let r = arctis_pro_cmd(d, 0x41)?;
     let mut s = headset(pid, "SteelSeries Arctis Pro Wireless");
     s.connected = r[0] != 0x02;
-    if s.connected {
-        if let Some(r) = arctis_pro_cmd(d, 0x40).filter(|r| r[0] <= 4) {
-            s.percent = map_to_100(r[0] as i32, 0, 4);
-        }
+    if s.connected
+        && let Some(r) = arctis_pro_cmd(d, 0x40).filter(|r| r[0] <= 4)
+    {
+        s.percent = map_to_100(r[0] as i32, 0, 4);
     }
     Some(s)
 }
@@ -299,8 +299,8 @@ fn models() -> Vec<(Vec<u16>, AcceptFn, PollFn)> {
         (vec![0x12E0, 0x225D], iface4, nova_pro_wireless),
         (
             vec![
-                0x220E, 0x2212, 0x2216, 0x2236, 0x2269, 0x226D, 0x2232, 0x2253, 0x230A, 0x2202, 0x22A1, 0x227E, 0x2206,
-                0x2258, 0x229E, 0x22AD, 0x223A, 0x22A9, 0x227A, 0x22A4, 0x22A5, 0x220A, 0x22A7,
+                0x220E, 0x2212, 0x2216, 0x2236, 0x2269, 0x226D, 0x2232, 0x2253, 0x230A, 0x2202, 0x22A1, 0x227E, 0x2206, 0x2258, 0x229E, 0x22AD, 0x223A, 0x22A9,
+                0x227A, 0x22A4, 0x22A5, 0x220A, 0x22A7,
             ],
             page_ffc0,
             nova_family,

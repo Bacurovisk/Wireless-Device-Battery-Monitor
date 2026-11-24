@@ -185,21 +185,12 @@ impl PollContext {
     }
     /// Distinct (vid, pid) pairs of one vendor that are not claimed yet.
     pub fn products(&self, vid: u16) -> Vec<(u16, u16)> {
-        let set: BTreeSet<(u16, u16)> = self
-            .colls
-            .iter()
-            .filter(|c| c.vid == vid && !self.is_claimed(c.vid, c.pid))
-            .map(|c| (c.vid, c.pid))
-            .collect();
+        let set: BTreeSet<(u16, u16)> = self.colls.iter().filter(|c| c.vid == vid && !self.is_claimed(c.vid, c.pid)).map(|c| (c.vid, c.pid)).collect();
         set.into_iter().collect()
     }
     /// Collections of one product matching `pred` (cloned so drivers can mutate the context).
     pub fn find(&self, vid: u16, pid: u16, pred: impl Fn(&HidColl) -> bool) -> Vec<HidColl> {
-        self.colls
-            .iter()
-            .filter(|c| c.vid == vid && c.pid == pid && pred(c))
-            .cloned()
-            .collect()
+        self.colls.iter().filter(|c| c.vid == vid && c.pid == pid && pred(c)).cloned().collect()
     }
 }
 
@@ -240,10 +231,12 @@ const NEVER_TOUCH: [(u16, u16); 2] = [(0x046D, 0x0ACB), (0x046D, 0x0ADF)];
 fn hid_collections(rescan: bool) -> Vec<HidColl> {
     let mut cache = HID_CACHE.lock().unwrap_or_else(|e| e.into_inner());
     let paths = hid::interface_paths();
-    if let Some(c) = cache.as_ref() {
-        if !rescan && c.at.elapsed() < RESCAN_AFTER && c.paths == paths {
-            return c.colls.clone();
-        }
+    if let Some(c) = cache.as_ref()
+        && !rescan
+        && c.at.elapsed() < RESCAN_AFTER
+        && c.paths == paths
+    {
+        return c.colls.clone();
     }
     let colls: Vec<HidColl> = hid::enum_hid().into_iter().filter(|c| !NEVER_TOUCH.contains(&(c.vid, c.pid))).collect();
     *cache = Some(HidCache { at: std::time::Instant::now(), paths, colls: colls.clone() });
@@ -261,6 +254,8 @@ pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
     }
     let mut ctx = PollContext { colls, ..Default::default() };
     drivers::steelseries::poll(&mut ctx);
+    drivers::logitech_g321::poll(&mut ctx);
+    drivers::logitech_prox2::poll(&mut ctx);
     drivers::logitech_g533::poll(&mut ctx);
     drivers::logitech::poll(&mut ctx);
     drivers::razer::poll(&mut ctx);
@@ -272,8 +267,10 @@ pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
     drivers::hyperx::poll(&mut ctx);
     drivers::blackshark_v2pro::poll(&mut ctx);
     drivers::corsair::poll(&mut ctx);
+    drivers::corsair_bragi::poll(&mut ctx);
     drivers::aula::poll(&mut ctx);
     drivers::atk::poll(&mut ctx);
+    drivers::atk_serial::poll(&mut ctx);
     drivers::mchose::poll(&mut ctx);
     drivers::evision::poll(&mut ctx);
     drivers::darmoshark::poll(&mut ctx);
@@ -284,6 +281,10 @@ pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
     drivers::mchose_modern::poll(&mut ctx);
     drivers::ajazz_aj139::poll(&mut ctx);
     drivers::hyperx_core::poll(&mut ctx);
+    drivers::areson::poll(&mut ctx);
+    drivers::razer_nari::poll(&mut ctx);
+    drivers::rog_pelta::poll(&mut ctx);
+    drivers::atk_mercury::poll(&mut ctx);
     drivers::rongyuan::poll(&mut ctx);
     drivers::mchose_v9::poll(&mut ctx);
     drivers::barracuda_chroma::poll(&mut ctx);
@@ -294,6 +295,9 @@ pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
     drivers::hyperx_legacy::poll(&mut ctx);
     drivers::drivercore::poll(&mut ctx);
     drivers::flydigi::poll(&mut ctx);
+    drivers::sinowealth::poll(&mut ctx);
+    drivers::endgame_4k::poll(&mut ctx);
+    drivers::mchose_glw::poll(&mut ctx);
     drivers::playstation::poll(&mut ctx);
     drivers::generic::poll(&mut ctx);
     ctx.out
@@ -327,34 +331,6 @@ pub fn missing_device(hw: Option<(u16, u16)>, hw_present: bool, grace_sec: u32, 
     }
 }
 
-#[cfg(test)]
-mod missing_tests {
-    use super::*;
-    const RX: Option<(u16, u16)> = Some((0x046D, 0xC543));
-
-    #[test]
-    fn unplugged_receiver_removes_at_once() {
-        assert_eq!(missing_device(RX, false, 1800, 5, 150), Missing::Remove);
-    }
-
-    #[test]
-    fn sleeping_mouse_on_a_plugged_receiver_is_asleep() {
-        assert_eq!(missing_device(RX, true, 1800, 120, 150), Missing::Asleep);
-        assert_eq!(missing_device(RX, true, 1800, 1801, 150), Missing::Remove);
-    }
-
-    #[test]
-    fn one_missed_answer_keeps_the_value_briefly() {
-        assert_eq!(missing_device(RX, true, 0, 60, 150), Missing::Keep);
-        assert_eq!(missing_device(RX, true, 0, 151, 150), Missing::Remove);
-    }
-
-    #[test]
-    fn bluetooth_devices_disappear_when_disconnected() {
-        assert_eq!(missing_device(None, false, 300, 1, 150), Missing::Remove);
-    }
-}
-
 /// Whether a HID product (vid, pid) was present in the latest device enumeration.
 pub fn hid_present(id: (u16, u16)) -> bool {
     let cache = HID_CACHE.lock().unwrap_or_else(|e| e.into_inner());
@@ -370,10 +346,23 @@ pub fn poll_all_devices() -> Vec<DeviceStatus> {
 /// Queries every supported device. `rescan` = enumerate the HID devices again; otherwise the list
 /// from the last enumeration is reused (only the battery levels are read).
 pub fn poll_devices(rescan: bool) -> Vec<DeviceStatus> {
-    // WinRT (BLE watcher, Windows.Gaming.Input) needs the poll thread in the MTA; harmless if repeated.
-    unsafe {
-        let _ = windows::Win32::System::WinRT::RoInitialize(windows::Win32::System::WinRT::RO_INIT_MULTITHREADED);
+    // WinRT (BLE watcher, Windows.Gaming.Input) needs the poll thread in the MTA. The shared BLE
+    // watcher outlives each poll thread, so the MTA is kept alive once for the whole process
+    // (CoIncrementMTAUsage); each thread then joins it and leaves it again (balanced).
+    static MTA: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    MTA.get_or_init(|| unsafe {
+        // The cookie is deliberately never released: the MTA lives as long as the process.
+        let _ = windows::Win32::System::Com::CoIncrementMTAUsage();
+    });
+    struct Apartment(bool);
+    impl Drop for Apartment {
+        fn drop(&mut self) {
+            if self.0 {
+                unsafe { windows::Win32::System::WinRT::RoUninitialize() };
+            }
+        }
     }
+    let _apartment = Apartment(unsafe { windows::Win32::System::WinRT::RoInitialize(windows::Win32::System::WinRT::RO_INIT_MULTITHREADED) }.is_ok());
     let out = poll_with(hid_collections(rescan));
     // Broadcast listening is only needed while reading; between reads it would keep waking the
     // process for every Bluetooth LE advertisement nearby.
@@ -389,6 +378,8 @@ fn poll_with(colls: Vec<HidColl>) -> Vec<DeviceStatus> {
     }
     // Vendor drivers first, generic fallbacks last (same order as the original chain).
     drivers::steelseries::poll(&mut ctx);
+    drivers::logitech_g321::poll(&mut ctx);
+    drivers::logitech_prox2::poll(&mut ctx);
     drivers::logitech_g533::poll(&mut ctx);
     drivers::logitech::poll(&mut ctx);
     drivers::razer::poll(&mut ctx);
@@ -400,8 +391,10 @@ fn poll_with(colls: Vec<HidColl>) -> Vec<DeviceStatus> {
     drivers::hyperx::poll(&mut ctx);
     drivers::blackshark_v2pro::poll(&mut ctx);
     drivers::corsair::poll(&mut ctx);
+    drivers::corsair_bragi::poll(&mut ctx);
     drivers::aula::poll(&mut ctx);
     drivers::atk::poll(&mut ctx);
+    drivers::atk_serial::poll(&mut ctx);
     drivers::mchose::poll(&mut ctx);
     drivers::evision::poll(&mut ctx);
     drivers::darmoshark::poll(&mut ctx);
@@ -412,6 +405,10 @@ fn poll_with(colls: Vec<HidColl>) -> Vec<DeviceStatus> {
     drivers::mchose_modern::poll(&mut ctx);
     drivers::ajazz_aj139::poll(&mut ctx);
     drivers::hyperx_core::poll(&mut ctx);
+    drivers::areson::poll(&mut ctx);
+    drivers::razer_nari::poll(&mut ctx);
+    drivers::rog_pelta::poll(&mut ctx);
+    drivers::atk_mercury::poll(&mut ctx);
     drivers::rongyuan::poll(&mut ctx);
     drivers::mchose_v9::poll(&mut ctx);
     drivers::barracuda_chroma::poll(&mut ctx);
@@ -422,6 +419,9 @@ fn poll_with(colls: Vec<HidColl>) -> Vec<DeviceStatus> {
     drivers::hyperx_legacy::poll(&mut ctx);
     drivers::drivercore::poll(&mut ctx);
     drivers::flydigi::poll(&mut ctx);
+    drivers::sinowealth::poll(&mut ctx);
+    drivers::endgame_4k::poll(&mut ctx);
+    drivers::mchose_glw::poll(&mut ctx);
     drivers::playstation::poll(&mut ctx);
     drivers::airpods::poll(&mut ctx);
     drivers::bluetooth::poll(&mut ctx);
@@ -448,4 +448,32 @@ pub fn dump_hid_collections() -> String {
         );
     }
     out
+}
+
+#[cfg(test)]
+mod missing_tests {
+    use super::*;
+    const RX: Option<(u16, u16)> = Some((0x046D, 0xC543));
+
+    #[test]
+    fn unplugged_receiver_removes_at_once() {
+        assert_eq!(missing_device(RX, false, 1800, 5, 150), Missing::Remove);
+    }
+
+    #[test]
+    fn sleeping_mouse_on_a_plugged_receiver_is_asleep() {
+        assert_eq!(missing_device(RX, true, 1800, 120, 150), Missing::Asleep);
+        assert_eq!(missing_device(RX, true, 1800, 1801, 150), Missing::Remove);
+    }
+
+    #[test]
+    fn one_missed_answer_keeps_the_value_briefly() {
+        assert_eq!(missing_device(RX, true, 0, 60, 150), Missing::Keep);
+        assert_eq!(missing_device(RX, true, 0, 151, 150), Missing::Remove);
+    }
+
+    #[test]
+    fn bluetooth_devices_disappear_when_disconnected() {
+        assert_eq!(missing_device(None, false, 300, 1, 150), Missing::Remove);
+    }
 }

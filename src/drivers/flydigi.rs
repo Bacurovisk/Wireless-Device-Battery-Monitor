@@ -70,13 +70,7 @@ pub fn parse_info(r: &[u8], new_arch: bool) -> Option<Reading> {
         return None;
     }
     let wireless = if new_arch { r[6] == 1 } else { r[6] == 2 };
-    Some(Reading {
-        name,
-        percent: if status == 2 { 100 } else { level * 10 },
-        charging: status == 1,
-        full: status == 2,
-        wireless,
-    })
+    Some(Reading { name, percent: if status == 2 { 100 } else { level * 10 }, charging: status == 1, full: status == 2, wireless })
 }
 
 fn ask(d: &HidDev, cmd: u8, param: u8) -> Option<Vec<u8>> {
@@ -86,10 +80,10 @@ fn ask(d: &HidDev, cmd: u8, param: u8) -> Option<Vec<u8>> {
     }
     let end = Deadline::in_ms(800);
     while !end.passed() {
-        if let Some(r) = d.read(end.left_ms().max(1)) {
-            if is_reply(&r, cmd) {
-                return Some(r);
-            }
+        if let Some(r) = d.read(end.left_ms().max(1))
+            && is_reply(&r, cmd)
+        {
+            return Some(r);
         }
     }
     None

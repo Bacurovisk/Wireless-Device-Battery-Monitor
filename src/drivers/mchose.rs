@@ -106,7 +106,7 @@ pub fn poll(ctx: &mut PollContext) {
         }
         let due = {
             let mut g = NEXT_TRY.lock().unwrap_or_else(|e| e.into_inner());
-            g.get_or_insert_with(HashMap::new).get(&(vid, pid)).map_or(true, |t| Instant::now() >= *t)
+            g.get_or_insert_with(HashMap::new).get(&(vid, pid)).is_none_or(|t| Instant::now() >= *t)
         };
         if !due {
             continue; // asleep: the app keeps showing the last level

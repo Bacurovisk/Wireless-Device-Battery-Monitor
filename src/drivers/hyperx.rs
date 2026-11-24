@@ -17,7 +17,7 @@
 //! Charging cannot be queried. No reply means the headset is off (the dongle stays enumerated).
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::{HidColl, HidDev};
-use crate::util::{hex4, Deadline};
+use crate::util::{Deadline, hex4};
 
 const VID: u16 = 0x03F0;
 const HEADER: [u8; 5] = [0x0C, 0x02, 0x03, 0x01, 0x00];
