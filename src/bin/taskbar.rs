@@ -2448,7 +2448,7 @@ impl App {
             // another is still running starts from what is on screen now (no jump back), and the
             // card that is more visible at that moment is the one that fades out.
             let prev = match (&old.content, was_shown && !same) {
-                (Some(c), true) if c.h == h => {
+                (Some(c), true) => {
                     let outgoing = match (&old.prev, old.at) {
                         (Some((_, _, p)), Some(at)) if at.elapsed().as_secs_f32() * 1000.0 < CARD_CROSS_MS * 0.5 => p.clone(),
                         _ => c.clone(),
@@ -2460,6 +2460,7 @@ impl App {
             };
             let crossing = prev.is_some();
             let prev_y = if old.drawn.1 > 0 { old.drawn_y } else { old.y };
+            let prev_h = if old.drawn_h > 0 { old.drawn_h } else { old.content.as_ref().map_or(h, |c| c.h) };
             let (bg, border) = self.card_colors();
             let radius = (8.0 * self.scale()).round() as i32;
             let scale = self.scale();
@@ -2477,6 +2478,8 @@ impl App {
                 vertical: self.vertical,
                 prev_y,
                 drawn_y: old.drawn_y,
+                prev_h,
+                drawn_h: old.drawn_h,
                 bg,
                 border,
                 radius,
@@ -2609,7 +2612,7 @@ impl App {
         let (bg, border, radius, scale) = (a.bg, a.border, a.radius, a.scale);
         let h = content.h;
         let (pos, size, bx, bw, layers, alpha): (POINT, SIZE, i32, i32, Vec<Layer>, u8);
-        let drawn_y: i32;
+        let (drawn_y, bh): (i32, i32);
         if let (true, Some((ox, ow, old))) = (a.showing, &a.prev) {
             // Ease in-out, like the taskbar's window previews moving between buttons.
             let e = if t < 0.5 { 4.0 * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(3) / 2.0 };
@@ -2617,20 +2620,21 @@ impl App {
             let (cx, cw) = (lerp(*ox, a.x), lerp(*ow, content.w));
             // Old content blurs away while the new one comes into focus.
             let (ro, rn) = ((BLUR_MAX * e * scale).round() as i32, (BLUR_MAX * (1.0 - e) * scale).round() as i32);
+            // Height and top glide together: above the taskbar the bottom edge stays put, beside
+            // a vertical one the card stays centred on the device it moves to.
+            let (cy, ch) = (lerp(a.prev_y, a.y), lerp(a.prev_h, h).max(1));
             if a.vertical {
                 // Devices are above one another: the whole card glides to the new one.
-                let cy = lerp(a.prev_y, a.y);
                 pos = POINT { x: cx, y: cy };
-                size = SIZE { cx: cw, cy: h };
+                size = SIZE { cx: cw, cy: ch };
                 (bx, bw) = (0, cw);
-                drawn_y = cy;
             } else {
                 let (ux0, ux1) = (a.x.min(*ox), (a.x + content.w).max(ox + ow));
-                pos = POINT { x: ux0, y: a.y };
-                size = SIZE { cx: ux1 - ux0, cy: h };
+                pos = POINT { x: ux0, y: cy };
+                size = SIZE { cx: ux1 - ux0, cy: ch };
                 (bx, bw) = (cx - ux0, cw);
-                drawn_y = a.y;
             }
+            (drawn_y, bh) = (cy, ch);
             layers = vec![(old.clone(), 1.0 - e, ro), (content.clone(), e, rn)];
             alpha = 255;
             self.card_anim.drawn = (cx, cw);
@@ -2640,7 +2644,7 @@ impl App {
             // Comes into focus while appearing, goes slightly out of focus while disappearing.
             let r = if a.showing { BLUR_MAX * (1.0 - ease) } else { BLUR_MAX * 0.6 * t };
             let d = dy.round() as i32;
-            drawn_y = a.y;
+            (drawn_y, bh) = (a.y, h);
             pos = if a.vertical { POINT { x: a.x + d, y: a.y } } else { POINT { x: a.x, y: a.y + d } };
             size = SIZE { cx: content.w, cy: h };
             (bx, bw) = (0, content.w);
@@ -2649,6 +2653,7 @@ impl App {
             self.card_anim.drawn = (a.x, content.w);
         }
         self.card_anim.drawn_y = drawn_y;
+        self.card_anim.drawn_h = bh;
         let surface = match self.card_surface.take() {
             Some(s) if s.w >= size.cx && s.h >= size.cy => Some(s),
             // A quarter more than needed now: switching between neighbouring devices (the usual
@@ -2658,7 +2663,7 @@ impl App {
         let Some(mut surface) = surface else { return };
         let stride = surface.w as usize;
         let dst = surface.pixels();
-        let bgc = CardBg { bx, bw, h, radius, bg, border };
+        let bgc = CardBg { bx, bw, h: bh, radius, bg, border };
         let t0 = Instant::now();
         compose_card(dst, stride, size.cx, size.cy, &bgc, &layers, &mut self.blur_scratch);
         let t1 = Instant::now();
@@ -4410,6 +4415,10 @@ struct CardAnim {
     vertical: bool,
     prev_y: i32,
     drawn_y: i32,
+    /// Height drawn when the switch started, and in the last frame: cards of different height
+    /// (earbuds have two charts) glide from one height to the other.
+    prev_h: i32,
+    drawn_h: i32,
     bg: COLORREF,
     border: COLORREF,
     radius: i32,
