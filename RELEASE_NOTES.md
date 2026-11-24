@@ -15,6 +15,7 @@ Already installed? Use *Check for updates...* in the right-click menu (v1.1 and 
 
 - **New devices:** Razer Barracuda X (2022) on its 2.4 GHz dongle (`1532:0550` / `1532:0552`, #214, #186) and HyperX Cloud II Wireless (`0951:1718`, #200).
 - **Taskbar animations:** devices pop in and out, the others slide aside to make room (with motion blur), and the "no devices" icon no longer flashes before the first check.
+- **Better Portuguese (Brazil)** by [Bacurovisk](https://github.com/Bacurovisk) (#222).
 
 ## New in v1.7
 
