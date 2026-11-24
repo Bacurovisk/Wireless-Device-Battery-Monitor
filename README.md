@@ -251,6 +251,7 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Logitech | HID++ 1.0 / 2.0 over Unifying, Bolt, LIGHTSPEED, Bluetooth and USB, plus G headsets (voltage curves) |
 | SteelSeries | Arctis 1 / 7 / 9 / Pro, Arctis Nova (3P, 5, 7, 7+, Pro, Pro Omni, Elite; with the dock battery on Pro Wireless, Pro Omni and Elite; Pro Omni and Scimitar below contributed by [Simdrom](https://github.com/Simdrom) in #189), GameBuds, Aerox, Prime, Rival |
 | Razer | Mice, keyboards and receivers (90-byte feature report protocol); BlackShark V3 headset over its HyperSpeed dongle `1532:057A` or USB cable `1532:0579` (protocol from OpenRazer PR #2794 and Joule); BlackShark V2 Pro (2023) over its HyperSpeed dongle `1532:0555` (protocol from OpenRazer PR #2862 and [blackshark-battery](https://github.com/matej-basic/blackshark-battery), MIT); Barracuda X Chroma over its 2.4 GHz dongle `1532:0574` (protocol from [batterywatch](https://github.com/itayavra/batterywatch), GPL-3.0); Nari over its 2.4 GHz dongle `1532:051C` (request and answer from [RazerNariBatteryLevel](https://github.com/Modzeleczek/RazerNariBatteryLevel)'s Synapse capture, field layout from [HaloBattery](https://github.com/HeyOkay/HaloBattery), MIT, and [BrimDeck](https://github.com/MoFeng2223/BrimDeck), Apache-2.0; level in coarse steps, none while charging) |
+| Razer Barracuda X (2022) | Over its 2.4 GHz dongle `1532:0550` or `1532:0552` (protocol from [barracuda-x-battery](https://github.com/nightdevx/barracuda-x-battery) and [razer-barracuda-x-battery](https://github.com/mehdibouchami/razer-barracuda-x-battery), both MIT) |
 | ASUS ROG Pelta | Headset over its 2.4 GHz dongle `0B05:1B84` or USB cable `0B05:1B82` (protocol from [pelta-control](https://github.com/jimm0thy/pelta-control), MIT, from captures of Armoury Crate, as used by the original C++ BatteryHub) |
 | Redragon (Areson) | M913 Impact Elite, M915RGB-WL and other devices on the "2.4G Wireless Receiver" `25A7:FA07` / `FA08`; level in 10 % steps (protocol as documented by the original C++ BatteryHub from a capture of Redragon's software, [m913-ctl](https://github.com/Qehbr/m913-ctl) and [redragon-m913-battery-tray](https://github.com/Doomguy-BFG9000/redragon-m913-battery-tray)) |
 | Corsair | Void family headsets incl. HS70 Pro Wireless `1B1C:0A4F` over the 2.4 GHz receiver (protocol from [HeadsetControl](https://github.com/Sapd/HeadsetControl) and the Linux `hid-corsair-void` driver) |
@@ -279,6 +280,7 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Flydigi | Apex 6 / Apex 6 Pro `37D7:2502` on the 2.4 GHz dongle or cable (protocol from [SDL](https://github.com/libsdl-org/SDL)'s `SDL_hidapi_flydigi.c`, zlib) |
 | HyperX | Cloud III S Wireless headset over its 2.4 GHz dongle `03F0:06BE` / `03F0:02CC` (protocol as documented by [HyperX-Battery-Tray](https://github.com/GuacamoleGH/HyperX-Battery-Tray), [hyperx-battery-logger](https://github.com/OZX-OG/hyperx-battery-logger) and [HyperHeadset](https://github.com/LennardKittner/HyperHeadset), all MIT) |
 | HyperX Cloud II Core Wireless | Over its 2.4 GHz dongle `03F0:0995` (second id `03F0:0795`) (protocol from [HaloBattery](https://github.com/HeyOkay/HaloBattery) and [HyperHeadset](https://github.com/LennardKittner/HyperHeadset), both MIT) |
+| HyperX Cloud II Wireless | Over its 2.4 GHz dongle `0951:1718` (protocol from [HeadsetControl](https://github.com/Sapd/HeadsetControl), GPL-3.0) |
 | HyperX Cloud Flight | Over its 2.4 GHz dongle `0951:1723` (and `0951:16C4`); level in 5 % steps, no level while charging; contributed by [estebannoemr](https://github.com/estebannoemr) in #93, tested on hardware (protocol from [hyperx-cloud-flight](https://github.com/kondinskis/hyperx-cloud-flight) and [hyperx-cloud-flight-wireless](https://github.com/srn/hyperx-cloud-flight-wireless), both MIT) |
 | HyperX (older headsets) | Cloud Stinger Core Wireless (`0951:170B`, PlayStation receivers `0951:1713` / `03F0:0A93` / `03F0:0B93`) and Cloud Alpha Wireless (`03F0:098D`) over their 2.4 GHz dongles (protocols from [HeadsetControl](https://github.com/Sapd/HeadsetControl), GPL-3.0, [HyperHeadset](https://github.com/LennardKittner/HyperHeadset), MIT, and [HyperBatteryMonitor](https://github.com/davidsantanaalves/HyperBatteryMonitor), MIT, as used by the original C++ BatteryHub) |
 | Logitech G321 | G321 LIGHTSPEED headset over its 2.4 GHz receiver `046D:0B39`; contributed by [Bacurovisk](https://github.com/Bacurovisk) in #107, tested on hardware (protocol from [G321 Studio](https://github.com/gleyssonsc/g321-studio), MIT) |
@@ -350,6 +352,22 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | AJAZZ NJ07 (Bluetooth LE) | — | Windows reads no battery level from it over Bluetooth; its 2.4 GHz dongle has not been reported yet | [#69](../../issues/69) |
 | VXE V1 (VGN Siren V1) headset | `10D6:0016` | The Actions-chip dongle's vendor channels are undocumented; no battery query is known. Over Bluetooth it works when Windows shows the level. | [#85](../../issues/85) |
 | ASTRO A50 X (base station) | `046D:0B0B` | Its only vendor channel (`FF32:0074`) is not HID++ and has no documented battery command; G HUB reads it with its own protocol, which is not published | [#105](../../issues/105) |
+| AJAZZ AJ159P | `249A:5C2F` | No documented protocol for this receiver | [#216](../../issues/216) |
+| MCHOSE G11 headset | `3554:FD01` | No documented battery query for its dongle; commands are not guessed | [#213](../../issues/213) |
+| BTP-KP70A controller (X-input dongle) | `20BC:5130` | The dongle shows Windows an Xbox pad that reports no level; its vendor channel is undocumented | [#212](../../issues/212) |
+| Bloody R72 Pro | — | No documented protocol; the documented Bloody protocol is for other models | [#211](../../issues/211) |
+| Smailwolf RS6 | `A8A5:2255` | Shares the AJAZZ AJ139 id but has a different vendor channel (63-byte numbered reports), so the AJ139 read does not apply; commands are not guessed | [#208](../../issues/208) |
+| L7 Mix mouse | `248A:FF4C` | No documented protocol for this receiver | [#207](../../issues/207) |
+| Logitech G325 LIGHTSPEED headset | `046D:0B21` | No documented battery read for this model (the PRO X 2 protocol is not confirmed on it); commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#206](../../issues/206) |
+| ATK ZERO | `373B:11FE` | Not among the documented ATK receiver ids; commands are not guessed | [#204](../../issues/204) |
+| HyperX Cloud Stinger 2 Wireless | not reported | The dongle's id was not in the request and no protocol for it has been checked; please comment with its VID:PID | [#203](../../issues/203) |
+| HyperX Pulsefire Haste 2 S | `03F0:0BB8` | No documented battery protocol for this mouse | [#201](../../issues/201) |
+| Razer BlackShark V3 Pro | `1532:0577` | No documented battery read for this dongle (the BlackShark V3 `057A` read is not confirmed on it); commands are not guessed | [#199](../../issues/199) |
+| Ninjutso Sora V3 | `093A:EB02` | No documented protocol for this receiver | [#198](../../issues/198) |
+| K68 keyboard (Ziyoulang) | `1EA7:0002` | No documented protocol | [#196](../../issues/196) |
+| Royal Kludge S98-ES | `258A:0150` | No documented protocol for this receiver. Over Bluetooth it works when Windows shows the level. | [#195](../../issues/195) |
+| AULA Kunlun X5 | `38A6:28F9` | Not among the documented AULA ids; commands are not guessed | [#194](../../issues/194) |
+| MCHOSE L7 Ultra+ | `5253:1020` | No documented protocol for this `5253` receiver | [#192](../../issues/192) |
 
 ## Testing
 

@@ -1,4 +1,4 @@
-# BatteryHub v1.7 (Rust)
+# BatteryHub v1.7.1 (Rust)
 
 An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor). All credit for the original idea, look and device protocols goes to the original project.
 
@@ -6,10 +6,15 @@ An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of 
 
 | File | |
 |---|---|
-| `BatteryHub-Taskbar-Setup-v1.7.exe` | Setup: Install / Update / Uninstall |
+| `BatteryHub-Taskbar-Setup-v1.7.1.exe` | Setup: Install / Update / Uninstall |
 | `SHA256SUMS.txt` | Checksum |
 
 Already installed? Use *Check for updates...* in the right-click menu (v1.1 and later), or run the new setup and click **Update**. Your settings and autostart choice are kept.
+
+## New in v1.7.1
+
+- **New devices:** Razer Barracuda X (2022) on its 2.4 GHz dongle (`1532:0550` / `1532:0552`, #214, #186) and HyperX Cloud II Wireless (`0951:1718`, #200).
+- **Taskbar animations:** devices pop in and out, the others slide aside to make room (with motion blur), and the "no devices" icon no longer flashes before the first check.
 
 ## New in v1.7
 

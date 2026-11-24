@@ -63,6 +63,66 @@ const TIMER_AWAY: usize = 22;
 const TIMER_SLIDE: usize = 23;
 /// How long a device takes to slide to its new place (ms).
 const SLIDE_MS: f32 = 220.0;
+/// An item appearing on the strip first opens its space (the others move aside), then pops in;
+/// one leaving pops out, then its space closes. Durations in ms.
+const SPACE_MS: f32 = 200.0;
+const POP_MS: f32 = 260.0;
+/// Items appearing together pop in one after another, this far apart (ms).
+const STAGGER_MS: u64 = 70;
+/// Key of the "no devices found" glyph on the strip.
+const NONE_KEY: &str = "\u{0}none";
+
+/// An item appearing on or leaving the strip.
+struct Presence {
+    leaving: bool,
+    /// When it started (later than now while it waits for its turn).
+    at: Instant,
+}
+
+impl Presence {
+    /// (share of its width it takes 0-1, how far it has popped in 0-1, finished).
+    fn frame(&self) -> (f32, f32, bool) {
+        let t = self.at.elapsed().as_secs_f32() * 1000.0;
+        let ease = |v: f32| {
+            let v = v.clamp(0.0, 1.0);
+            v * v * (3.0 - 2.0 * v)
+        };
+        if self.leaving {
+            (1.0 - ease((t - POP_MS) / SPACE_MS), 1.0 - (t / POP_MS).clamp(0.0, 1.0), t >= POP_MS + SPACE_MS)
+        } else {
+            (ease(t / SPACE_MS), ((t - SPACE_MS) / POP_MS).clamp(0.0, 1.0), t >= SPACE_MS + POP_MS)
+        }
+    }
+
+    /// Turns around halfway (a device that comes back while leaving, or goes while appearing),
+    /// from about where it is now.
+    fn turn(&mut self, leaving: bool) {
+        if self.leaving == leaving {
+            return;
+        }
+        let (f, p, _) = self.frame();
+        let t = match (leaving, p > 0.0) {
+            (true, true) => POP_MS * (1.0 - p),
+            (true, false) => POP_MS + SPACE_MS * (1.0 - f),
+            (false, true) => SPACE_MS + POP_MS * p,
+            (false, false) => SPACE_MS * f,
+        };
+        self.leaving = leaving;
+        self.at = Instant::now().checked_sub(std::time::Duration::from_secs_f32(t / 1000.0)).unwrap_or_else(Instant::now);
+    }
+}
+
+/// One item on the strip this frame.
+struct Item {
+    key: String,
+    /// The device (None for the "no devices found" glyph).
+    dev: Option<DeviceStatus>,
+    /// Its place among the visible devices (hit-testing); None while it leaves.
+    vis: Option<usize>,
+    /// Share of its width it takes, and how far it has popped in.
+    f: f32,
+    p: f32,
+}
 /// Notification-area id of the low-battery notification (device icons use hashes of their keys).
 const NOTIFY_UID: u32 = 0x5BA7;
 const CARD_SHOW_MS: f32 = 160.0;
@@ -338,6 +398,12 @@ struct App {
     /// When each device was last written as seen, and when unseen devices were last forgotten.
     seen_saved: std::collections::HashMap<String, u64>,
     forgot_at: u64,
+    /// Items appearing on or leaving the strip, and the items of the last render (with the
+    /// device as it was, so one that left can still pop out).
+    presence: std::collections::HashMap<String, Presence>,
+    shown: Vec<(String, Option<DeviceStatus>)>,
+    /// Length of the strip in the last render (width, or height on a vertical taskbar).
+    strip_len: i32,
 }
 
 thread_local! {
@@ -628,6 +694,47 @@ fn buds_mask(h: i32, left_on: bool, right_on: bool) -> Mask {
     Mask { w: n, h: n, a: batteryhub::gui::earbuds_icon(n, left_on, right_on) }
 }
 
+/// Bilinear scaling of a mask by `k`.
+fn scale_mask(m: &Mask, k: f32) -> Mask {
+    let w = ((m.w as f32 * k).round() as i32).max(1);
+    let h = ((m.h as f32 * k).round() as i32).max(1);
+    let at = |x: i32, y: i32| if x < 0 || y < 0 || x >= m.w || y >= m.h { 0.0 } else { m.a[(y * m.w + x) as usize] as f32 };
+    let mut a = Vec::with_capacity((w * h) as usize);
+    for y in 0..h {
+        let sy = (y as f32 + 0.5) / k - 0.5;
+        let (y0, fy) = (sy.floor() as i32, sy - sy.floor());
+        for x in 0..w {
+            let sx = (x as f32 + 0.5) / k - 0.5;
+            let (x0, fx) = (sx.floor() as i32, sx - sx.floor());
+            let top = at(x0, y0) * (1.0 - fx) + at(x0 + 1, y0) * fx;
+            let bottom = at(x0, y0 + 1) * (1.0 - fx) + at(x0 + 1, y0 + 1) * fx;
+            a.push((top * (1.0 - fy) + bottom * fy).round().clamp(0.0, 255.0) as u8);
+        }
+    }
+    Mask { w, h, a }
+}
+
+/// Draws a piece of an item popping in (`p` 0 to 1) or out (1 to 0): it grows from half its size
+/// around the item's centre `c` with a small overshoot, fades in, and is blurred while it moves
+/// (strongest at the start), like the strip's other motion.
+#[allow(clippy::too_many_arguments)]
+fn draw_popping(cv: &mut Canvas, m: &Mask, at: (i32, i32), c: (f32, f32), p: f32, s: f32, color: COLORREF, alpha: u32) {
+    if p <= 0.0 {
+        return;
+    }
+    let (c1, c3) = (1.70158f32, 2.70158f32);
+    let back = 1.0 + c3 * (p - 1.0).powi(3) + c1 * (p - 1.0).powi(2);
+    let k = (0.5 + 0.5 * back).max(0.05);
+    let sm = scale_mask(m, k);
+    let blur = ((1.0 - p) * (1.0 - p) * 4.0 * s).round() as i32;
+    let sm = if blur > 0 { blur_mask(&blur_mask(&sm, blur, true), blur, false) } else { sm };
+    // Where the piece's centre goes, scaled towards the item's centre.
+    let (mx, my) = (at.0 as f32 + m.w as f32 / 2.0, at.1 as f32 + m.h as f32 / 2.0);
+    let (nx, ny) = (c.0 + (mx - c.0) * k, c.1 + (my - c.1) * k);
+    let fade = p * p * (3.0 - 2.0 * p);
+    cv.draw(&sm, (nx - sm.w as f32 / 2.0).round() as i32, (ny - sm.h as f32 / 2.0).round() as i32, color, (alpha as f32 * fade).round() as u32);
+}
+
 /// Box blur (twice, close to a Gaussian) of a mask along x or y; the result is 2 * r larger on
 /// that axis.
 fn blur_mask(m: &Mask, r: i32, horizontal: bool) -> Mask {
@@ -779,11 +886,13 @@ impl App {
 
         let mut pieces: Vec<Piece> = Vec::new();
         let devices = self.visible();
-        if devices.is_empty() {
-            // Battery-unknown glyph, so there is always something to right-click.
-            pieces.push(Piece { dev: None, m: mask("\u{E996}", icons, light), color: fg, alpha: 110, gap_after: 0 });
-        }
-        for (i, d) in devices.iter().enumerate() {
+        let items = self.strip_items(&devices);
+        for (i, it) in items.iter().enumerate() {
+            let Some(d) = &it.dev else {
+                // Battery-unknown glyph, so there is always something to right-click.
+                pieces.push(Piece { dev: Some(i), m: mask("\u{E996}", icons, light), color: fg, alpha: 110, gap_after: 0 });
+                continue;
+            };
             let alpha = if d.asleep { 120 } else { 255 };
             // Red at or below this device's own warning level (right-click menu, default 15%).
             let low = settings::is_low(d, settings::threshold(SETTINGS_KEY, &d.key));
@@ -802,13 +911,10 @@ impl App {
             if let Some(c) = bolt_color {
                 pieces.push(Piece { dev: Some(i), m: mask("\u{E945}", bolt, light), color: c, alpha, gap_after: 0 });
             }
-            if i + 1 < devices.len() {
-                pieces.last_mut().unwrap().gap_after = px(14.0);
-            }
         }
-        if self.manual && self.polling {
-            // Refresh started from the menu: a small refresh glyph until it finishes.
-            pieces.last_mut().unwrap().gap_after = px(10.0);
+        // Refresh started from the menu: a small refresh glyph until it finishes.
+        let refresh = self.manual && self.polling;
+        if refresh {
             pieces.push(Piece { dev: None, m: mask("\u{E72C}", bolt, light), color: fg, alpha: 170, gap_after: 0 });
         }
         let mut tb = RECT::default();
@@ -816,13 +922,41 @@ impl App {
             let _ = GetClientRect(self.taskbar, &mut tb);
         }
         if self.vertical {
-            let keys: Vec<String> = devices.iter().map(|d| d.key.clone()).collect();
-            self.paint_column(&pieces, &keys, (tb.right - tb.left).clamp(px(32.0), px(160.0)), s, light);
+            self.paint_column(&pieces, &items, refresh, (tb.right - tb.left).clamp(px(32.0), px(160.0)), s, light);
             return;
         }
         let h = (tb.bottom - tb.top).clamp(px(24.0), px(64.0));
-        let pad = px(8.0);
-        let w = pad * 2 + pieces.iter().map(|p| p.m.w + p.gap_after).sum::<i32>();
+        // The padding comes and goes with the first item and the last one.
+        let fmax = items.iter().map(|it| it.f).fold(if refresh { 1.0 } else { 0.0 }, f32::max);
+        let pad = px(8.0) as f32 * fmax;
+        let dev_gap = px(14.0) as f32;
+        // Lay out: each item at its full width, taking only its share of it (the ones after it
+        // follow at once), so a device appearing makes room before it pops in.
+        let n = items.len();
+        let mut xs = vec![0i32; pieces.len()];
+        let mut ranges: Vec<(i32, i32)> = vec![(0, 0); n];
+        let mut x = pad;
+        let mut k = 0;
+        for i in 0..n {
+            if i > 0 {
+                x += dev_gap * items[i - 1].f.min(items[i].f);
+            }
+            let start = x.round() as i32;
+            let mut cx = 0;
+            while k < pieces.len() && pieces[k].dev == Some(i) {
+                xs[k] = start + cx;
+                cx += pieces[k].m.w + if pieces.get(k + 1).is_some_and(|q| q.dev == Some(i)) { pieces[k].gap_after } else { 0 };
+                k += 1;
+            }
+            ranges[i] = (start, start + cx);
+            x += cx as f32 * items[i].f;
+        }
+        for xk in xs.iter_mut().skip(k) {
+            x += px(10.0) as f32 * fmax.min(if n > 0 { 1.0 } else { 0.0 });
+            *xk = x.round() as i32;
+            x += pieces[k].m.w as f32;
+        }
+        let w = ((x + pad).round() as i32).max(1);
         // Alpha 1 everywhere: fully transparent pixels of a layered window let clicks fall through.
         let mut cv = Canvas { w, h, px: vec![0x0100_0000; (w * h) as usize] };
         if self.background {
@@ -831,27 +965,15 @@ impl App {
             let plate = if light { rgb(243, 243, 243) } else { rgb(32, 32, 32) };
             cv.round_rect(px(4.0), px(6.0), plate, 235);
         }
-        let mut x = pad;
+        // Each visible device owns its pieces plus half of the gap around them.
         self.hits.clear();
-        let mut xs = Vec::with_capacity(pieces.len());
-        // Where each device's pieces start and end.
-        let mut ranges: Vec<(i32, i32)> = vec![(i32::MAX, 0); devices.len()];
-        for p in &pieces {
-            if let Some(dev) = p.dev {
-                // Each device owns its pieces plus half of the gap around them.
-                match self.hits.last_mut() {
-                    Some(h) if h.2 == dev => h.1 = x + p.m.w + p.gap_after / 2,
-                    _ => {
-                        let from = self.hits.last().map(|h| h.1).unwrap_or(0);
-                        self.hits.push((from, x + p.m.w + p.gap_after / 2, dev));
-                    }
-                }
-                ranges[dev] = (ranges[dev].0.min(x), x + p.m.w);
+        for (i, it) in items.iter().enumerate() {
+            if let Some(v) = it.vis {
+                let from = self.hits.last().map(|h| h.1).unwrap_or(0);
+                self.hits.push((from, ranges[i].1 + (dev_gap / 2.0) as i32, v));
             }
-            xs.push(x);
-            x += p.m.w + p.gap_after;
         }
-        let keys: Vec<String> = devices.iter().map(|d| d.key.clone()).collect();
+        let keys: Vec<String> = items.iter().map(|it| it.key.clone()).collect();
         let moves = self.motion(&keys, &ranges, w, s);
         // The dragged device last, over the others.
         let held = |p: &Piece| p.dev.is_some_and(|i| moves[i].2 < 255);
@@ -862,7 +984,12 @@ impl App {
                 }
                 let (off, blur, alpha) = p.dev.map(|i| moves[i]).unwrap_or((0, 0, 255));
                 let y0 = ((h - p.m.h) / 2 + px(self.offset_y as f32)).clamp(0, (h - p.m.h).max(0));
-                if blur > 0 {
+                if let Some(i) = p.dev
+                    && items[i].p < 1.0
+                {
+                    let c = ((ranges[i].0 + ranges[i].1) as f32 / 2.0 + off as f32, h as f32 / 2.0);
+                    draw_popping(&mut cv, &p.m, (x + off, y0), c, items[i].p, s, p.color, p.alpha);
+                } else if blur > 0 {
                     let b = blur_mask(&p.m, blur, true);
                     cv.draw(&b, x + off - blur, y0, p.color, p.alpha * alpha / 255);
                 } else {
@@ -881,7 +1008,7 @@ impl App {
         for i in 0..self.mirrors.len() {
             self.push(self.mirrors[i].1);
         }
-        if !resized && (self.drag.is_some() || !self.slides.is_empty()) {
+        if !resized && (self.drag.is_some() || !self.slides.is_empty() || !self.presence.is_empty()) {
             return; // an animation frame: same size, same place
         }
         self.last_place.2 = -1; // force a reposition with the new width
@@ -896,30 +1023,63 @@ impl App {
 
     /// Vertical taskbar: each device as its icon over its level (the bolt beside the level when it
     /// fits), devices stacked, as wide as the taskbar. Hit ranges are rows (y).
-    fn paint_column(&mut self, pieces: &[Piece], keys: &[String], w: i32, s: f32, light: bool) {
+    fn paint_column(&mut self, pieces: &[Piece], items: &[Item], refresh: bool, w: i32, s: f32, light: bool) {
         let px = |v: f32| (v * s).round() as i32;
         let sizes: Vec<(Option<usize>, i32, i32)> = pieces.iter().map(|p| (p.dev, p.m.w, p.m.h)).collect();
-        let (placed, h, hits) = column_layout(&sizes, w, px(8.0), px(2.0), px(12.0), px(2.0));
-        let mut cv = Canvas { w, h, px: vec![0x0100_0000; (w * h) as usize] };
-        if self.background {
-            let plate = if light { rgb(243, 243, 243) } else { rgb(32, 32, 32) };
-            cv.round_rect(0, px(6.0), plate, 235);
-        }
-        let mut ranges: Vec<(i32, i32)> = vec![(i32::MAX, 0); keys.len()];
+        let (pad, dev_gap) = (px(8.0), px(12.0));
+        let (placed, full_h, rows) = column_layout(&sizes, w, pad, px(2.0), dev_gap, px(2.0));
+        let n = items.len();
+        let mut ranges: Vec<(i32, i32)> = vec![(i32::MAX, 0); n];
         for (p, &(_, y, show)) in pieces.iter().zip(&placed) {
             if let (Some(i), true) = (p.dev, show) {
                 ranges[i] = (ranges[i].0.min(y), ranges[i].1.max(y + p.m.h));
             }
         }
-        let moves = self.motion(keys, &ranges, h, s);
+        // What each item gives back of its height while it appears or leaves: the items below it
+        // move up by what the ones above gave back (the column stays on the notification area).
+        let fmax = items.iter().map(|it| it.f).fold(if refresh { 1.0 } else { 0.0 }, f32::max);
+        let mut gone = (1.0 - fmax) * pad as f32;
+        let mut shift = vec![0i32; n];
+        for i in 0..n {
+            shift[i] = gone.round() as i32;
+            gone += (1.0 - items[i].f) * (ranges[i].1 - ranges[i].0).max(0) as f32;
+            if i + 1 < n {
+                gone += (1.0 - items[i].f.min(items[i + 1].f)) * dev_gap as f32;
+            }
+        }
+        let tail = gone.round() as i32;
+        let h = (full_h - tail - ((1.0 - fmax) * pad as f32).round() as i32).max(1);
+        for (i, r) in ranges.iter_mut().enumerate() {
+            *r = (r.0 - shift[i], r.1 - shift[i]);
+        }
+        let ys: Vec<i32> = pieces.iter().zip(&placed).map(|(p, &(_, y, _))| y - p.dev.map(|i| shift[i]).unwrap_or(tail)).collect();
+        let mut hits: Vec<(i32, i32, usize)> = rows.iter().filter_map(|&(a, b, i)| items[i].vis.map(|v| (a - shift[i], b - shift[i], v))).collect();
+        if let Some(first) = hits.first_mut() {
+            first.0 = 0;
+        }
+        if let Some(last) = hits.last_mut() {
+            last.1 = h;
+        }
+        let mut cv = Canvas { w, h, px: vec![0x0100_0000; (w * h) as usize] };
+        if self.background {
+            let plate = if light { rgb(243, 243, 243) } else { rgb(32, 32, 32) };
+            cv.round_rect(0, px(6.0), plate, 235);
+        }
+        let keys: Vec<String> = items.iter().map(|it| it.key.clone()).collect();
+        let moves = self.motion(&keys, &ranges, h, s);
         let held = |p: &Piece| p.dev.is_some_and(|i| moves[i].2 < 255);
         for pass in [false, true] {
-            for (p, &(x, y, show)) in pieces.iter().zip(&placed) {
+            for ((p, &(x, _, show)), &y) in pieces.iter().zip(&placed).zip(&ys) {
                 if !show || held(p) != pass {
                     continue;
                 }
                 let (off, blur, alpha) = p.dev.map(|i| moves[i]).unwrap_or((0, 0, 255));
-                if blur > 0 {
+                if let Some(i) = p.dev
+                    && items[i].p < 1.0
+                {
+                    let c = (w as f32 / 2.0, (ranges[i].0 + ranges[i].1) as f32 / 2.0 + off as f32);
+                    draw_popping(&mut cv, &p.m, (x, y + off), c, items[i].p, s, p.color, p.alpha);
+                } else if blur > 0 {
                     cv.draw(&blur_mask(&p.m, blur, false), x, y + off - blur, p.color, p.alpha * alpha / 255);
                 } else {
                     cv.draw(&p.m, x, y + off, p.color, p.alpha * alpha / 255);
@@ -927,10 +1087,14 @@ impl App {
             }
         }
         self.hits = hits;
+        let resized = self.size.cx != w || self.size.cy != h;
         self.size = SIZE { cx: w, cy: h };
         self.pixels = cv.px;
         self.lit = self.hover_pixels();
         self.push(self.strip);
+        if !resized && (self.drag.is_some() || !self.slides.is_empty() || !self.presence.is_empty()) {
+            return; // an animation frame: same size, same place
+        }
         self.last_place.2 = -1;
         self.place();
     }
@@ -2402,6 +2566,68 @@ impl App {
         self.paint();
     }
 
+    /// The items on the strip this frame, in order: the visible devices, the "no devices found"
+    /// glyph once the first read found none (nothing before the first read), and the items that
+    /// are leaving, at their old place. Starts the appear / leave animations.
+    fn strip_items(&mut self, devices: &[DeviceStatus]) -> Vec<Item> {
+        let mut want: Vec<(String, Option<DeviceStatus>)> = devices.iter().map(|d| (d.key.clone(), Some(d.clone()))).collect();
+        if self.loaded && devices.is_empty() {
+            want.push((NONE_KEY.into(), None));
+        }
+        let old = std::mem::take(&mut self.shown);
+        // Gone since the last render: pops out.
+        for (k, _) in &old {
+            if !want.iter().any(|w| &w.0 == k) {
+                self.presence.entry(k.clone()).or_insert(Presence { leaving: true, at: Instant::now() }).turn(true);
+            }
+        }
+        // New: waits until what leaves has popped out, then appears, one after another.
+        let wait = self
+            .presence
+            .values()
+            .filter(|p| p.leaving)
+            .map(|p| (POP_MS - p.at.elapsed().as_secs_f32() * 1000.0).max(0.0) as u64)
+            .max()
+            .unwrap_or(0);
+        let mut n = 0;
+        for (k, _) in &want {
+            if let Some(p) = self.presence.get_mut(k) {
+                p.turn(false);
+            } else if !old.iter().any(|o| &o.0 == k) {
+                let at = Instant::now() + std::time::Duration::from_millis(wait + n * STAGGER_MS);
+                self.presence.insert(k.clone(), Presence { leaving: false, at });
+                n += 1;
+            }
+        }
+        // Leaving items stay where they were: after the item before them in the last render.
+        let mut list: Vec<(String, Option<DeviceStatus>, bool)> = want.into_iter().map(|(k, d)| (k, d, true)).collect();
+        for (j, (k, d)) in old.iter().enumerate() {
+            if list.iter().any(|l| &l.0 == k) || !self.presence.get(k).is_some_and(|p| p.leaving) {
+                continue;
+            }
+            let at = old[..j].iter().rev().find_map(|(before, _)| list.iter().position(|l| &l.0 == before)).map(|i| i + 1).unwrap_or(0);
+            list.insert(at, (k.clone(), d.clone(), false));
+        }
+        let mut out = Vec::with_capacity(list.len());
+        let mut vis = 0;
+        for (key, dev, live) in list {
+            let (f, p, done) = self.presence.get(&key).map(|p| p.frame()).unwrap_or((1.0, 1.0, false));
+            if done {
+                self.presence.remove(&key);
+                if !live {
+                    continue;
+                }
+            }
+            let v = (live && dev.is_some()).then(|| {
+                vis += 1;
+                vis - 1
+            });
+            self.shown.push((key.clone(), dev.clone()));
+            out.push(Item { key, dev, vis: v, f: if done { 1.0 } else { f }, p: if done { 1.0 } else { p } });
+        }
+        out
+    }
+
     /// Where each device is drawn along the strip this frame: (offset from its place, blur radius,
     /// opacity 0-255). The dragged device follows the mouse; devices that changed places slide
     /// from where they were drawn, blurred while they move, like the card's contents.
@@ -2413,7 +2639,8 @@ impl App {
                     continue;
                 }
                 if let Some(&was) = self.drawn_at.get(k) {
-                    let d = was - r.0 as f32;
+                    // Positions are kept from the end of the strip (it is anchored there).
+                    let d = (len as f32 - was) - r.0 as f32;
                     if d.abs() >= 1.0 {
                         self.slides.insert(k.clone(), (d, now));
                     }
@@ -2423,7 +2650,8 @@ impl App {
         self.slides.retain(|_, (_, t0)| (t0.elapsed().as_secs_f32() * 1000.0) < SLIDE_MS);
         let mut out = Vec::with_capacity(keys.len());
         self.starts.clear();
-        self.drawn_at.clear();
+        let before = std::mem::take(&mut self.drawn_at);
+        self.strip_len = len;
         for (k, r) in keys.iter().zip(ranges) {
             let (off, blur, alpha) = if self.drag.as_deref() == Some(k.as_str()) {
                 // Held by the mouse, kept on the strip.
@@ -2437,15 +2665,21 @@ impl App {
                 // Blur with the speed: strongest at the start, gone when it settles.
                 let blur = ((1.0 - p) * (1.0 - p) * 3.0 * s).round() as i32;
                 (off, blur.min((d.abs() / 4.0) as i32), 255)
+            } else if !self.presence.is_empty()
+                && let Some(&was) = before.get(k)
+            {
+                // Moved aside by a device appearing or leaving: blurred with its speed.
+                let moved = (was - (len - r.0) as f32).abs();
+                (0, ((moved / 2.0).round() as i32).min((3.0 * s).round() as i32), 255)
             } else {
                 (0, 0, 255)
             };
             self.starts.insert(k.clone(), r.0);
-            self.drawn_at.insert(k.clone(), (r.0 + off) as f32);
+            self.drawn_at.insert(k.clone(), (len - (r.0 + off)) as f32);
             out.push((off, blur, alpha));
         }
         unsafe {
-            if self.slides.is_empty() {
+            if self.slides.is_empty() && self.presence.is_empty() {
                 let _ = KillTimer(Some(self.main), TIMER_SLIDE);
             } else {
                 SetTimer(Some(self.main), TIMER_SLIDE, 15, None);
@@ -2499,8 +2733,8 @@ impl App {
                 let _ = windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture();
             }
             // Let go: the device slides into its place.
-            if let (Some(&at), Some(&place)) = (self.drawn_at.get(&key), self.starts.get(&key)) {
-                let d = at - place as f32;
+            if let (Some(&from_end), Some(&place)) = (self.drawn_at.get(&key), self.starts.get(&key)) {
+                let d = (self.strip_len as f32 - from_end) - place as f32;
                 if d.abs() >= 1.0 {
                     self.slides.insert(key, (d, Instant::now()));
                 }
