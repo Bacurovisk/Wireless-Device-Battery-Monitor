@@ -2488,6 +2488,12 @@ impl App {
             } else if same && self.card_anim.at.is_none() {
                 // Same device, new values: swap the content at once.
                 self.card_frame(1.0);
+            } else if was_shown && !same {
+                // Another device whose card has another height (e.g. earbuds with two charts):
+                // no cross-fade between those, so the new card takes over at once. Before, it
+                // kept showing the old device, or picked up the old card's half-done animation.
+                self.card_anim.at = None;
+                self.card_frame(1.0);
             } else {
                 if !was_shown {
                     self.card_anim.at = Some(Instant::now());
