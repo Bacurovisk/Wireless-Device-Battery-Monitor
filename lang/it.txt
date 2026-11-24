@@ -219,3 +219,4 @@ Wireless adapter = Adattatore wireless
 {display} (right) = {display} (a destra)
 {display} (above) = {display} (sopra)
 {display} (below) = {display} (sotto)
+Case {level} = Custodia {level}

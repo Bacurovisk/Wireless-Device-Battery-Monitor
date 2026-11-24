@@ -219,3 +219,4 @@ Wireless adapter = Kablosuz adaptör
 {display} (right) = {display} (sağ)
 {display} (above) = {display} (üst)
 {display} (below) = {display} (alt)
+Case {level} = Kutu {level}

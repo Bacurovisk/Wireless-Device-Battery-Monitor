@@ -220,3 +220,4 @@ Wireless adapter = Wireless adapter
 {display} (right) = {display} (right)
 {display} (above) = {display} (above)
 {display} (below) = {display} (below)
+Case {level} = Case {level}

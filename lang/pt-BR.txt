@@ -219,3 +219,4 @@ Wireless adapter = Adaptador sem fio
 {display} (right) = {display} (à direita)
 {display} (above) = {display} (acima)
 {display} (below) = {display} (abaixo)
+Case {level} = Estojo {level}

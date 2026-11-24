@@ -219,3 +219,4 @@ Wireless adapter = Adaptor nirkabel
 {display} (right) = {display} (kanan)
 {display} (above) = {display} (atas)
 {display} (below) = {display} (bawah)
+Case {level} = Casing {level}

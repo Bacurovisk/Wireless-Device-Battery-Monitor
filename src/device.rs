@@ -59,12 +59,19 @@ pub struct Buds {
     pub right: i32,
     pub left_charging: bool,
     pub right_charging: bool,
+    /// The charging case: level and whether it charges, when the device reports it.
+    pub case: Option<(i32, bool)>,
 }
 
 impl Buds {
     /// Level and charging state of the bud with the lower level (None when neither reports).
     pub fn weaker(&self) -> Option<(i32, bool)> {
         [(self.left, self.left_charging), (self.right, self.right_charging)].into_iter().filter(|b| b.0 >= 0).min_by_key(|b| b.0)
+    }
+
+    /// Both buds' levels when both are reported ("12% 86%", left first), else None.
+    pub fn both(&self) -> Option<String> {
+        (self.left >= 0 && self.right >= 0).then(|| format!("{}% {}%", self.left, self.right))
     }
 
     /// "L 80%  R 75%" (a bud that is not reported: "L –").
@@ -548,7 +555,7 @@ mod missing_tests {
 
     #[test]
     fn weaker_bud_is_shown() {
-        let b = Buds { left: 80, right: 40, left_charging: false, right_charging: true };
+        let b = Buds { left: 80, right: 40, left_charging: false, right_charging: true, case: None };
         assert_eq!(b.weaker(), Some((40, true)));
         assert_eq!(Buds { left: -1, right: 70, ..Default::default() }.weaker(), Some((70, false)));
         assert_eq!(Buds { left: -1, right: -1, ..Default::default() }.weaker(), None);

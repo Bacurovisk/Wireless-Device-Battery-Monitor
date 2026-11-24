@@ -219,3 +219,4 @@ Wireless adapter = Bezdrátový adaptér
 {display} (right) = {display} (vpravo)
 {display} (above) = {display} (nahoře)
 {display} (below) = {display} (dole)
+Case {level} = Pouzdro {level}

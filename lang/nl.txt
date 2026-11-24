@@ -219,3 +219,4 @@ Wireless adapter = Draadloze adapter
 {display} (right) = {display} (rechts)
 {display} (above) = {display} (boven)
 {display} (below) = {display} (onder)
+Case {level} = Oplaadcase {level}

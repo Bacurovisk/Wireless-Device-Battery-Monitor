@@ -219,3 +219,4 @@ Wireless adapter = Adapter bezprzewodowy
 {display} (right) = {display} (po prawej)
 {display} (above) = {display} (powyżej)
 {display} (below) = {display} (poniżej)
+Case {level} = Etui {level}

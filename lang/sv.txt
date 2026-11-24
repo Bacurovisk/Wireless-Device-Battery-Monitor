@@ -219,3 +219,4 @@ Wireless adapter = Trådlös adapter
 {display} (right) = {display} (höger)
 {display} (above) = {display} (ovanför)
 {display} (below) = {display} (nedanför)
+Case {level} = Fodral {level}

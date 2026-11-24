@@ -219,3 +219,4 @@ Wireless adapter = 無線轉接器
 {display} (right) = {display}（右側）
 {display} (above) = {display}（上方）
 {display} (below) = {display}（下方）
+Case {level} = 充電盒 {level}

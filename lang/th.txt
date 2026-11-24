@@ -219,3 +219,4 @@ Wireless adapter = อะแดปเตอร์ไร้สาย
 {display} (right) = {display} (ขวา)
 {display} (above) = {display} (บน)
 {display} (below) = {display} (ล่าง)
+Case {level} = เคส {level}

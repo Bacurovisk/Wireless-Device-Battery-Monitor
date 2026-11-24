@@ -219,3 +219,4 @@ Wireless adapter = Бездротовий адаптер
 {display} (right) = {display} (праворуч)
 {display} (above) = {display} (зверху)
 {display} (below) = {display} (знизу)
+Case {level} = Кейс {level}

@@ -219,3 +219,4 @@ Wireless adapter = Adaptateur sans fil
 {display} (right) = {display} (à droite)
 {display} (above) = {display} (au-dessus)
 {display} (below) = {display} (en dessous)
+Case {level} = Boîtier {level}

@@ -219,3 +219,4 @@ Wireless adapter = Vezeték nélküli adapter
 {display} (right) = {display} (jobbra)
 {display} (above) = {display} (fent)
 {display} (below) = {display} (lent)
+Case {level} = Tok {level}

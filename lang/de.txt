@@ -219,3 +219,4 @@ Wireless adapter = Funkadapter
 {display} (right) = {display} (rechts)
 {display} (above) = {display} (oben)
 {display} (below) = {display} (unten)
+Case {level} = Etui {level}

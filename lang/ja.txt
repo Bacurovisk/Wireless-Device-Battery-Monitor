@@ -219,3 +219,4 @@ Wireless adapter = ワイヤレスアダプター
 {display} (right) = {display} (右)
 {display} (above) = {display} (上)
 {display} (below) = {display} (下)
+Case {level} = ケース {level}

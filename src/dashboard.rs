@@ -105,7 +105,7 @@ pub fn decode_status(line: &str) -> Option<(DeviceStatus, String)> {
     let hw = f[13].split_once(':').and_then(|(v, p)| Some((u16::from_str_radix(v, 16).ok()?, u16::from_str_radix(p, 16).ok()?)));
     let buds = f.get(14).and_then(|b| {
         let v: Vec<i32> = b.split(',').filter_map(|x| x.parse().ok()).collect();
-        (v.len() == 4).then(|| crate::device::Buds { left: v[0], left_charging: v[1] == 1, right: v[2], right_charging: v[3] == 1 })
+        (v.len() == 4).then(|| crate::device::Buds { left: v[0], left_charging: v[1] == 1, right: v[2], right_charging: v[3] == 1, case: None })
     });
     let s = DeviceStatus {
         key: f[0].into(),
@@ -1666,7 +1666,7 @@ mod tests {
             name: "AirPods Pro".into(),
             kind: DeviceKind::Earbuds,
             percent: 40,
-            buds: Some(crate::device::Buds { left: -1, right: 40, left_charging: false, right_charging: true }),
+            buds: Some(crate::device::Buds { left: -1, right: 40, left_charging: false, right_charging: true, case: None }),
             ..Default::default()
         };
         let (d, _) = decode_status(&encode_status(&s, "")).unwrap();

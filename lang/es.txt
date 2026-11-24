@@ -219,3 +219,4 @@ Wireless adapter = Adaptador inalámbrico
 {display} (right) = {display} (derecha)
 {display} (above) = {display} (arriba)
 {display} (below) = {display} (abajo)
+Case {level} = Estuche {level}

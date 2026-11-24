@@ -240,7 +240,13 @@ pub fn poll(ctx: &mut PollContext) {
             s.charging = a.left_chg;
         } else {
             // The weaker bud (lower level) is the one shown; the card lists both.
-            let buds = crate::device::Buds { left: a.left, right: a.right, left_charging: a.left_chg, right_charging: a.right_chg };
+            let buds = crate::device::Buds {
+                left: a.left,
+                right: a.right,
+                left_charging: a.left_chg,
+                right_charging: a.right_chg,
+                case: (a.case >= 0).then_some((a.case, a.case_chg)),
+            };
             (s.percent, s.charging) = buds.weaker().unwrap_or((a.case, a.case_chg));
             s.kind = DeviceKind::Earbuds;
             s.buds = Some(buds);

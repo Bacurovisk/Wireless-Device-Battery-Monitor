@@ -764,6 +764,22 @@ fn pop_pixels(src: &[u32], w: usize, h: usize, k: f32, blur: usize, fade: f32) -
         .collect()
 }
 
+/// `top` over `bottom` with `gap` px between, both centred.
+fn stack_masks(top: &Mask, bottom: &Mask, gap: i32) -> Mask {
+    let w = top.w.max(bottom.w);
+    let h = top.h + gap + bottom.h;
+    let mut a = vec![0u8; (w * h) as usize];
+    for (m, y0) in [(top, 0), (bottom, top.h + gap)] {
+        let x0 = (w - m.w) / 2;
+        for y in 0..m.h {
+            let src = &m.a[(y * m.w) as usize..((y + 1) * m.w) as usize];
+            let at = ((y0 + y) * w + x0) as usize;
+            a[at..at + m.w as usize].copy_from_slice(src);
+        }
+    }
+    Mask { w, h, a }
+}
+
 /// Bilinear scaling of a mask by `k`.
 fn scale_mask(m: &Mask, k: f32) -> Mask {
     let w = ((m.w as f32 * k).round() as i32).max(1);
@@ -970,17 +986,24 @@ impl App {
             let bolt_color = ui::bolt_color(d, light);
             let mark = bolt_color.is_some();
             pieces.push(Piece { dev: Some(i), m: device_icon(d, icons, light), color: fg, alpha, gap_after: px(5.0) });
-            let t = if !d.level_text.is_empty() && d.percent < 0 {
-                d.level_text.clone()
-            } else if let Some(b) = d.buds.filter(|b| d.percent >= 0 && b.left >= 0 && b.right >= 0) {
-                // Earbuds with both buds out: each bud's own level.
-                format!("{}% {}%", b.left, b.right)
-            } else if d.percent >= 0 {
-                format!("{}%", d.percent)
-            } else {
-                "?".into()
+            let both = d.buds.filter(|b| d.percent >= 0 && b.left >= 0 && b.right >= 0);
+            let m = match both {
+                // Earbuds with both buds out: each bud's own level. On a vertical taskbar the two
+                // don't fit side by side: left over right.
+                Some(b) if self.vertical => stack_masks(&mask(&format!("{}%", b.left), text, light), &mask(&format!("{}%", b.right), text, light), px(1.0)),
+                Some(b) => mask(&format!("{}% {}%", b.left, b.right), text, light),
+                None => {
+                    let t = if !d.level_text.is_empty() && d.percent < 0 {
+                        d.level_text.clone()
+                    } else if d.percent >= 0 {
+                        format!("{}%", d.percent)
+                    } else {
+                        "?".into()
+                    };
+                    mask(&t, text, light)
+                }
             };
-            pieces.push(Piece { dev: Some(i), m: mask(&t, text, light), color: if low { red } else { fg }, alpha, gap_after: if mark { px(2.0) } else { 0 } });
+            pieces.push(Piece { dev: Some(i), m, color: if low { red } else { fg }, alpha, gap_after: if mark { px(2.0) } else { 0 } });
             if let Some(c) = bolt_color {
                 pieces.push(Piece { dev: Some(i), m: mask("\u{E945}", bolt, light), color: c, alpha, gap_after: 0 });
             }
@@ -2112,10 +2135,14 @@ impl App {
         let Some(f) = self.fonts.as_ref() else { return (1, 1, vec![0]) };
         let (icon_f, name_f, big_f, small_f) = (f.card_icon, f.card_name, f.card_big, f.card_small);
 
-        // As wide as the name needs, 300 to 400 px; longer names end in "…". Earbuds show each
-        // bud's level after the name.
+        // As wide as the name needs, 300 to 400 px; longer names end in "…". Earbuds show their
+        // case's level after the name, when they report it (the buds' levels are the big text).
         let pad = px(16.0);
-        let buds = d.buds.filter(|_| d.connected && !d.asleep).map(|b| mask(&b.text(), small_f, light));
+        let buds = d
+            .buds
+            .filter(|_| d.connected && !d.asleep)
+            .and_then(|b| b.case)
+            .map(|(level, chg)| mask(&format!("{}{}", trf("Case {level}", &[("level", &format!("{level}%"))]), if chg { "⚡" } else { "" }), small_f, light));
         let buds_w = buds.as_ref().map_or(0, |m| m.w + px(10.0));
         let room = px(400.0) - 2 * pad - px(26.0) - buds_w;
         let mut name_text = d.name.clone();
@@ -2143,7 +2170,9 @@ impl App {
         y += px(34.0);
 
         // Big level (or the device's own word for it), the time left under it, then the bar.
-        let big_text = if d.percent >= 0 {
+        let big_text = if let Some(both) = d.buds.filter(|_| d.percent >= 0).and_then(|b| b.both()) {
+            both
+        } else if d.percent >= 0 {
             format!("{}%", d.percent)
         } else if !d.level_text.is_empty() {
             d.level_text.clone()
@@ -2410,7 +2439,7 @@ impl App {
             // another is still running starts from what is on screen now (no jump back), and the
             // card that is more visible at that moment is the one that fades out.
             let prev = match (&old.content, was_shown && !same) {
-                (Some(c), true) => {
+                (Some(c), true) if c.h == h => {
                     let outgoing = match (&old.prev, old.at) {
                         (Some((_, _, p)), Some(at)) if at.elapsed().as_secs_f32() * 1000.0 < CARD_CROSS_MS * 0.5 => p.clone(),
                         _ => c.clone(),
@@ -2736,15 +2765,7 @@ impl App {
                 let mut tme = TRACKMOUSEEVENT { cbSize: size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: on, dwHoverTime: 0 };
                 self.tracking = TrackMouseEvent(&mut tme).is_ok();
             }
-            let mut hit = self.hits.iter().find(|h| x >= h.0 && x < h.1).map(|h| (h.2, h.0, h.1));
-            // In the gap between two devices with the card open: the nearer device takes over at
-            // once, instead of the card fading out and in again.
-            if hit.is_none() && self.card_anim.visible && self.card_anim.showing {
-                let (lo, hi) = (self.hits.iter().map(|h| h.0).min(), self.hits.iter().map(|h| h.1).max());
-                if lo.is_some_and(|lo| x >= lo) && hi.is_some_and(|hi| x < hi) {
-                    hit = self.hits.iter().min_by_key(|h| (x - h.0).abs().min((x - h.1).abs())).map(|h| (h.2, h.0, h.1));
-                }
-            }
+            let hit = self.hits.iter().find(|h| x >= h.0 && x < h.1).map(|h| (h.2, h.0, h.1));
             let key = hit.map(|h| h.0).unwrap_or(usize::MAX);
             if self.tip_for == Some(key) {
                 return;

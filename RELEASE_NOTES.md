@@ -14,8 +14,8 @@ Already installed? Use *Check for updates...* in the right-click menu (v1.1 and 
 ## New in v1.7.4
 
 - **New device:** SteelSeries Arctis GameBuds X (`1038:2317`), with the level of each bud (by [Simdrom](https://github.com/Simdrom), #246).
-- **Earbuds show both buds** on the taskbar, e.g. `12% 86%`; the warning still follows the weaker one.
-- **Snappier card:** moving between devices switches the card at once, with a shorter cross-fade that also works between cards of different height.
+- **Earbuds show both buds** on the taskbar, e.g. `12% 86%` (left over right on a vertical taskbar), and in the card; the warning still follows the weaker one. The card shows the charging case's level next to the name (AirPods).
+- **Snappier card:** a shorter cross-fade when moving between devices.
 
 ## New in v1.7.3
 
