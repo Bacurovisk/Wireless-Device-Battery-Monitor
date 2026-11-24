@@ -45,7 +45,16 @@ pub fn decode(r: &[u8]) -> Option<(i32, bool)> {
 }
 
 fn decode_freq_reply(r: &[u8]) -> Option<(i32, bool)> {
-    if r.len() != 64 || r[0] != 0xF0 || r[1] != CMD_BATTERY || r[2] != 0xA5 || r[4] != 0x2E || r[8] > 100 || r[9] > 1 {
+    if r.len() != 64
+        || r[0] != 0xF0
+        || r[1] != CMD_BATTERY
+        || r[2] != 0xA5
+        || r[3] != 0x95
+        || r[4] != 0x2E
+        || r[5..8] != [0x01, 0x01, 0x01]
+        || r[8] > 100
+        || r[9] > 1
+    {
         return None;
     }
     Some((r[8] as i32, r[9] == 1))
@@ -231,6 +240,15 @@ mod tests {
         assert_eq!(decode_freq_reply(&freq_reply(101, 0)), None);
         assert_eq!(decode_freq_reply(&freq_reply(50, 2)), None);
         assert_eq!(decode_freq_reply(&freq_reply(50, 0)[..63]), None);
+    }
+
+    #[test]
+    fn freq_battery_reply_rejects_mismatched_response_fields() {
+        for (index, value) in [(3, 0x94), (5, 0), (6, 0), (7, 0)] {
+            let mut r = freq_reply(50, 0);
+            r[index] = value;
+            assert_eq!(decode_freq_reply(&r), None, "unexpected response field at byte {index}");
+        }
     }
 
     #[test]
