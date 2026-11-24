@@ -368,6 +368,11 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | Royal Kludge S98-ES | `258A:0150` | No documented protocol for this receiver. Over Bluetooth it works when Windows shows the level. | [#195](../../issues/195) |
 | AULA Kunlun X5 | `38A6:28F9` | Not among the documented AULA ids; commands are not guessed | [#194](../../issues/194) |
 | MCHOSE L7 Ultra+ | `5253:1020` | No documented protocol for this `5253` receiver | [#192](../../issues/192) |
+| RAWM Leviathan V4 | `1915:2346` | The receiver sends the level only when the cable is plugged in or out, never while the mouse is just used, so it cannot be kept current; no battery query is documented | [#188](../../issues/188) |
+| "2.4G Wireless Receiver" mouse | `25A7:FA7C` | No documented protocol (not the CompX / Areson layout used on other `25A7` receivers) | [#225](../../issues/225) |
+| Attack Shark MEGA B2 TMR | `3554:F517` | Not among the documented CompX / Attack Shark ids; commands are not guessed | [#223](../../issues/223) |
+| HATOR Rockfall 3 Wireless | `379A:0300` | No documented battery read for this keyboard's dongle; commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#221](../../issues/221) |
+| HELLYBERRY HM47 | `379A:A202` | No documented protocol for this `379A` receiver; commands are not guessed | [#220](../../issues/220) |
 
 ## Testing
 
