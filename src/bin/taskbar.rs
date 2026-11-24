@@ -3556,41 +3556,12 @@ fn save_dword(name: &str, value: u32) {
     }
 }
 
-/// A full-screen window (game, video) is in front on the monitor of taskbar `bar`.
+/// A full-screen window (game, video) is in front on the monitor of taskbar `bar`. Explorer
+/// itself decides that: it takes such a monitor's taskbar out of the topmost band (it goes behind
+/// the game), so the copy follows the taskbar. Guessing from the window's size hid it wrongly for
+/// borderless windows that cover a monitor without being full-screen apps (e.g. Wallpaper Engine).
 fn fullscreen_over(bar: HWND) -> bool {
-    unsafe {
-        let fg = GetForegroundWindow();
-        if fg.0.is_null() {
-            return false;
-        }
-        let mut pid = 0u32;
-        GetWindowThreadProcessId(fg, Some(&mut pid));
-        if pid == std::process::id() {
-            return false;
-        }
-        let mut class = [0u16; 64];
-        let n = GetClassNameW(fg, &mut class) as usize;
-        let class = String::from_utf16_lossy(&class[..n]);
-        if matches!(class.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd") {
-            return false;
-        }
-        // A maximized window covers the whole monitor too when the taskbar hides itself; a
-        // full-screen game or video has no title bar and is not maximized.
-        let style = GetWindowLongW(fg, GWL_STYLE) as u32;
-        if IsZoomed(fg).as_bool() || style & WS_CAPTION.0 == WS_CAPTION.0 {
-            return false;
-        }
-        let mon = MonitorFromWindow(bar, MONITOR_DEFAULTTONEAREST);
-        if MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST) != mon {
-            return false;
-        }
-        let mut mi = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
-        let _ = GetMonitorInfoW(mon, &mut mi);
-        let mut r = RECT::default();
-        let _ = GetWindowRect(fg, &mut r);
-        let m = mi.rcMonitor;
-        r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom
-    }
+    unsafe { GetWindowLongW(bar, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 == 0 }
 }
 
 /// EVENT_SYSTEM_FOREGROUND: tells the main window, which places the copies again.
