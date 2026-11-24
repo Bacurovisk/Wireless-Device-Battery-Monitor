@@ -1,4 +1,4 @@
-# BatteryHub v1.7.2 (Rust)
+# BatteryHub v1.7.3 (Rust)
 
 An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor). All credit for the original idea, look and device protocols goes to the original project.
 
@@ -6,10 +6,16 @@ An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of 
 
 | File | |
 |---|---|
-| `BatteryHub-Taskbar-Setup-v1.7.2.exe` | Setup: Install / Update / Uninstall |
+| `BatteryHub-Taskbar-Setup-v1.7.3.exe` | Setup: Install / Update / Uninstall |
 | `SHA256SUMS.txt` | Checksum |
 
 Already installed? Use *Check for updates...* in the right-click menu (v1.1 and later), or run the new setup and click **Update**. Your settings and autostart choice are kept.
+
+## New in v1.7.3
+
+- **Vertical and auto-hiding taskbars:** the widget now also shows on other monitors' vertical taskbars, right above their clock; the right-click menu stays open on an auto-hiding taskbar; the card slides in from the side and glides between devices.
+- **Other monitors:** the widget pops in and out (with motion blur) when it appears on or leaves a monitor, animates smoothly there, no longer stays blank until the mouse goes over it, and steps aside for full-screen games and videos.
+- **Charts show the warning level:** the card's chart and forecast are red at or below the device's red-warning level.
 
 ## New in v1.7.2
 
