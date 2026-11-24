@@ -213,24 +213,24 @@ The original C++ BatteryHub uses different names (`Program Files\BatteryHub`, `H
 
 ## Resource usage vs. the original
 
-Both programs running **side by side on the same PC**, the same devices connected (Logitech LIGHTSPEED mouse, SteelSeries 2.4 GHz headset dongle, Bluetooth), default settings (refresh every minute), sampled every 2 s for 3 minutes after start-up. Method, raw samples and older runs: [bench/RESULTS.md](bench/RESULTS.md).
+Both programs running **side by side on the same PC** (Windows 11 build 26300, x64, two monitors), the same devices connected (Logitech PRO 2 LIGHTSPEED mouse, SteelSeries 2.4 GHz headset dongle, Bluetooth), default settings (refresh every minute). The original was given 75 s to start, then both were sampled every 2 s for 3 minutes on 25 November 2026. Method, raw samples and older runs: [bench/RESULTS.md](bench/RESULTS.md).
 
-| | **BatteryHub (Rust) v1.1** | BatteryHub (C++) 1.1.0 | |
+| | **BatteryHub (Rust) v1.7.3** | BatteryHub (C++) 1.1.1 | |
 |---|---:|---:|---:|
-| **RAM in Task Manager** ("Memory" column), median | **0.20 MB** | 4.66 MB | **23× less** |
-| RAM in Task Manager, average / max | 0.33 / 0.82 MB | 4.65 / 4.92 MB | |
-| Working set incl. shared system DLLs | **1.3 MB** | 27.5 MB | 21× less |
-| Private bytes (commit) | **4.6 MB** | 6.0 MB | |
-| CPU time per minute | **0.11 s** | 0.88 s | 8× less |
-| Threads | **9** | 15 | |
-| Handles | 367 | 375 | |
-| Program file | **about 500 KB** | 1,958 KB | 4× smaller |
+| **RAM in Task Manager** ("Memory" column), median | **0.09 MB** | 2.88 MB | **32× less** |
+| RAM in Task Manager, average / max | 0.20 / 1.82 MB | 2.84 / 3.73 MB | |
+| Working set incl. shared system DLLs | **0.58 MB** | 10.51 MB | 18× less |
+| Private bytes (commit) | **5.3 MB** | 6.8 MB | |
+| CPU time per minute | **0.23 s** | 1.52 s | 6.6× less |
+| Threads | **10** | 17 | |
+| Handles | **379** | 427 | |
+| Program file | **1,598 KB** | 2,630 KB | 1.6× smaller |
 
-**v1.5**, with about 40 more device drivers, the hover card and its 24-hour history: program 867 KB, setup 1.6 MB. In a 90-second check the Task Manager median was **0.12 MB**, with short peaks up to about 1 MB while the devices are being read.
+The short peaks (max 1.8 MB) come while the devices are read; the memory goes back to Windows right after. Since v1.1 the program grew from about 500 KB to 1.6 MB with over 60 device drivers, 21 languages, the hover card with its forecast, the dashboard and the animations, and it still uses less memory than then (median 0.20 MB in v1.1).
 
 What keeps it small: memory needed only for a moment (a read, a Bluetooth check) is handed back to Windows right after; settings are cached; Bluetooth LE is listened to only while reading; the device list is cached and rescanned only when it changes; only Bluetooth device nodes are enumerated; the Xbox input APIs and WinHTTP are loaded only when needed.
 
-**To be fair:** the original has more device drivers (about 100), brand colours and more options. Part of the difference is less code doing less work, not only the language.
+**To be fair:** the original has brand colours and options this version doesn't have. Part of the difference is less code doing less work, not only the language.
 
 ## Taskbar compatibility
 

@@ -4,7 +4,25 @@ Measured on 2026-11-21 on Windows 11 (build 26300), x64, with the same devices c
 
 Each program was sampled every 2 s with [`measure.ps1`](measure.ps1), which reports the numbers Task Manager shows. "Steady" means after start-up (t ≥ 30 s).
 
-## Latest: side by side, v1.1 vs. C++ 1.1.0
+## Latest: side by side, v1.7.3 vs. C++ 1.1.1
+
+Measured on 2026-11-25, both programs running at the same time on the same PC (Windows 11 build 26300, x64, two monitors), same devices connected (Logitech PRO 2 LIGHTSPEED receiver, SteelSeries 2.4 GHz headset dongle, Bluetooth), default settings (refresh every minute). The C++ app was given 75 s to start, then both were sampled every 2 s for 3 minutes with [`compare.ps1`](compare.ps1) (44 samples each). Raw samples: [`side-by-side-rust-v1.7.3.csv`](side-by-side-rust-v1.7.3.csv), [`side-by-side-cpp-1.1.1.csv`](side-by-side-cpp-1.1.1.csv).
+
+| | **Rust v1.7.3** | C++ 1.1.1 |
+|---|---:|---:|
+| RAM in Task Manager ("Memory" = private working set), median | **0.09 MB** | 2.88 MB |
+| RAM in Task Manager, average | **0.20 MB** | 2.84 MB |
+| RAM in Task Manager, max | **1.82 MB** | 3.73 MB |
+| Working set incl. shared system DLLs, average | **0.58 MB** | 10.51 MB |
+| Private bytes (commit), average | **5.33 MB** | 6.78 MB |
+| CPU time per minute | **0.23 s** | 1.52 s |
+| Threads (max) | **10** | 17 |
+| Handles (max) | **379** | 427 |
+| Program file | **1,598 KB** | 2,630 KB |
+
+v1.7.3 does much more than v1.1 (over 60 drivers, the hover card with forecast, the dashboard, copies on other monitors, animations); its CPU time per minute doubled (0.11 -> 0.23 s), its memory went down.
+
+## Earlier: side by side, v1.1 vs. C++ 1.1.0
 
 Both programs running at the same time on the same PC (Windows 11 build 26300, x64), same devices connected (Logitech PRO 2 LIGHTSPEED receiver, SteelSeries Arctis Nova 3P dongle, Bluetooth), default settings (refresh every minute). The C++ app was given 75 s to start (it restarts itself once), then both were sampled every 2 s for 3 minutes with [`compare.ps1`](compare.ps1). Raw samples: [`side-by-side-rust-v1.1.csv`](side-by-side-rust-v1.1.csv), [`side-by-side-cpp-1.1.0.csv`](side-by-side-cpp-1.1.0.csv).
 
