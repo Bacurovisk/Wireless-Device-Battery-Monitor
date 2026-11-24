@@ -1077,10 +1077,14 @@ impl App {
         if !self.popping(self.strip) {
             self.push(self.strip);
         }
-        for i in 0..self.mirrors.len() {
-            let m = self.mirrors[i].1;
-            if !self.popping(m) {
-                self.push(m);
+        // Same size: the copies get the new image here. A new size: their placement below gives
+        // it to them together with their new place.
+        if !resized {
+            for i in 0..self.mirrors.len() {
+                let m = self.mirrors[i].1;
+                if !self.popping(m) {
+                    self.push(m);
+                }
             }
         }
         for i in 0..self.parked.len() {
@@ -1171,12 +1175,34 @@ impl App {
         self.size = SIZE { cx: w, cy: h };
         self.pixels = cv.px;
         self.lit = self.hover_pixels();
-        self.push(self.strip);
+        if !self.popping(self.strip) {
+            self.push(self.strip);
+        }
+        // The copies on other monitors too (they only got the image at the once-a-second
+        // placement before, so their animations stuttered). A new size: their placement gives it
+        // to them together with their new place.
+        if !resized {
+            for i in 0..self.mirrors.len() {
+                let m = self.mirrors[i].1;
+                if !self.popping(m) {
+                    self.push(m);
+                }
+            }
+        }
+        for i in 0..self.parked.len() {
+            let m = self.parked[i].1;
+            if !self.popping(m) {
+                self.push(m);
+            }
+        }
         if !resized && (self.drag.is_some() || !self.slides.is_empty() || !self.presence.is_empty()) {
             return; // an animation frame: same size, same place
         }
         self.last_place.2 = -1;
         self.place();
+        for i in 0..self.mirrors.len() {
+            self.place_mirror_at(i);
+        }
     }
 
     /// The last render on the taskbar's hover plate: a rounded, slightly lighter (dark taskbar) or
@@ -1223,6 +1249,12 @@ impl App {
 
     /// Shows `px` (premultiplied, the strip's size) in `strip`.
     fn push_px(&self, strip: HWND, px: &[u32]) {
+        self.push_px_at(strip, px, None);
+    }
+
+    /// Like push_px, and moves the window to `at` (screen) in the same step: a copy that changes
+    /// size and place shows the new image in the new place at once, never for a frame in between.
+    fn push_px_at(&self, strip: HWND, px: &[u32], at: Option<POINT>) {
         let (w, h) = (self.size.cx, self.size.cy);
         if strip.0.is_null() || px.len() != (w * h) as usize {
             return;
@@ -1248,7 +1280,7 @@ impl App {
                 let ob = SelectObject(mem, HGDIOBJ(bmp.0));
                 let src = POINT::default();
                 let bf = BLENDFUNCTION { BlendOp: AC_SRC_OVER as u8, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: AC_SRC_ALPHA as u8 };
-                let _ = UpdateLayeredWindow(strip, Some(screen), None, Some(&self.size), Some(mem), Some(&src), COLORREF(0), Some(&bf), ULW_ALPHA);
+                let _ = UpdateLayeredWindow(strip, Some(screen), at.as_ref().map(|p| p as *const POINT), Some(&self.size), Some(mem), Some(&src), COLORREF(0), Some(&bf), ULW_ALPHA);
                 SelectObject(mem, ob);
                 let _ = DeleteObject(HGDIOBJ(bmp.0));
             }
@@ -1790,9 +1822,15 @@ impl App {
                 // A popup: screen coordinates, above the (topmost) taskbar.
                 let mut sp = POINT { x: left, y: top };
                 let _ = ClientToScreen(bar, &mut sp);
-                let _ = SetWindowPos(strip, Some(HWND_TOPMOST), sp.x, sp.y, size.cx, size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-                if !self.popping(strip) {
-                    self.push(strip);
+                if self.popping(strip) {
+                    let _ = SetWindowPos(strip, Some(HWND_TOPMOST), sp.x, sp.y, size.cx, size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                } else {
+                    // New image, size and place in one step, then shown (on top) if it was hidden.
+                    let px = if strip == self.hovered && self.lit.len() == self.pixels.len() { &self.lit } else { &self.pixels };
+                    self.push_px_at(strip, px, Some(sp));
+                    if hidden {
+                        let _ = SetWindowPos(strip, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                    }
                 }
             }
         }
