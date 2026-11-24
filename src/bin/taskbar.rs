@@ -1485,7 +1485,13 @@ impl App {
                         let _ = GetWindowRect(clock, &mut cr);
                         cr.top
                     }
-                    _ => br.bottom - (130.0 * s) as i32,
+                    // Windows 11 (with a vertical-taskbar mod) draws the clock itself: ask UI
+                    // Automation where its notification-area items start, as for horizontal ones.
+                    _ => match batteryhub::tray_probe::tray_left(bar, br, self.main, WM_TRAY_PROBED) {
+                        batteryhub::tray_probe::TrayEdge::Known(y) => y,
+                        batteryhub::tray_probe::TrayEdge::Pending => return true,
+                        batteryhub::tray_probe::TrayEdge::Unknown => br.bottom - (130.0 * s) as i32,
+                    },
                 };
                 let mut p = POINT { x: br.left, y: bottom };
                 let _ = ScreenToClient(bar, &mut p);
@@ -1814,6 +1820,17 @@ impl App {
             rgb(108, 203, 95)
         };
         let charge_c = if light { rgb(0, 95, 184) } else { rgb(96, 205, 255) };
+        // The chart: green above the red-warning level, red at or below it (charging stays blue).
+        let (ok_c, low_c) = (if light { rgb(16, 124, 16) } else { rgb(108, 203, 95) }, ui::low_color(light));
+        let level_c = move |level: f64, charging: bool| {
+            if charging {
+                charge_c
+            } else if level <= th as f64 {
+                low_c
+            } else {
+                ok_c
+            }
+        };
         let Some(f) = self.fonts.as_ref() else { return (1, 1, vec![0]) };
         let (icon_f, name_f, big_f, small_f) = (f.card_icon, f.card_name, f.card_big, f.card_small);
 
@@ -1962,15 +1979,14 @@ impl App {
                     st.discharge_estimate()
                 }
             };
-            let c_of = |chg: bool| if chg { charge_c } else { accent };
             let segs = batteryhub::history::segments(&series, from, now);
             for seg in &segs {
                 for pair in seg.windows(2) {
                     let (a, b) = (pair[0], pair[1]);
-                    let c = c_of(a.charging());
-                    // Steps, not slopes: a level holds until the next reading.
-                    cv.line(to_x(a.t), to_y(a.level), to_x(b.t), to_y(a.level), lw, c);
-                    cv.line(to_x(b.t), to_y(a.level), to_x(b.t), to_y(b.level), lw, c);
+                    // Steps, not slopes: a level holds until the next reading. The step takes the
+                    // colour of its level, the drop (or rise) the colour of the level it reaches.
+                    cv.line(to_x(a.t), to_y(a.level), to_x(b.t), to_y(a.level), lw, level_c(a.level as f64, a.charging()));
+                    cv.line(to_x(b.t), to_y(a.level), to_x(b.t), to_y(b.level), lw, level_c(b.level as f64, b.charging()));
                 }
             }
             // Dotted "now" line in the middle.
@@ -1982,17 +1998,27 @@ impl App {
             // Forecast: dashed, from the current level until empty (or full), then level.
             let level_now = (*level).clamp(0, 100) as f64;
             if let Some(e) = lane_est {
-                let c = c_of(*charging);
                 let room = if *charging { 100.0 - level_now } else { level_now };
                 let reach = now + ((room / e.rate) * 3600.0).min((to - now) as f64) as u64;
                 let end_level = batteryhub::stats::project(level_now, e.rate, *charging, reach - now);
-                cv.dashed(xm, to_yf(level_now), to_x(reach), to_yf(end_level), lw, c, px(5.0));
+                // On battery the forecast turns red where it reaches the red-warning level.
+                let th_f = th as f64;
+                let cross = (!*charging && level_now > th_f && end_level < th_f)
+                    .then(|| now + ((level_now - th_f) / e.rate * 3600.0) as u64)
+                    .filter(|&t| t > now && t < reach);
+                match cross {
+                    Some(t) => {
+                        cv.dashed(xm, to_yf(level_now), to_x(t), to_yf(th_f), lw, ok_c, px(5.0));
+                        cv.dashed(to_x(t), to_yf(th_f), to_x(reach), to_yf(end_level), lw, low_c, px(5.0));
+                    }
+                    None => cv.dashed(xm, to_yf(level_now), to_x(reach), to_yf(end_level), lw, level_c(level_now, *charging), px(5.0)),
+                }
                 if reach < to {
-                    cv.dashed(to_x(reach), to_yf(end_level), x1, to_yf(end_level), lw, c, px(5.0));
+                    cv.dashed(to_x(reach), to_yf(end_level), x1, to_yf(end_level), lw, level_c(end_level, *charging), px(5.0));
                 }
             }
             if let Some(last) = segs.last().and_then(|s| s.last()) {
-                cv.disc(to_x(last.t), to_y(last.level), px(3.5), c_of(last.charging()));
+                cv.disc(to_x(last.t), to_y(last.level), px(3.5), level_c(last.level as f64, last.charging()));
             }
             if let Some(l) = label {
                 let m = mask(l, small_f, light);
@@ -2014,7 +2040,7 @@ impl App {
                 }
                 let v = if t.abs_diff(now) < 90 && lane_now { Some(level_now) } else { value_at(t) };
                 if let Some(v) = v {
-                    cv.disc(sx, to_yf(v), px(3.5), c_of(*charging && t >= now));
+                    cv.disc(sx, to_yf(v), px(3.5), level_c(v, *charging && t >= now));
                 }
                 scrub_texts.push((label.clone(), v, value_at(t.saturating_sub(3600))));
             }
@@ -2090,7 +2116,8 @@ impl App {
                 let mid = (mi.rcMonitor.left + mi.rcMonitor.right) / 2;
                 let x = if rc.left < mid { rc.right + gap } else { rc.left - w - gap };
                 let y = (rc.top + (from + to) / 2 - h / 2).clamp(work.top + gap, (work.bottom - h - gap).max(work.top));
-                (x, y, 0)
+                // Slides 10 px sideways, away from the taskbar.
+                (x, y, (10.0 * self.scale()) as i32 * if x > rc.left { -1 } else { 1 })
             } else {
                 let x = (rc.left + (from + to) / 2 - w / 2).clamp(work.left + gap, (work.right - w - gap).max(work.left));
                 let y = if rc.top - h - gap >= work.top { rc.top - h - gap } else { rc.bottom + gap };
@@ -2116,11 +2143,29 @@ impl App {
                 _ => None,
             };
             let crossing = prev.is_some();
+            let prev_y = if old.drawn.1 > 0 { old.drawn_y } else { old.y };
             let (bg, border) = self.card_colors();
             let radius = (8.0 * self.scale()).round() as i32;
             let scale = self.scale();
             self.card_anim =
-                CardAnim { at: old.at, showing: true, visible: true, x, y, slide, content: Some(content), prev, drawn: old.drawn, bg, border, radius, scale };
+                CardAnim {
+                at: old.at,
+                showing: true,
+                visible: true,
+                x,
+                y,
+                slide,
+                content: Some(content),
+                prev,
+                drawn: old.drawn,
+                vertical: self.vertical,
+                prev_y,
+                drawn_y: old.drawn_y,
+                bg,
+                border,
+                radius,
+                scale,
+            };
             if crossing {
                 self.card_anim.at = Some(Instant::now());
                 SetTimer(Some(self.main), TIMER_CARD, 15, None);
@@ -2242,17 +2287,28 @@ impl App {
         let (bg, border, radius, scale) = (a.bg, a.border, a.radius, a.scale);
         let h = content.h;
         let (pos, size, bx, bw, layers, alpha): (POINT, SIZE, i32, i32, Vec<Layer>, u8);
+        let drawn_y: i32;
         if let (true, Some((ox, ow, old))) = (a.showing, &a.prev) {
             // Ease in-out, like the taskbar's window previews moving between buttons.
             let e = if t < 0.5 { 4.0 * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(3) / 2.0 };
             let lerp = |p: i32, q: i32| p + ((q - p) as f32 * e).round() as i32;
             let (cx, cw) = (lerp(*ox, a.x), lerp(*ow, content.w));
-            let (ux0, ux1) = (a.x.min(*ox), (a.x + content.w).max(ox + ow));
             // Old content blurs away while the new one comes into focus.
             let (ro, rn) = ((BLUR_MAX * e * scale).round() as i32, (BLUR_MAX * (1.0 - e) * scale).round() as i32);
-            pos = POINT { x: ux0, y: a.y };
-            size = SIZE { cx: ux1 - ux0, cy: h };
-            (bx, bw) = (cx - ux0, cw);
+            if a.vertical {
+                // Devices are above one another: the whole card glides to the new one.
+                let cy = lerp(a.prev_y, a.y);
+                pos = POINT { x: cx, y: cy };
+                size = SIZE { cx: cw, cy: h };
+                (bx, bw) = (0, cw);
+                drawn_y = cy;
+            } else {
+                let (ux0, ux1) = (a.x.min(*ox), (a.x + content.w).max(ox + ow));
+                pos = POINT { x: ux0, y: a.y };
+                size = SIZE { cx: ux1 - ux0, cy: h };
+                (bx, bw) = (cx - ux0, cw);
+                drawn_y = a.y;
+            }
             layers = vec![(old.clone(), 1.0 - e, ro), (content.clone(), e, rn)];
             alpha = 255;
             self.card_anim.drawn = (cx, cw);
@@ -2261,13 +2317,16 @@ impl App {
             let (fade, dy) = if a.showing { (ease, a.slide as f32 * (1.0 - ease)) } else { (1.0 - t, 0.0) };
             // Comes into focus while appearing, goes slightly out of focus while disappearing.
             let r = if a.showing { BLUR_MAX * (1.0 - ease) } else { BLUR_MAX * 0.6 * t };
-            pos = POINT { x: a.x, y: a.y + dy.round() as i32 };
+            let d = dy.round() as i32;
+            drawn_y = a.y;
+            pos = if a.vertical { POINT { x: a.x + d, y: a.y } } else { POINT { x: a.x, y: a.y + d } };
             size = SIZE { cx: content.w, cy: h };
             (bx, bw) = (0, content.w);
             layers = vec![(content.clone(), 1.0, (r * scale).round() as i32)];
             alpha = (fade * 255.0).round() as u8;
             self.card_anim.drawn = (a.x, content.w);
         }
+        self.card_anim.drawn_y = drawn_y;
         let surface = match self.card_surface.take() {
             Some(s) if s.w >= size.cx && s.h >= size.cy => Some(s),
             // A quarter more than needed now: switching between neighbouring devices (the usual
@@ -3943,6 +4002,11 @@ struct CardAnim {
     prev: Option<(i32, i32, Rc<CardContent>)>,
     /// Background drawn in the last frame (screen x, width): the next switch starts there.
     drawn: (i32, i32),
+    /// Vertical taskbar: the card sits beside it, switches glide up / down (from `prev_y`, the
+    /// screen y drawn when the switch started) and it slides in sideways.
+    vertical: bool,
+    prev_y: i32,
+    drawn_y: i32,
     bg: COLORREF,
     border: COLORREF,
     radius: i32,

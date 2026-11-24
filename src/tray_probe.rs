@@ -28,7 +28,7 @@ const TRAY_ID: &str = "SystemTrayIcon";
 /// Where a taskbar's notification area begins.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrayEdge {
-    /// Screen x of the first notification-area item.
+    /// Screen x of the first notification-area item (screen y on a vertical taskbar).
     Known(i32),
     /// First check still running: keep the widget hidden for now.
     Pending,
@@ -38,7 +38,7 @@ pub enum TrayEdge {
 
 struct Entry {
     bar: (i32, i32, i32, i32),
-    /// Distance of the first item from the taskbar's right end.
+    /// Distance of the first item from the taskbar's right end (bottom end when vertical).
     from_right: Option<i32>,
     at: Instant,
     /// Check again at the next call (the answer is kept until then).
@@ -55,16 +55,20 @@ struct Cache {
 static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
 static BUSY: AtomicBool = AtomicBool::new(false);
 
-/// Where the notification area of `bar` (screen rectangle `bar_rect`) begins. Starts a background
-/// check when the answer is missing, stale, or the taskbar changed.
+/// Where the notification area of `bar` (screen rectangle `bar_rect`) begins: its left edge, or its
+/// top edge on a vertical taskbar. Starts a background check when the answer is missing, stale, or
+/// the taskbar changed.
 pub fn tray_left(bar: HWND, bar_rect: RECT, notify: HWND, msg: u32) -> TrayEdge {
     let key = bar.0 as isize;
     let r = (bar_rect.left, bar_rect.top, bar_rect.right, bar_rect.bottom);
+    let vertical = r.3 - r.1 > r.2 - r.0;
+    // The axis along the taskbar: (start, end) of the bar on it.
+    let (lo, hi) = if vertical { (r.1, r.3) } else { (r.0, r.2) };
     let (edge, stale) = {
         let mut g = CACHE.lock().unwrap_or_else(|e| e.into_inner());
         let c = g.get_or_insert_with(Cache::default);
         match c.known.get(&key) {
-            Some(e) => (e.from_right.map_or(TrayEdge::Unknown, |d| TrayEdge::Known(r.2 - d)), e.dirty || e.bar != r || e.at.elapsed() >= REFRESH),
+            Some(e) => (e.from_right.map_or(TrayEdge::Unknown, |d| TrayEdge::Known(hi - d)), e.dirty || e.bar != r || e.at.elapsed() >= REFRESH),
             None => {
                 let since = *c.asked.entry(key).or_insert_with(Instant::now);
                 (if since.elapsed() < FIRST_WAIT { TrayEdge::Pending } else { TrayEdge::Unknown }, true)
@@ -74,7 +78,7 @@ pub fn tray_left(bar: HWND, bar_rect: RECT, notify: HWND, msg: u32) -> TrayEdge 
     if stale && !BUSY.swap(true, Ordering::SeqCst) {
         let notify = notify.0 as isize;
         std::thread::spawn(move || {
-            let from_right = probe(key).filter(|x| *x > r.0 && *x < r.2).map(|x| r.2 - x);
+            let from_right = probe(key, vertical).filter(|x| *x > lo && *x < hi).map(|x| hi - x);
             {
                 let mut g = CACHE.lock().unwrap_or_else(|e| e.into_inner());
                 let c = g.get_or_insert_with(Cache::default);
@@ -102,8 +106,8 @@ pub fn taskbars_changed() {
     }
 }
 
-/// Leftmost `SystemTrayIcon` element under the taskbar window `bar`.
-fn probe(bar: isize) -> Option<i32> {
+/// Leftmost (topmost when `vertical`) `SystemTrayIcon` element under the taskbar window `bar`.
+fn probe(bar: isize, vertical: bool) -> Option<i32> {
     unsafe {
         let init = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
         let found = (|| -> windows::core::Result<Option<i32>> {
@@ -117,8 +121,9 @@ fn probe(bar: isize) -> Option<i32> {
                     continue;
                 }
                 let b = e.CurrentBoundingRectangle()?;
-                if b.right > b.left {
-                    best = Some(best.map_or(b.left, |x| x.min(b.left)));
+                if b.right > b.left && b.bottom > b.top {
+                    let edge = if vertical { b.top } else { b.left };
+                    best = Some(best.map_or(edge, |x| x.min(edge)));
                 }
             }
             Ok(best)
