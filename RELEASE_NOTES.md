@@ -14,7 +14,8 @@ Already installed? Use *Check for updates...* in the right-click menu (v1.1 and 
 ## New in v1.7
 
 - **21 languages**, following Windows by default; pick another or make your own under *Language* (#177).
-- **Hide a device** from the taskbar from its menu (#176). **Drag devices** to reorder them; every device keeps its place, new ones start on the left.
+- **Move and swap devices on the taskbar:** drag a device onto another place with the mouse (the others slide aside), or use *Move left / Move right* in its menu. Every device keeps its place, and a new device starts on the far left.
+- **Hide a device** from the taskbar from its menu (#176).
 - **AirPods and other earbuds:** their own icon, the weaker bud on the taskbar, a chart per bud in the card, and charging updates within seconds.
 - **New dashboard look**, and the card's forecast per hour when you move the mouse along the chart.
 - **New devices:** ASTRO A50 Gen 5 and Pulsar XS-1 TenZ (by [fevegit](https://github.com/fevegit), #174), NZXT Lift Elite (by [BatuDege](https://github.com/BatuDege), #184), Corsair Scimitar, SteelSeries Arctis Nova Pro Omni and the dock battery (by [Simdrom](https://github.com/Simdrom), #189), Cidoo QK61 V2 and other keyboards on `36B0:3002` (#175), Ardor Gaming receivers (#181, #185), IO Nova SE on its cable (#172).
