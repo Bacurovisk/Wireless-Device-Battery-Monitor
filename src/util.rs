@@ -57,6 +57,10 @@ pub fn guess_kind(name: &str) -> DeviceKind {
     if has("controller") || has("gamepad") || has("xbox") || has("dualsense") || has("dualshock") || has("joy-con") {
         return DeviceKind::Gamepad;
     }
+    // In-ear: two buds (AirPods Max and other over-ear "pods" are headsets).
+    if !has("max") && ["buds", "pods", "wf-", "earphone", "in-ear"].iter().any(|s| has(s)) {
+        return DeviceKind::Earbuds;
+    }
     if ["head", "buds", "pods", "ear", "wh-", "wf-", "audio", "speaker", "arctis", "cloud", "void", "virtuoso"].iter().any(|s| has(s)) {
         return DeviceKind::Headset;
     }

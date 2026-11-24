@@ -132,6 +132,20 @@ fn on_received(args: &BluetoothLEAdvertisementReceivedEventArgs) -> windows::cor
     Ok(())
 }
 
+/// When the watcher last started listening: broadcasts heard after it are fresh.
+static STARTED: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// When the current listening started (None = not listening yet).
+pub fn listening_since() -> Option<Instant> {
+    *STARTED.lock().ok()?
+}
+
+fn mark_started() {
+    if let Ok(mut t) = STARTED.lock() {
+        *t = Some(Instant::now());
+    }
+}
+
 fn watcher() -> &'static Mutex<Option<BluetoothLEAdvertisementWatcher>> {
     static W: OnceLock<Mutex<Option<BluetoothLEAdvertisementWatcher>>> = OnceLock::new();
     W.get_or_init(|| Mutex::new(None))
@@ -154,7 +168,11 @@ pub fn ensure_watcher() -> bool {
             || st == BluetoothLEAdvertisementWatcherStatus::Aborted
             || st == BluetoothLEAdvertisementWatcherStatus::Created
         {
-            return w.Start().is_ok();
+            let ok = w.Start().is_ok();
+            if ok {
+                mark_started();
+            }
+            return ok;
         }
         return false;
     }
@@ -172,6 +190,7 @@ pub fn ensure_watcher() -> bool {
     };
     match start() {
         Ok(w) => {
+            mark_started();
             *guard = Some(w);
             true
         }

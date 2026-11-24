@@ -364,6 +364,57 @@ impl Buffer {
         self.rrect(x + 1.0, y + 1.0, w - 2.0, h - 2.0, (r - 1.0).max(0.0), fill, 1.0);
     }
 
+    /// Anti-aliased ring of thickness `t` around (cx, cy): the arc runs clockwise from the top over
+    /// `frac` (0..1) of the circle, with round ends; `frac` >= 1 draws the whole ring.
+    #[allow(clippy::too_many_arguments)]
+    pub fn arc(&mut self, cx: f32, cy: f32, r: f32, t: f32, frac: f32, c: COLORREF, alpha: f32) {
+        if frac <= 0.0 {
+            return;
+        }
+        let v = pixel(c);
+        let _ = self.px();
+        let tau = std::f32::consts::TAU;
+        let sweep = frac.min(1.0) * tau;
+        // The two ends, for the round caps.
+        let end = |a: f32| (cx + r * a.sin(), cy - r * a.cos());
+        let (s0, s1) = (end(0.0), end(sweep));
+        let reach = r + t;
+        for yy in (cy - reach).floor() as i32..=(cy + reach).ceil() as i32 {
+            for xx in (cx - reach).floor() as i32..=(cx + reach).ceil() as i32 {
+                let (x, y) = (xx as f32 + 0.5, yy as f32 + 0.5);
+                let (dx, dy) = (x - cx, y - cy);
+                // Angle clockwise from the top, 0..TAU.
+                let mut a = dx.atan2(-dy);
+                if a < 0.0 {
+                    a += tau;
+                }
+                let sd = if frac >= 1.0 || a <= sweep {
+                    (dx.hypot(dy) - r).abs() - t / 2.0
+                } else {
+                    (x - s0.0).hypot(y - s0.1).min((x - s1.0).hypot(y - s1.1)) - t / 2.0
+                };
+                let cov = (0.5 - sd).clamp(0.0, 1.0);
+                if cov > 0.0 {
+                    self.put(xx, yy, v, cov * alpha);
+                }
+            }
+        }
+    }
+
+    /// Draws a size x size coverage mask (0-255) at (x, y) in colour `c`.
+    pub fn mask(&mut self, x: i32, y: i32, size: i32, a: &[u8], c: COLORREF) {
+        let v = pixel(c);
+        let _ = self.px();
+        for yy in 0..size {
+            for xx in 0..size {
+                let cov = a[(yy * size + xx) as usize];
+                if cov > 0 {
+                    self.put(x + xx, y + yy, v, cov as f32 / 255.0);
+                }
+            }
+        }
+    }
+
     pub fn circle(&mut self, cx: f32, cy: f32, r: f32, c: COLORREF, alpha: f32) {
         self.rrect(cx - r, cy - r, 2.0 * r, 2.0 * r, r, c, alpha);
     }
@@ -512,6 +563,62 @@ pub fn button(b: &mut Buffer, fonts: &mut Fonts, t: &Theme, s: f32, r: RECT, lab
     }
     let f = fonts.get((14.0 * s).round() as i32, 400, Face::Text);
     b.text(label, f, fg, r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
+// ---- the earbuds icon ----------------------------------------------------------------------------
+
+/// Top and bottom of the earbuds' outline, as parts of the icon's size (for lining it up with glyphs).
+pub const EARBUDS_INK: (f32, f32) = (0.13, 0.955);
+
+/// Opacity of a bud that is not reporting (asleep or in the closed case).
+const BUD_OFF: u32 = 110;
+
+/// Coverage (0-255, size x size) of the earbuds icon in the outline style of the Fluent glyphs: two
+/// buds with stems, the ear tips facing each other. A side that is off is drawn faint.
+pub fn earbuds_icon(size: i32, left_on: bool, right_on: bool) -> Vec<u8> {
+    let n = size.max(8);
+    let s = n as f32;
+    // Signed distances in units of the icon size (the right bud; the left one is its mirror).
+    fn ellipse(x: f32, y: f32, cx: f32, cy: f32, rx: f32, ry: f32) -> f32 {
+        (((x - cx) / rx).hypot((y - cy) / ry) - 1.0) * rx.min(ry)
+    }
+    fn capsule(x: f32, y: f32, (ax, ay): (f32, f32), (bx, by): (f32, f32), r: f32) -> f32 {
+        let (px, py, dx, dy) = (x - ax, y - ay, bx - ax, by - ay);
+        let h = ((px * dx + py * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
+        (px - dx * h).hypot(py - dy * h) - r
+    }
+    fn smooth_min(a: f32, b: f32, k: f32) -> f32 {
+        let h = (k - (a - b).abs()).max(0.0) / k;
+        a.min(b) - h * h * k / 4.0
+    }
+    let body = |x: f32, y: f32| {
+        let head = ellipse(x, y, 0.80, 0.31, 0.15, 0.145);
+        smooth_min(head, capsule(x, y, (0.845, 0.38), (0.89, 0.86), 0.06), 0.06)
+    };
+    let tip = |x: f32, y: f32| ellipse(x, y, 0.635, 0.37, 0.05, 0.06);
+    let stroke = (s / 14.0).max(1.0) / s;
+    let ss = 4;
+    let mut out = vec![0u8; (n * n) as usize];
+    for py in 0..n {
+        for px in 0..n {
+            let left = px * 2 < n;
+            let mut hits = 0;
+            for sy in 0..ss {
+                for sx in 0..ss {
+                    let x = (px as f32 + (sx as f32 + 0.5) / ss as f32) / s;
+                    let y = (py as f32 + (sy as f32 + 0.5) / ss as f32) / s;
+                    let x = if left { 1.0 - x } else { x };
+                    if body(x, y).abs() <= stroke / 2.0 || tip(x, y) <= stroke * 0.2 {
+                        hits += 1;
+                    }
+                }
+            }
+            let cover = hits * 255 / (ss * ss) as u32;
+            let on = if left { left_on } else { right_on };
+            out[(py * n + px) as usize] = if on { cover } else { cover * BUD_OFF / 255 } as u8;
+        }
+    }
+    out
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 <p align="center"><img src="res/batteryhub.png" width="112" alt="BatteryHub icon"></p>
 
-<h1 align="center">BatteryHub v1.6</h1>
+<h1 align="center">BatteryHub v1.7</h1>
 
 <p align="center">
 <b>An ultra-lightweight Rust implementation of BatteryHub for Windows.</b><br>
@@ -34,11 +34,11 @@ Developed by [@ferloom](https://github.com/ferloom) with the help of Claude (AI)
 
 ## Contents
 
-[Download](#download) · [Problem with a new version?](#problem-with-a-new-version-downgrade-and-report-it) · [Features](#features) · [Using it](#using-it) · [Setup](#setup-install--update--uninstall) · [Resource usage vs. the original](#resource-usage-vs-the-original) · [Taskbar compatibility](#taskbar-compatibility) · [Supported devices](#supported-devices) · [Unsupported devices](#unsupported-devices) · [Testing](#testing) · [Building](#building-from-source) · [License](#license)
+[Download](#download) · [Problem with a new version?](#problem-with-a-new-version-downgrade-and-report-it) · [Features](#features) · [Using it](#using-it) · [Your own language](#translations-create-your-own-language) · [Setup](#setup-install--update--uninstall) · [Resource usage vs. the original](#resource-usage-vs-the-original) · [Taskbar compatibility](#taskbar-compatibility) · [Supported devices](#supported-devices) · [Unsupported devices](#unsupported-devices) · [Testing](#testing) · [Building](#building-from-source) · [License](#license)
 
 ## Download
 
-Get **`BatteryHub-Taskbar-Setup-v1.6.exe`** from the [**latest release**](../../releases/latest), run it and click **Install**.
+Get **`BatteryHub-Taskbar-Setup-v1.7.exe`** from the [**latest release**](../../releases/latest), run it and click **Install**.
 
 - No administrator rights needed (per-user install).
 - Already installed? Use *Check for updates...* in the right-click menu, or run the new setup and click **Update**.
@@ -66,9 +66,11 @@ Your warning levels, device names, options and battery history are kept either w
 ## Features
 
 - **On the taskbar, next to the clock:** one icon and percentage per device (`🎧 27%  🖱 96%`), in the original's look (Segoe Fluent Icons, Segoe UI Variable, ClearType), following light / dark mode and DPI.
-- **Hover a device** for a card with its name, level, connection and a chart of the **last 24 hours** (charging in blue), fading in and cross-fading between devices like the taskbar's window previews; the widget lights up like the taskbar's own buttons.
-- **Device dashboard** (right-click a device → *Dashboard...*): level and state, a 24 h / 3-day / 7-day chart with charging marked, the charge and discharge sessions, and statistics (typical battery life, time left, charge and discharge rates per hour). Where there is too little data it says so instead of guessing.
-- **7-day battery history:** one point per change (at least every 10 minutes), kept 7 days, in `%LOCALAPPDATA%\BatteryHub\Taskbar\History.bin`. Times when BatteryHub was not running stay empty: nothing is filled in.
+- **Hover a device** for a card with its name, level, **estimated time left** (or time to full while charging), connection and a chart of the **last 12 hours with now in the middle and a forecast of the next 12** (dashed; charging in blue), fading in and cross-fading between devices like the taskbar's window previews; the widget lights up like the taskbar's own buttons.
+- **Move the mouse onto the card** and it stays open: along the chart it shows each hour's level and its change from the hour before, measured in the past and forecast ahead. The estimate is made from what has been measured so far, from the first 1% drop on, and gets more exact over time; once there is an hour of data with a 5% drop, the average of all measured stretches on battery is used.
+- **Earbuds** (AirPods, SteelSeries GameBuds): their own icon, with the bud that does not report (in its case, or off) greyed out; the taskbar shows the weaker bud; the card shows each bud's level next to the name (`L 80%  R 75%`) and a chart per bud (left over right), and so does the dashboard. AirPods are re-read every 10 s, so a bud taken out of the case shows within seconds.
+- **Device dashboard** (right-click a device → *Dashboard...*): a bar of all devices at the top to switch between them, level and state, a 24 h / 3-day / 7-day chart with charging marked, the charge and discharge sessions, and statistics (typical battery life, time left, charge and discharge rates per hour). Where there is too little data it says so instead of guessing.
+- **7-day battery history:** one point per change (at least every 10 minutes), kept 7 days, in `%LOCALAPPDATA%\BatteryHub\Taskbar\History.bin`. Times when BatteryHub was not running stay empty: nothing is filled in. Times are stored in UTC and shown in the time zone Windows is set to, so moving to another country or a daylight-saving switch does not shift the history.
 - **Rename a device** (shown everywhere in BatteryHub only; the device itself is not changed) and **Warn at 5%**: one notification when a device on battery drops to 5% or less, again only after it was charged.
 - **Charging at a glance:** green ⚡ while charging, blue ⚡ at 100%, red percentage at or below the device's warning level.
 - **Per-device warning level:** 50 / 40 / 30 / 20 / 15 / 10 / 5%.
@@ -77,9 +79,15 @@ Your warning levels, device names, options and battery history are kept either w
 - **More monitors:** show the widget on all monitors, the main one only, or only one other monitor; on every taskbar it sits right next to that taskbar's clock and appears at the same moment.
 - **Notification-area icons instead** (optional): one icon per device that Windows itself places, so it can be dragged between other tray icons and never overlaps other taskbar widgets.
 - **Next to other taskbar widgets:** when another program places its own widget in the taskbar (network or CPU meters...), BatteryHub sits left of it instead of on top of it.
-- **Position and background:** move the widget further from the clock, and an optional plate behind it for transparent taskbars.
+- **Position and background:** move the widget further from the clock or up / down (presets, or in 10 px steps), and an optional plate behind it for transparent taskbars.
 - **Start with Windows** and **automatic update check** switched on or off right from the menu.
 - **Check for updates** from the menu, with a SHA-256-verified download.
+- **21 languages** (English, Polski, Deutsch, Français, Español, Português (Brasil), Italiano, Nederlands, Čeština, Magyar, Svenska, Русский, Українська, Türkçe, 日本語, 한국어, 简体中文, 繁體中文, Tiếng Việt, Bahasa Indonesia, ไทย), following the Windows display language or chosen in the menu, and **your own**: *Language → Create your own language...* writes a file with every text to translate (see [Your own language](#translations-create-your-own-language)).
+- **Hide a device from the taskbar** (per device, from its menu): it is still read, listed in the menu, and kept in the history and the 5% warning.
+- **Your order:** drag a device along the widget to another place (the others slide aside), or use *Move left / Move right* in its menu; every device keeps its place, and a device seen for the first time starts on the far left.
+- **Gone devices are forgotten:** a device not connected for 7 days loses its history, place, name and settings, so a device plugged in once does not stay around.
+- **Reset measurements** of a device (its menu, or the dashboard): after a warning, its history and statistics are deleted and measuring starts again.
+- **Windows 11 style menu:** the right-click menu is drawn like Windows 11's own context menus, dark or light like the taskbar.
 - **Request support for a device** from the menu: pick a device that is not shown, and a GitHub issue opens filled in with what is needed to add it.
 - **Tiny:** about 0.1–0.2 MB of RAM when idle (Task Manager "Memory"), about 0.1 s of CPU per minute.
 - **One copy only:** starting BatteryHub again while it runs does nothing.
@@ -99,16 +107,17 @@ Left click does nothing (on purpose: the strip stays out of the way). **Right cl
 
 | Menu item | What it does |
 |---|---|
-| *Device name (level, state)* ▸ | *Dashboard...*, *Battery history*, *Statistics* (the dashboard on that tab), *Rename device...*, *Red warning at or below* 50 / 40 / 30 / 20 / **15** / 10 / 5%, and *Warn at 5% (notification)* (**on** by default) |
+| *Device name (level, state)* ▸ | *Dashboard...*, *Battery history*, *Statistics* (the dashboard on that tab), *Rename device...*, *Red warning at or below* 50 / 40 / 30 / 20 / **15** / 10 / 5%, *Warn at 5% (notification)* (**on** by default), and *Show on the taskbar* (**on** by default; turned off, the device leaves the strip, its tooltip and the hover card but stays in this menu, still read, with its history and the 5% warning), *Move left* / *Move right* (its place on the strip; dragging it there works too) and *Reset measurements...* (asks first, then deletes the device's history and statistics) |
 | *Refresh devices* | Full rescan; devices that are gone disappear |
 | *Refresh battery levels* | Reads the levels again |
 | *Refresh battery every* ▸ | **1 minute** / 5 / 10 / 30 minutes / 1 hour |
 | *Refresh when a device connects or disconnects* | **On** by default; see below |
 | *Show as notification-area icons (Windows arranges them)* | **Off** by default. Instead of the strip, one notification-area icon per device with its level drawn in it. Windows places these icons like any other: drag them to reorder or in and out of the hidden icons. New icons start hidden behind ^ (Windows 11 does that for every app): drag them onto the taskbar or turn them on in *Settings → Personalization → Taskbar → Other system tray icons* once; Windows remembers it per device |
 | *Background behind taskbar text (for translucent taskbars)* | **Off** by default. A rounded plate in the taskbar's colour behind the widget, so it stays readable on a transparent taskbar (TranslucentTB, Windhawk Taskbar Styler...) |
-| *Position on the taskbar* ▸ | **Next to the notification area** or 20 to 200 px to the left of it (in 20 px steps), e.g. to make room for another taskbar widget (iCUE, network meters...). Also applies on other monitors. A value set by hand (`TaskbarOffset`) shows as *Custom* |
-| *Height on the taskbar* ▸ | 5 / 10 / 15 px up, **Centred**, or 5 / 10 / 15 px down. Also applies on other monitors. A value set by hand (`TaskbarOffsetY`) shows as *Custom* |
+| *Position on the taskbar* ▸ | **Next to the notification area** or 20 to 200 px to the left of it (in 20 px steps), e.g. to make room for another taskbar widget (iCUE, network meters...). *Move 10 px left / right* at the bottom moves it in 10 px steps to any place (shown as *Custom*). Also applies on other monitors |
+| *Height on the taskbar* ▸ | 5 / 10 / 15 px up, **Centred**, or 5 / 10 / 15 px down; *Move 10 px up / down* at the bottom moves it in 10 px steps (up to 40 px, shown as *Custom*). Also applies on other monitors |
 | *Show widget on* ▸ | Only with more than one monitor: *All monitors* / **Main monitor only** / *Display 2 (left) only*... The monitor is remembered by its identity, not its number; while it is unplugged the widget is on the main taskbar. Other monitors need *Show my taskbar on all displays* in Windows (taskbars of other programs, e.g. DisplayFusion, are not supported) |
+| *Language* ▸ | **Windows language (...)** (the default, with the language it resolves to in brackets: the Windows *display* language, or English when BatteryHub has no translation for it), or one of the languages listed. The region and format setting (date, number format) does not count: with an English Windows and Polish formats, BatteryHub is in English until you pick *Polski*. *Create your own language...* and *Open the languages folder*: see [Your own language](#translations-create-your-own-language) |
 | *Automatically start with Windows* | Adds or removes BatteryHub's autostart entry (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\BatteryHub Taskbar`) |
 | *Automatically check for updates* | **Off** by default. When on, BatteryHub checks GitHub once, about 2 s after it starts (not while it runs; if the network is not up yet it tries again every 15 s, up to 8 times); if there is a new version you get the same question as with *Check for updates...* |
 | *Install updates silently* | **Off** by default; needs the automatic check. When the check finds a new version, BatteryHub downloads it, verifies its SHA-256 checksum and installs it in the background: no question, no setup window, no "Update finished" message. Settings and autostart are kept. |
@@ -128,6 +137,36 @@ The hover card and the menu follow the taskbar theme (dark or light); the *Reque
 | Headset on a 2.4 GHz dongle switched on or off | ~10 s (headset dongles are checked every 10 s) |
 | Mouse / keyboard asleep, receiver still plugged in | stays, dimmed, with its last level |
 | PC wakes up | a few seconds |
+
+## Translations: create your own language
+
+BatteryHub comes in 21 languages (the files are in [`lang/`](lang)). If yours is missing, or a translation is wrong, you can write your own in a few minutes, with no programming:
+
+1. Right-click BatteryHub → *Language* → **Create your own language...**. A file `my-language.txt` is written to `%LOCALAPPDATA%\BatteryHub\Languages` and opens in Notepad. It lists every text of BatteryHub, one per line:
+
+   ```
+   @code = custom
+   @name = My language
+
+   Battery history = Battery history
+   Charging = Charging
+   {name}: battery at {level}% = {name}: battery at {level}%
+   ```
+
+2. Set **`@code`** to the language's code (e.g. `eo`, `ro`, `pt-PT`) and **`@name`** to its own name (e.g. `Română`), as it should appear in the menu.
+3. Translate the text **after** each `=`; leave the English text before it as it is. Keep `{placeholders}` such as `{name}` or `{level}` and `\n` (a line break) unchanged. A line left empty, or removed, shows the English text.
+4. Save the file (UTF-8, Notepad's default), right-click BatteryHub → *Language* and pick your language. To see a change, pick it again.
+
+**Fixing a built-in translation:** give the file the code of that language (e.g. `@code = pl`) and keep only the lines you want to change; they replace the built-in ones, everything else stays.
+
+*Open the languages folder* in the same menu shows the folder with your files. They stay there across updates.
+
+### Share your language
+
+A finished or improved language can become part of BatteryHub for everyone:
+
+- **As an issue (no Git needed):** open a [**new issue**](../../issues/new) titled e.g. *Language: Română*, attach your `.txt` file (drag it into the text box) and write which language it is, so it can be added in a next version.
+- **As a pull request:** add the file to [`lang/`](lang) as `<code>.txt` (e.g. `lang/ro.txt`) and add it to the list of built-in languages in [`src/i18n.rs`](src/i18n.rs). `cargo test` checks that the file contains every text and keeps all placeholders.
 
 ## Setup: Install / Update / Uninstall
 
@@ -196,7 +235,7 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Family | Notes |
 |---|---|
 | Logitech | HID++ 1.0 / 2.0 over Unifying, Bolt, LIGHTSPEED, Bluetooth and USB, plus G headsets (voltage curves) |
-| SteelSeries | Arctis 1 / 7 / 9 / Pro, Arctis Nova (3P, 5, 7, 7+, Pro), GameBuds, Aerox, Prime, Rival |
+| SteelSeries | Arctis 1 / 7 / 9 / Pro, Arctis Nova (3P, 5, 7, 7+, Pro, Pro Omni, Elite; with the dock battery on Pro Wireless, Pro Omni and Elite; Pro Omni and Scimitar below contributed by [Simdrom](https://github.com/Simdrom) in #189), GameBuds, Aerox, Prime, Rival |
 | Razer | Mice, keyboards and receivers (90-byte feature report protocol); BlackShark V3 headset over its HyperSpeed dongle `1532:057A` or USB cable `1532:0579` (protocol from OpenRazer PR #2794 and Joule); BlackShark V2 Pro (2023) over its HyperSpeed dongle `1532:0555` (protocol from OpenRazer PR #2862 and [blackshark-battery](https://github.com/matej-basic/blackshark-battery), MIT); Barracuda X Chroma over its 2.4 GHz dongle `1532:0574` (protocol from [batterywatch](https://github.com/itayavra/batterywatch), GPL-3.0); Nari over its 2.4 GHz dongle `1532:051C` (request and answer from [RazerNariBatteryLevel](https://github.com/Modzeleczek/RazerNariBatteryLevel)'s Synapse capture, field layout from [HaloBattery](https://github.com/HeyOkay/HaloBattery), MIT, and [BrimDeck](https://github.com/MoFeng2223/BrimDeck), Apache-2.0; level in coarse steps, none while charging) |
 | ASUS ROG Pelta | Headset over its 2.4 GHz dongle `0B05:1B84` or USB cable `0B05:1B82` (protocol from [pelta-control](https://github.com/jimm0thy/pelta-control), MIT, from captures of Armoury Crate, as used by the original C++ BatteryHub) |
 | Redragon (Areson) | M913 Impact Elite, M915RGB-WL and other devices on the "2.4G Wireless Receiver" `25A7:FA07` / `FA08`; level in 10 % steps (protocol as documented by the original C++ BatteryHub from a capture of Redragon's software, [m913-ctl](https://github.com/Qehbr/m913-ctl) and [redragon-m913-battery-tray](https://github.com/Doomguy-BFG9000/redragon-m913-battery-tray)) |
@@ -204,7 +243,7 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Endgame Gear 4K | OP1w 4k (v1 / v2) and XM2w 4k (v1 / v2) on the 4K dongle `3367:1970` (read-only feature report `A1`, battery command `B4`; protocol from [vole](https://github.com/johanneszab/vole), MIT, and [Endgame_Gear_Web_Configurator](https://github.com/Janlhin/Endgame_Gear_Web_Configurator), GPL-3.0; no charging indication) |
 | MCHOSE keyboards (3033 receiver) | G75 V2, G87 V2, K99 V3 on the common receiver `3837:3033` ("GLW" func-config read from MCHOSE's M HUB, as documented by the original C++ BatteryHub; asked at most every 10 minutes; the K87S on the same receiver uses another protocol and is not read) |
 | SinoWealth receiver | Redragon M602-KS, M690 Pro and other mice on SinoWealth's stock receiver `258A:002F` (contributed by NeroHole, [#111](../../pull/111); protocol as documented by [BatteryTray](https://github.com/qu1ncky/BatteryTray), MIT, and OpenMouse's M690 Pro notes; no charging indication) |
-| Corsair (Bragi) | Virtuoso XT on its receiver `1B1C:0A64`, HS80 MAX Wireless on `1B1C:0A97`, Void Wireless v2 on `1B1C:2A08`, HS80 RGB Wireless on `1B1C:0A6B`, and the headsets on the Bragi receivers `0A62` / `0A3E` / `0A3D` (read-only Bragi GET of the battery and charge properties, as documented by the original C++ BatteryHub; untested here) |
+| Corsair (Bragi) | Virtuoso XT on its receiver `1B1C:0A64`, HS80 MAX Wireless on `1B1C:0A97`, Void Wireless v2 on `1B1C:2A08`, HS80 RGB Wireless on `1B1C:0A6B`, and the headsets on the Bragi receivers `0A62` / `0A3E` / `0A3D` (read-only Bragi GET of the battery and charge properties, as documented by the original C++ BatteryHub; untested here); Scimitar Elite Wireless SE mouse `1B1C:2B22` on the Slipstream receivers `2B00` / `1BDC` / `1BA6` (verified on `2B00` in #189; cable untested) |
 | ATK headsets (serial) | ATK N9 Pro (dongle `373B:11CB`, cable `11CA`) and first-generation N9 Ultra (`1204` / `1203`), read over the dongle's USB serial port as ATK HUB does (protocol facts from [myfinder-device-battery](https://github.com/wushuai0802/myfinder-device-battery) and the original C++ BatteryHub; not while ATK's app holds the port) |
 | AULA / MCHOSE | AULA F75 / F87 Pro / F99 (Pro) and MCHOSE keyboards on the "BY" receiver `3554:FA09` / `3554:FB40` / `41E4:2001` (protocol from [Device-Battery-Info](https://github.com/PyFlat/Device-Battery-Info), [womier-l65-linux](https://github.com/deepan-alve/womier-l65-linux) and MCHOSE's M HUB, as collected in the original project); MCHOSE mice (K7, L7, M7, A7) on VID `5253` and on the receivers `3837:1001` (K7 Ultra) / `100A` / `100B` / `100C` / `1012` (protocol from [mchose-linux](https://github.com/alexfrih/mchose-linux); the `3837` ids from the original project); MCHOSE V9 Pro headset `291D:385D` (protocol from [HaloBattery](https://github.com/HeyOkay/HaloBattery), MIT) |
 | ATK Mercury | Mercury I / M1 headset on its 2.4 GHz receiver `373B:107C`, headset firmware 0007 (protocol from [Joule](https://github.com/DillanCidral/Joule) PR #79, validated on hardware there, and [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals); no charging state) |
@@ -212,7 +251,8 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Darmoshark | M3 and M3S on their Telink 2.4 GHz receivers `248A:FF30` / `248A:FF31` (protocol from [darmoshark-m3-configurator](https://github.com/Barba2k2/darmoshark-m3-configurator), MIT; M3S ids from the original project) |
 | VGN / VXE / ATK keyboards (Evision) | VGN S99, V98 PRO, V98pro V2, N75 PRO, VXE75 (V2), VXE V87, ATK V75X and "Wireless Gaming Keyboard" (e.g. Feker Alice80) on the 2.4 GHz receiver `320F:5088` or USB cable `320F:5055` (protocol from [HaloBattery](https://github.com/HeyOkay/HaloBattery), MIT, and VGN HUB, as collected in the original project) |
 | Pulsar / Kysona / VXE / LAMZU (CompX) | Pulsar X2 V2 / X2H / X2A / Xlite V3 (`3554:F507` / `F508` / `F509`), Kysona M600 (`F57C` / `F57D` / `F5D5`), VXE R1 SE+ (`373B:1085`, `3554:F58F`), VXE Dragonfly R1 Pro (Max) (`3554:F58A` receiver, `F58C` cable), LAMZU Atlantis / Thorn generation on the LAMZU 4K Receiver (`3554:F510`, cable `F50F`) (protocol from the Linux `hid-pulsar` driver, [vxe-r1-pro-max-battery](https://github.com/S1berla/vxe-r1-pro-max-battery) and [HaloBattery](https://github.com/HeyOkay/HaloBattery), MIT) |
-| Scyrox / ATK 8K (CompX) | Scyrox V6 / V8 on the SCYROX 8K Dongle `3554:F5F7` or USB cable `3554:F5F6`; ATK mice (e.g. Fire X 8K) on the ATK Mouse 8K Dongle `373B:101B`, ATK A9 Ultimate / F1 V2 on the "8k dongle-L" `373B:11D9`; Gravastar Mercury X `3554:F575`, LAMZU 1K Champion Receiver `3554:F50D`, IO Aurora `3554:FB08`, Red Square Kiro 1K `3554:FB5A`, VGN DragonFly F2 Ultra+ `3554:FB49` (CompX report 8; ids and protocol from [HaloBattery](https://github.com/HeyOkay/HaloBattery) and [MouseDock](https://github.com/late-autumn-gif/mousedock), both MIT, and [BrimDeck](https://github.com/MoFeng2223/BrimDeck), Apache-2.0) |
+| Pulsar XS-1 TenZ | 8K Dongle Gen.2 (`3710:5406`) or USB cable (`3710:3415`); one logical device across both modes, with battery and charging status (CompX report 8; protocol details cross-checked against the original C++ BatteryHub, GPL-3.0); contributed by [fevegit](https://github.com/fevegit) in #174 |
+| Scyrox / ATK 8K (CompX) | Scyrox V6 / V8 on the SCYROX 8K Dongle `3554:F5F7` or USB cable `3554:F5F6`; ATK mice (e.g. Fire X 8K) on the ATK Mouse 8K Dongle `373B:101B`, ATK A9 Ultimate / F1 V2 on the "8k dongle-L" `373B:11D9`; Gravastar Mercury X `3554:F575`, LAMZU 1K Champion Receiver `3554:F50D`, IO Aurora `3554:FB08`, Red Square Kiro 1K `3554:FB5A`, VGN DragonFly F2 Ultra+ `3554:FB49`, Ardor Gaming Phantom Pro `3554:F5C4` and Phantom Pro V2 `3554:F52D` (CompX report 8; ids and protocol from [HaloBattery](https://github.com/HeyOkay/HaloBattery) and [MouseDock](https://github.com/late-autumn-gif/mousedock), both MIT, and [BrimDeck](https://github.com/MoFeng2223/BrimDeck), Apache-2.0) |
 | AULA mice | X9 Ultra, V9 / V9 Max+ and other AULA mice on the AULA-8K Dongle `320F:22A0` (protocol from [HaloBattery](https://github.com/HeyOkay/HaloBattery), MIT, and the original C++ BatteryHub) |
 | MCHOSE (newer mice) | K7 V2 Ultra+, A7 V3 Ultra+ and the other mice on MCHOSE's newer receivers `3837:1014` / `1018` / `1016` / `102C` / `102D`, K7 V2 Ultra+ cable `3837:4028` (M HUB's device-info read, as documented by [MchoseBatteryTray](https://github.com/HifumiDaisuki01/MchoseBatteryTray), MIT, and the original C++ BatteryHub) |
 | MCHOSE G3 V2 | G3 V2 (Pro) on its receiver `3837:4245` or USB cable `3837:418C` (battery read from [MCHOSE-Monitor](https://github.com/Jstdi001/MCHOSE-Monitor), MIT, verified on a G3 V2, as used by the original C++ BatteryHub) |
@@ -230,12 +270,15 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Logitech G321 | G321 LIGHTSPEED headset over its 2.4 GHz receiver `046D:0B39`; contributed by [Bacurovisk](https://github.com/Bacurovisk) in #107, tested on hardware (protocol from [G321 Studio](https://github.com/gleyssonsc/g321-studio), MIT) |
 | Logitech G PRO X 2 | PRO X 2 LIGHTSPEED headset over its 2.4 GHz receiver `046D:0AF7` (Logitech's "Centurion" transport, as documented by [HeadsetControl](https://github.com/Sapd/HeadsetControl), GPL-3.0, [Solaar](https://github.com/pwr-Solaar/Solaar) and [HaloBattery](https://github.com/HeyOkay/HaloBattery), MIT) |
 | Logitech G533 | Headset over its dongle `046D:0A66`, read with its fixed HID++ battery request (protocol and voltage calibration from [HeadsetControl](https://github.com/Sapd/HeadsetControl), GPL-3.0) |
+| Logitech ASTRO A50 Gen 5 | USB base station `046D:0B1C`; read-only battery request on `FF32:0074` (interface 8), reports battery percentage and charging status (protocol documented by [HeadsetControl](https://github.com/Sapd/HeadsetControl), GPL-3.0, and implemented in the original C++ BatteryHub, GPL-3.0); contributed by [fevegit](https://github.com/fevegit) in #174 |
 | ZOWIE | DW-series mice (FK2-DW, U2-DW, S2-DW, EC-DW ...) on the DW receiver `04A5:800A`, ZOWIE U2 on `04A5:8008`; level estimated from the battery voltage, charging on the dock inferred from its trend (protocol from [zowie-battery-tray](https://github.com/IgnacioBarb/zowie-battery-tray), MIT, as used by the original C++ BatteryHub) |
+| NZXT Lift Elite | Battery percentage, charging and cell voltage over receiver `1E71:2101` (tested on hardware); USB cable `1E71:2129` implemented from the C++ protocol, not yet hardware-tested. Cable takes priority with one shared device entry. Close NZXT CAM if telemetry does not answer. Protocol from the C++ BatteryHub `nzxt.cpp`, crediting HaloBattery (MIT); Windows report framing corrected against the actual receiver. Diagnostic: `cargo run --example nzxt`.; contributed by [BatuDege](https://github.com/BatuDege) in #184 |
 | Keychron | Mice (M1, M2, M3, M3 mini, M6, M7) on the Keychron Link receiver `3434:D030` / `3434:D031`; keyboards on it only with the `KC_GET_BATTERY` firmware patch ([ldkv/qmk_firmware#1](https://github.com/ldkv/qmk_firmware/pull/1)), as stock keyboard firmware reports its battery over Bluetooth only (protocol as documented by the original C++ BatteryHub, GPL-3.0) |
+| Keyboards on the "Wireless 2.4G Dongle" | `36B0:3002` (e.g. Cidoo QK61 V2, URX Core75, EVO80, PMO / WOBKEY Wave 75, Aurora 80, P75, PMO 80) and PMO Hub keyboards on their USB cable (`36B0:3009` / `3004` / `302B` / `3012`); level only, no charging state (PMO Hub session read and VIA custom value 7, as documented by pmohub.cn's web driver, [HaloBattery](https://github.com/HeyOkay/HaloBattery), MIT, and the original C++ BatteryHub) |
 | Keychron Nape Pro | Trackball on the Link-KM receiver `3434:D026` or its USB cable `3434:0440` (raw HID `B2` slot list and `A7 31` battery read, as documented by [nape_pro](https://github.com/nvalis/nape_pro) and the original C++ BatteryHub) |
 | ROCCAT | Syn Max Air headset over its 2.4 GHz receiver (voltage curve; coarse level while charging) |
 | FNATIC | BOLT mouse over its receiver `2F0E:0203` (the USB cable `2F0E:0204` only marks it as charging); contributed by [Jere2201](https://github.com/Jere2201) in #48, from USBPcap captures, tested on hardware |
-| Attack Shark / Delux / Inphic | Mice (e.g. X1, X6 / R1, X11, IO Nova SE) on the Xenta 2.4 GHz receiver `1D57:FA60` (protocol from [Attack Shark Battery KDE](https://gitlab.com/gabriel17166/Attack-Shark-Battery-KDE) and [attackshark-battery-windows](https://github.com/daeoxide/attackshark-battery-windows), both MIT); Delux M900 Pro and Inphic IN10 (R) MAX on the `1D57:FA65` receiver (frames from [omarchy-delux-m900](https://github.com/AeonArcHQ/omarchy-delux-m900), MIT, and the original project) |
+| Attack Shark / Delux / Inphic | Mice (e.g. X1, X6 / R1, X11, IO Nova SE) on the Xenta 2.4 GHz receiver `1D57:FA60`, and the IO Nova SE on its USB cable (`1D57:2015`, same frames, from a USB capture in [#172](../../issues/172)) (protocol from [Attack Shark Battery KDE](https://gitlab.com/gabriel17166/Attack-Shark-Battery-KDE) and [attackshark-battery-windows](https://github.com/daeoxide/attackshark-battery-windows), both MIT); Delux M900 Pro and Inphic IN10 (R) MAX on the `1D57:FA65` receiver (frames from [omarchy-delux-m900](https://github.com/AeonArcHQ/omarchy-delux-m900), MIT, and the original project) |
 | Sony | DualShock 4, DualSense, DualSense Edge (USB and Bluetooth) |
 | Apple | AirPods and Beats, from BLE proximity broadcasts (L / R / case) |
 | Bluetooth | Any device Windows knows a battery level for, plus the Google Fast Pair L / R / case split |
@@ -253,6 +296,7 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | Logitech G435 headset (LIGHTSPEED) | `046D:0ACB`, `046D:0ADF` | Its dongle gives the battery only in bootloader mode, which cuts the audio; BatteryHub never touches it. Over Bluetooth it works. | [#10](../../issues/10), [#56](../../issues/56), [#92](../../issues/92), [#119](../../issues/119), [#138](../../issues/138) |
 | Havit Fuxi-H3 and the same dongle in Redragon / Rexus / Ardor headsets | `040B:0897` | The dongle sends only volume / mute keys; the command Havit's app uses is not known | [#6](../../issues/6), [#79](../../issues/79) |
 | Mad Dog GH750K, IO Graphite 2 Pro Wireless (JieLi dongle), "GAMING HEADSET B2", unbranded G435 look-alike, Attack Shark L80 Pro, "TA3000" headset | `4C4A:4155`, `3634:4155` | No documented battery query; the dongle's vendor channels belong to the audio chip (firmware / settings), so commands are not guessed | [#1](../../issues/1), [#30](../../issues/30), [#97](../../issues/97), [#114](../../issues/114), [#120](../../issues/120), [#132](../../issues/132) |
+| DP-HS-1015 headset | `10D6:B011` | An Actions-chip dongle: audio, media keys and the chip's own vendor channels (`FF90` / `FF82`), with no documented battery query. Over Bluetooth it works when Windows shows the level. | [#178](../../issues/178) |
 | Bloody MR710 headset | `10D6:4801` | The Actions-chip dongle has only audio, media keys and the chip's own channels; no documented battery query. Over Bluetooth it works when Windows shows the level. | [#31](../../issues/31) |
 | 8BitDo Ultimate 2C Wireless in X-input mode | `2DC8:310A` | The dongle shows Windows a wired Xbox pad (no level), and its configuration channel's battery read is documented only for other 8BitDo models; commands are not guessed | [#106](../../issues/106) |
 | UGREEN 2.4 GHz receiver | `2B89:0043` | The receiver has no battery or link-state channel (UGREEN's own software doesn't read it either). Over Bluetooth it works when Windows shows the level. | [#108](../../issues/108) |
@@ -308,7 +352,7 @@ Requirements: Rust 1.99 or newer (stable, MSVC toolchain; the crates use the 202
 .\build-release.ps1
 ```
 
-This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.6.exe` and `SHA256SUMS.txt`. The version comes from the `VERSION` file (up to four parts, e.g. `1.0.1.1`).
+This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.7.exe` and `SHA256SUMS.txt`. The version comes from the `VERSION` file (up to four parts, e.g. `1.0.1.1`).
 
 | Path | Contents |
 |---|---|

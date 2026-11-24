@@ -10,6 +10,7 @@ pub mod drivers;
 pub mod gui;
 pub mod hid;
 pub mod history;
+pub mod i18n;
 pub mod install;
 pub mod listen;
 pub mod rename;

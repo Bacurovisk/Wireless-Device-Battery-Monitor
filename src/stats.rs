@@ -7,9 +7,12 @@
 //! so instead of showing a made-up number.
 use crate::history::Point;
 
-/// A discharge session counts from this drop and this length on.
-pub const MIN_DROP: u8 = 5;
+/// A discharge session counts from this length on, whatever its drop: a slow device (a mouse
+/// losing 1 % an hour) drops only a few percent between two restarts of BatteryHub, so the drops
+/// are added up over the sessions instead.
 pub const MIN_DISCHARGE_SECS: u64 = 30 * 60;
+/// The discharge figures need this total drop over the counted sessions (and MIN_TOTAL_SECS).
+pub const MIN_DROP: u8 = 5;
 /// A charge session counts for the rate from this rise and this length on.
 pub const MIN_RISE: u8 = 5;
 pub const MIN_CHARGE_SECS: u64 = 5 * 60;
@@ -77,6 +80,16 @@ fn session(run: &[Point], charge: bool) -> Option<Session> {
     Some(Session { start: first.t, end, from: first.level, to, completed })
 }
 
+/// Whether a discharge session is used for the averages.
+pub fn counts_discharge(s: &Session) -> bool {
+    s.secs() >= MIN_DISCHARGE_SECS
+}
+
+/// Whether a charge session is used for the averages.
+pub fn counts_charge(s: &Session) -> bool {
+    s.to >= s.from.saturating_add(MIN_RISE) && s.secs() >= MIN_CHARGE_SECS
+}
+
 /// Statistics of `pts` (oldest first, as History::series returns them). `current` is the
 /// device's level and charging state right now, if it is connected.
 pub fn compute(pts: &[Point], current: Option<(i32, bool)>) -> Stats {
@@ -118,9 +131,10 @@ pub fn compute(pts: &[Point], current: Option<(i32, bool)>) -> Stats {
         st.monitored_secs += e.t.saturating_sub(s);
     }
 
-    let counted_dis: Vec<&Session> = st.discharges.iter().filter(|s| s.from >= s.to.saturating_add(MIN_DROP) && s.secs() >= MIN_DISCHARGE_SECS).collect();
-    let (drop, secs) = counted_dis.iter().fold((0u64, 0u64), |(d, t), s| (d + (s.from - s.to) as u64, t + s.secs()));
-    if secs >= MIN_TOTAL_SECS && drop >= MIN_DROP as u64 {
+    // A session that ends a little higher than it started (a reading jumping back by 1 %) counts
+    // with that rise, so such steps cancel out instead of only the drops being added up.
+    let (drop, secs) = st.discharges.iter().filter(|s| counts_discharge(s)).fold((0i64, 0u64), |(d, t), s| (d + s.from as i64 - s.to as i64, t + s.secs()));
+    if secs >= MIN_TOTAL_SECS && drop >= MIN_DROP as i64 {
         let rate = drop as f64 / (secs as f64 / 3600.0);
         st.discharge_rate = Some(rate);
         st.battery_life_h = Some(100.0 / rate);
@@ -130,7 +144,7 @@ pub fn compute(pts: &[Point], current: Option<(i32, bool)>) -> Stats {
             st.remaining_h = Some(level as f64 / rate);
         }
     }
-    let counted_chg: Vec<&Session> = st.charges.iter().filter(|s| s.to >= s.from.saturating_add(MIN_RISE) && s.secs() >= MIN_CHARGE_SECS).collect();
+    let counted_chg: Vec<&Session> = st.charges.iter().filter(|s| counts_charge(s)).collect();
     let (rise, secs) = counted_chg.iter().fold((0u64, 0u64), |(r, t), s| (r + (s.to - s.from) as u64, t + s.secs()));
     if !counted_chg.is_empty() && rise >= MIN_RISE as u64 && secs > 0 {
         let rate = rise as f64 / (secs as f64 / 3600.0);
@@ -147,20 +161,86 @@ pub fn compute(pts: &[Point], current: Option<(i32, bool)>) -> Stats {
     st
 }
 
+/// An early estimate needs this much measured time (on battery, or charging) and a change of 1 %.
+pub const EARLY_MIN_SECS: u64 = 10 * 60;
+
+/// The rate behind the time left and the card's forecast, in % per hour.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Estimate {
+    pub rate: f64,
+    /// Not the average above (too little data for it yet), but every measured stretch so far:
+    /// available from the first 1 % on, and more exact the longer the device is measured.
+    pub early: bool,
+    /// Measured time it is based on, in seconds.
+    pub secs: u64,
+}
+
+impl Stats {
+    /// The discharge rate to estimate with: the average when there is one, else an early one.
+    pub fn discharge_estimate(&self) -> Option<Estimate> {
+        if let Some(rate) = self.discharge_rate {
+            let secs = self.discharges.iter().filter(|s| counts_discharge(s)).map(|s| s.secs()).sum();
+            return Some(Estimate { rate, early: false, secs });
+        }
+        let (drop, secs) = self.discharges.iter().fold((0i64, 0u64), |(d, t), s| (d + s.from as i64 - s.to as i64, t + s.secs()));
+        (drop >= 1 && secs >= EARLY_MIN_SECS).then(|| Estimate { rate: drop as f64 / (secs as f64 / 3600.0), early: true, secs })
+    }
+
+    /// The charge rate to estimate with: the average when there is one, else an early one.
+    pub fn charge_estimate(&self) -> Option<Estimate> {
+        if let Some(rate) = self.charge_rate {
+            let secs = self.charges.iter().filter(|s| counts_charge(s)).map(|s| s.secs()).sum();
+            return Some(Estimate { rate, early: false, secs });
+        }
+        let (rise, secs) = self.charges.iter().fold((0u64, 0u64), |(r, t), s| (r + s.to.saturating_sub(s.from) as u64, t + s.secs()));
+        (rise >= 1 && secs >= EARLY_MIN_SECS).then(|| Estimate { rate: rise as f64 / (secs as f64 / 3600.0), early: true, secs })
+    }
+
+    /// Hours until empty (on battery) or until full (charging) from `level`, and the estimate used.
+    pub fn time_left(&self, level: i32, charging: bool) -> Option<(f64, Estimate)> {
+        if !(0..=100).contains(&level) || (charging && level >= 100) {
+            return None;
+        }
+        let e = if charging { self.charge_estimate()? } else { self.discharge_estimate()? };
+        let left = if charging { 100 - level } else { level };
+        (e.rate > 0.0).then(|| (left as f64 / e.rate, e))
+    }
+}
+
+/// The level expected `dt` seconds after `level`, going down (or up while charging) at `rate`
+/// % per hour, within 0..100.
+pub fn project(level: f64, rate: f64, charging: bool, dt: u64) -> f64 {
+    let d = rate * dt as f64 / 3600.0;
+    if charging { (level + d).min(100.0) } else { (level - d).max(0.0) }
+}
+
+/// The reading that holds at `t`: the last one at or before it, if `t` lies inside a measured
+/// stretch. The last stretch counts up to `open_until` (now, while the device is read).
+pub fn level_at(pts: &[Point], t: u64, open_until: u64) -> Option<Point> {
+    let i = pts.partition_point(|p| p.t <= t).checked_sub(1)?;
+    let p = pts[i];
+    match pts.get(i + 1) {
+        Some(next) if next.starts() && t > p.t => None,
+        Some(_) => Some(p),
+        None => (t == p.t || t <= open_until).then_some(p),
+    }
+}
+
 /// "3 h 20 min", "45 min", "2 d 4 h" - rounded to what the data supports.
 pub fn fmt_hours(h: f64) -> String {
+    use crate::i18n::tr;
     let mins = (h * 60.0).round() as i64;
     if mins < 1 {
-        "under 1 min".into()
+        tr("under 1 min")
     } else if mins < 60 {
-        format!("{mins} min")
+        format!("{mins} {}", tr("min"))
     } else if mins < 48 * 60 {
         let (hh, mm) = (mins / 60, mins % 60);
         // Over 10 h, minutes are noise: round to the hour.
-        if hh >= 10 || mm == 0 { format!("{} h", (mins + 30) / 60) } else { format!("{hh} h {mm} min") }
+        if hh >= 10 || mm == 0 { format!("{} {}", (mins + 30) / 60, tr("h")) } else { format!("{hh} {} {mm} {}", tr("h"), tr("min")) }
     } else {
         let hh = (mins + 30) / 60;
-        if hh % 24 == 0 { format!("{} d", hh / 24) } else { format!("{} d {} h", hh / 24, hh % 24) }
+        if hh % 24 == 0 { format!("{} {}", hh / 24, tr("d")) } else { format!("{} {} {} {}", hh / 24, tr("d"), hh % 24, tr("h")) }
     }
 }
 
@@ -201,6 +281,32 @@ mod tests {
     }
 
     #[test]
+    fn slow_drops_add_up_over_restarts() {
+        // A mouse losing about 1 %/h, with BatteryHub restarted every 2 hours: no session drops
+        // 5 %, but together they do (80 -> 78, 78 -> 76, 75 -> 74 after a jump back from 73: 5 % in
+        // 365 min). The 20-minute stretch is too short and left out.
+        let pts = [
+            p(0, 80, START),
+            p(60, 79, 0),
+            p(120, 78, 0),
+            p(130, 78, START),
+            p(190, 77, 0),
+            p(250, 76, 0),
+            p(260, 76, START),
+            p(280, 75, 0),
+            p(300, 75, START),
+            p(360, 74, 0),
+            p(420, 73, 0),
+            p(425, 74, 0),
+        ];
+        let st = compute(&pts, Some((74, false)));
+        assert!((st.discharge_rate.unwrap() - 5.0 / (365.0 / 60.0)).abs() < 1e-9);
+        assert!(st.remaining_h.is_some());
+        // Below 5 % in total there is still no figure.
+        assert_eq!(compute(&pts[..8], Some((75, false))).discharge_rate, None);
+    }
+
+    #[test]
     fn gaps_split_sessions_and_are_not_counted() {
         // 50 -> 45 over 1 h, then the PC was off for 10 h and the level is 20 afterwards: the
         // drop during the gap is not measured, so it is not part of any session.
@@ -233,6 +339,45 @@ mod tests {
         assert_eq!(st.last_charged, Some(121 * 60));
         // The discharge before it ends at the first reading on power.
         assert_eq!(st.discharges[0].end, 61 * 60);
+    }
+
+    #[test]
+    fn early_estimate_from_the_first_percent() {
+        // 20 minutes, 80 -> 79: too little for the average, enough for an early 3 %/h.
+        let pts = [p(0, 80, START), p(5, 80, 0), p(20, 79, 0)];
+        let st = compute(&pts, Some((79, false)));
+        assert_eq!(st.discharge_rate, None);
+        let e = st.discharge_estimate().unwrap();
+        assert!(e.early && (e.rate - 3.0).abs() < 1e-9 && e.secs == 20 * 60);
+        let (h, _) = st.time_left(79, false).unwrap();
+        assert!((h - 79.0 / 3.0).abs() < 1e-9);
+        // Under 10 minutes, or no drop yet: nothing to estimate with.
+        assert_eq!(compute(&pts[..2], None).discharge_estimate(), None);
+        assert_eq!(compute(&[p(0, 80, START), p(60, 80, 0)], None).discharge_estimate(), None);
+        // With enough data the average is used, not an early one.
+        let long = [p(0, 100, START), p(60, 95, 0), p(120, 90, 0)];
+        assert!(!compute(&long, None).discharge_estimate().unwrap().early);
+        // Charging: 40 -> 50 in 20 minutes, 30 %/h, 1 h 40 min to full from 50.
+        let chg = [p(0, 40, START | CHARGING), p(20, 50, CHARGING)];
+        let (h, e) = compute(&chg, Some((50, true))).time_left(50, true).unwrap();
+        assert!((e.rate - 30.0).abs() < 1e-9 && (h - 50.0 / 30.0).abs() < 1e-9);
+        assert_eq!(compute(&chg, None).time_left(100, true), None);
+    }
+
+    #[test]
+    fn projection_and_level_at() {
+        assert!((project(50.0, 2.0, false, 3 * 3600) - 44.0).abs() < 1e-9);
+        assert_eq!(project(3.0, 2.0, false, 12 * 3600), 0.0);
+        assert_eq!(project(90.0, 30.0, true, 3600), 100.0);
+        let pts = [p(0, 80, START), p(30, 79, 0), p(90, 78, START), p(100, 77, 0)];
+        assert_eq!(level_at(&pts, 10 * 60, 0).map(|q| q.level), Some(80));
+        assert_eq!(level_at(&pts, 30 * 60, 0).map(|q| q.level), Some(79));
+        // Between the stretches (not measured) and before the first reading: nothing.
+        assert_eq!(level_at(&pts, 60 * 60, 0), None);
+        assert_eq!(level_at(&[p(10, 80, START)], 0, 0), None);
+        // After the last reading only while the device is still read.
+        assert_eq!(level_at(&pts, 110 * 60, 0), None);
+        assert_eq!(level_at(&pts, 110 * 60, 120 * 60).map(|q| q.level), Some(77));
     }
 
     #[test]

@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 
 use crate::drivers;
 use crate::hid::{self, HidColl};
+use crate::i18n::n_;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum DeviceKind {
@@ -14,6 +15,8 @@ pub enum DeviceKind {
     Gamepad,
     Phone,
     Microphone,
+    /// In-ear headphones (a left and a right bud).
+    Earbuds,
 }
 
 impl DeviceKind {
@@ -21,7 +24,7 @@ impl DeviceKind {
     pub fn glyph(self) -> char {
         match self {
             DeviceKind::Mouse => '\u{E962}',
-            DeviceKind::Headset => '\u{E7F6}',
+            DeviceKind::Headset | DeviceKind::Earbuds => '\u{E7F6}',
             DeviceKind::Keyboard => '\u{E765}',
             DeviceKind::Gamepad => '\u{E7FC}',
             DeviceKind::Phone => '\u{E8EA}',
@@ -30,16 +33,46 @@ impl DeviceKind {
         }
     }
 
-    pub fn label(self) -> &'static str {
+    /// The kind's name in the current language.
+    pub fn label(self) -> String {
+        crate::i18n::tr(self.label_en())
+    }
+
+    pub fn label_en(self) -> &'static str {
         match self {
-            DeviceKind::Mouse => "Mouse",
-            DeviceKind::Headset => "Headset",
-            DeviceKind::Keyboard => "Keyboard",
-            DeviceKind::Gamepad => "Controller",
-            DeviceKind::Phone => "Phone",
-            DeviceKind::Microphone => "Microphone",
-            DeviceKind::Other => "Device",
+            DeviceKind::Mouse => n_("Mouse"),
+            DeviceKind::Headset => n_("Headset"),
+            DeviceKind::Keyboard => n_("Keyboard"),
+            DeviceKind::Gamepad => n_("Controller"),
+            DeviceKind::Phone => n_("Phone"),
+            DeviceKind::Microphone => n_("Microphone"),
+            DeviceKind::Earbuds => n_("Earbuds"),
+            DeviceKind::Other => n_("Device"),
         }
+    }
+}
+
+/// Levels of the two buds of earbuds (-1: that bud is not reported, e.g. in its case or off).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Buds {
+    pub left: i32,
+    pub right: i32,
+    pub left_charging: bool,
+    pub right_charging: bool,
+}
+
+impl Buds {
+    /// Level and charging state of the bud with the lower level (None when neither reports).
+    pub fn weaker(&self) -> Option<(i32, bool)> {
+        [(self.left, self.left_charging), (self.right, self.right_charging)].into_iter().filter(|b| b.0 >= 0).min_by_key(|b| b.0)
+    }
+
+    /// "L 80%  R 75%" (a bud that is not reported: "L –").
+    pub fn text(&self) -> String {
+        let side = |name: &str, v: i32, c: bool| {
+            if v < 0 { format!("{} –", crate::i18n::tr(name)) } else { format!("{} {v}%{}", crate::i18n::tr(name), if c { "⚡" } else { "" }) }
+        };
+        format!("{}  {}", side(n_("L"), self.left, self.left_charging), side(n_("R"), self.right, self.right_charging))
     }
 }
 
@@ -56,8 +89,12 @@ pub struct DeviceStatus {
     pub percent: i32,
     /// Extra breakdown, e.g. "L 80%, R 75%, case 40%".
     pub detail: String,
+    /// Earbuds that report each bud: their levels (`percent` is the lower one in use).
+    pub buds: Option<Buds>,
     /// Set when the device only reports coarse levels ("Low", "Full", ...).
     pub level_text: String,
+    /// Level of the spare battery in the device's charging dock; None = no dock, or it is empty.
+    pub dock_percent: Option<i32>,
     pub charging: bool,
     /// On power and fully charged.
     pub full: bool,
@@ -83,7 +120,9 @@ impl Default for DeviceStatus {
             kind: DeviceKind::Other,
             percent: -1,
             detail: String::new(),
+            buds: None,
             level_text: String::new(),
+            dock_percent: None,
             charging: false,
             full: false,
             asleep: false,
@@ -100,7 +139,7 @@ impl DeviceStatus {
     /// Short status text, e.g. "93%", "45% ⚡", "Full ✓", "?".
     pub fn status_text(&self) -> String {
         if !self.connected {
-            return "disconnected".into();
+            return crate::i18n::tr("disconnected");
         }
         let mut t = if self.percent >= 0 {
             format!("{}%", self.percent)
@@ -115,7 +154,7 @@ impl DeviceStatus {
             t.push_str(" ⚡");
         }
         if self.asleep {
-            t.push_str(" (asleep)");
+            t.push_str(&format!(" ({})", crate::i18n::tr("asleep")));
         }
         t
     }
@@ -141,22 +180,30 @@ impl DeviceStatus {
         }
     }
 
+    /// State of the spare battery in the dock: "63%, charging" / "full".
+    pub fn dock_text(&self) -> Option<String> {
+        self.dock_percent.map(|p| if p >= 100 { crate::i18n::tr("full") } else { crate::i18n::trf("{level}%, charging", &[("level", &p.to_string())]) })
+    }
+
     /// "32%, charging" / "100%, fully charged" / "32%, on battery" - for menus and tooltips.
     pub fn charge_text(&self) -> String {
         let state = if !self.connected {
-            "disconnected"
+            n_("disconnected")
         } else if self.is_full() {
-            "fully charged"
+            n_("fully charged")
         } else if self.charging {
-            "charging"
+            n_("charging")
         } else if self.asleep {
-            "asleep, last known level"
+            n_("asleep, last known level")
         } else {
-            "on battery"
+            n_("on battery")
         };
-        format!("{}, {state}", self.level())
+        format!("{}, {}", self.level(), crate::i18n::tr(state))
     }
 }
+
+/// Connection names drivers use, translated where they are shown.
+pub const CONNECTIONS: [&str; 4] = [n_("2.4 GHz receiver"), n_("2.4 GHz dongle"), n_("USB cable"), n_("USB / Bluetooth")];
 
 /// Shared state handed through the driver chain. A driver claims a (vid, pid) once it has handled
 /// it, so the generic fallbacks further down do not report it twice.
@@ -257,6 +304,7 @@ pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
     drivers::logitech_g321::poll(&mut ctx);
     drivers::logitech_prox2::poll(&mut ctx);
     drivers::logitech_g533::poll(&mut ctx);
+    drivers::astro::poll(&mut ctx);
     drivers::logitech::poll(&mut ctx);
     drivers::razer::poll(&mut ctx);
     drivers::roccat::poll(&mut ctx);
@@ -290,8 +338,10 @@ pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
     drivers::barracuda_chroma::poll(&mut ctx);
     drivers::jabra::poll(&mut ctx);
     drivers::zowie::poll(&mut ctx);
+    drivers::nzxt::poll(&mut ctx);
     drivers::keychron::poll(&mut ctx);
     drivers::keychron_nape::poll(&mut ctx);
+    drivers::via_dongle::poll(&mut ctx);
     drivers::hyperx_flight::poll(&mut ctx); // tested on hardware (PR #93); before hyperx_legacy
     drivers::hyperx_legacy::poll(&mut ctx);
     drivers::drivercore::poll(&mut ctx);
@@ -348,6 +398,21 @@ pub fn poll_all_devices() -> Vec<DeviceStatus> {
 /// Queries every supported device. `rescan` = enumerate the HID devices again; otherwise the list
 /// from the last enumeration is reused (only the battery levels are read).
 pub fn poll_devices(rescan: bool) -> Vec<DeviceStatus> {
+    in_mta(|| poll_with(hid_collections(rescan)))
+}
+
+/// Reads only the AirPods / Beats (their broadcasts): the quick read uses it so taking a bud out
+/// of the case shows within seconds instead of at the next full read.
+pub fn poll_airpods() -> Vec<DeviceStatus> {
+    in_mta(|| {
+        let mut ctx = PollContext::default();
+        drivers::airpods::poll(&mut ctx);
+        ctx.out
+    })
+}
+
+/// Runs `f` on this thread joined to the MTA, then stops the broadcast listening.
+fn in_mta(f: impl FnOnce() -> Vec<DeviceStatus>) -> Vec<DeviceStatus> {
     // WinRT (BLE watcher, Windows.Gaming.Input) needs the poll thread in the MTA. The shared BLE
     // watcher outlives each poll thread, so the MTA is kept alive once for the whole process
     // (CoIncrementMTAUsage); each thread then joins it and leaves it again (balanced).
@@ -365,7 +430,7 @@ pub fn poll_devices(rescan: bool) -> Vec<DeviceStatus> {
         }
     }
     let _apartment = Apartment(unsafe { windows::Win32::System::WinRT::RoInitialize(windows::Win32::System::WinRT::RO_INIT_MULTITHREADED) }.is_ok());
-    let out = poll_with(hid_collections(rescan));
+    let out = f();
     // Broadcast listening is only needed while reading; between reads it would keep waking the
     // process for every Bluetooth LE advertisement nearby.
     crate::ble::stop_watcher();
@@ -383,6 +448,7 @@ fn poll_with(colls: Vec<HidColl>) -> Vec<DeviceStatus> {
     drivers::logitech_g321::poll(&mut ctx);
     drivers::logitech_prox2::poll(&mut ctx);
     drivers::logitech_g533::poll(&mut ctx);
+    drivers::astro::poll(&mut ctx);
     drivers::logitech::poll(&mut ctx);
     drivers::razer::poll(&mut ctx);
     drivers::roccat::poll(&mut ctx);
@@ -416,8 +482,10 @@ fn poll_with(colls: Vec<HidColl>) -> Vec<DeviceStatus> {
     drivers::barracuda_chroma::poll(&mut ctx);
     drivers::jabra::poll(&mut ctx);
     drivers::zowie::poll(&mut ctx);
+    drivers::nzxt::poll(&mut ctx);
     drivers::keychron::poll(&mut ctx);
     drivers::keychron_nape::poll(&mut ctx);
+    drivers::via_dongle::poll(&mut ctx);
     drivers::hyperx_flight::poll(&mut ctx); // tested on hardware (PR #93); before hyperx_legacy
     drivers::hyperx_legacy::poll(&mut ctx);
     drivers::drivercore::poll(&mut ctx);
@@ -458,6 +526,14 @@ pub fn dump_hid_collections() -> String {
 mod missing_tests {
     use super::*;
     const RX: Option<(u16, u16)> = Some((0x046D, 0xC543));
+
+    #[test]
+    fn weaker_bud_is_shown() {
+        let b = Buds { left: 80, right: 40, left_charging: false, right_charging: true };
+        assert_eq!(b.weaker(), Some((40, true)));
+        assert_eq!(Buds { left: -1, right: 70, ..Default::default() }.weaker(), Some((70, false)));
+        assert_eq!(Buds { left: -1, right: -1, ..Default::default() }.weaker(), None);
+    }
 
     #[test]
     fn unplugged_receiver_removes_at_once() {

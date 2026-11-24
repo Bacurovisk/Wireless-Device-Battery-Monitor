@@ -13,7 +13,9 @@ use std::time::Instant;
 
 use batteryhub::cardfx::{BlurScratch, CardBg, CardContent, Layer, compose_card};
 use batteryhub::device::Missing;
+use batteryhub::i18n::{n_, tr, trf};
 use batteryhub::settings;
+use batteryhub::stats::fmt_hours;
 use batteryhub::ui::{self, rgb, split};
 use batteryhub::{DeviceKind, DeviceStatus};
 use windows::Win32::Foundation::{COLORREF, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
@@ -55,10 +57,18 @@ const TIMER_UPDATED: usize = 7;
 const TIMER_CARD: usize = 20;
 /// Removes the low-battery notification's temporary icon.
 const TIMER_NOTIFY: usize = 21;
+/// While the mouse is off the strip with the card open: is it on the card, or gone?
+const TIMER_AWAY: usize = 22;
+/// Devices sliding to their new places on the strip.
+const TIMER_SLIDE: usize = 23;
+/// How long a device takes to slide to its new place (ms).
+const SLIDE_MS: f32 = 220.0;
 /// Notification-area id of the low-battery notification (device icons use hashes of their keys).
 const NOTIFY_UID: u32 = 0x5BA7;
 const CARD_SHOW_MS: f32 = 160.0;
 const CARD_HIDE_MS: f32 = 110.0;
+/// How long the mouse may be off both the strip and the card before the card closes.
+const CARD_AWAY_MS: u128 = 300;
 /// Old and new card blending when the mouse moves to another device (like the taskbar's previews).
 const CARD_CROSS_MS: f32 = 220.0;
 /// Strongest blur of the card's content during its animations (px at 100 % scaling).
@@ -68,6 +78,8 @@ const BLUR_MAX: f32 = 6.0;
 const AUTO_UPDATE_DELAY_MS: u32 = 2_000;
 const AUTO_UPDATE_RETRY_MS: u32 = 15_000;
 const AUTO_UPDATE_RETRIES: u32 = 8;
+/// The right-click menu is open: the strip shows no hover card meanwhile.
+static MENU_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static AUTO_UPDATE_TRIES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 /// How often receivers whose device is off or asleep are checked again.
 const QUICK_MS: u32 = 10_000;
@@ -80,7 +92,7 @@ const FALLBACK_AFTER_TICKS: u32 = 3;
 const PBT_APMRESUMEAUTOMATIC: usize = 0x0012;
 const PBT_APMSUSPEND: usize = 0x0004;
 /// Battery refresh intervals offered in the menu, in minutes.
-const INTERVALS: [(u32, &str); 5] = [(1, "1 minute"), (5, "5 minutes"), (10, "10 minutes"), (30, "30 minutes"), (60, "1 hour")];
+const INTERVALS: [(u32, &str); 5] = [(1, n_("1 minute")), (5, n_("5 minutes")), (10, n_("10 minutes")), (30, n_("30 minutes")), (60, n_("1 hour"))];
 /// 30..34: menu ids 10 / 11 belong to ID_ICONS_MODE / ID_VERSIONS (issue #171).
 const ID_INTERVAL_BASE: usize = 30;
 const ID_ON_CHANGE: usize = 20;
@@ -105,11 +117,28 @@ const ID_MONITOR_GONE: usize = 73;
 /// "Position on the taskbar": ID_POSITION_FIRST + i for POSITION_OFFSETS[i].
 const ID_POSITION_FIRST: usize = 80;
 const ID_POSITION_CUSTOM: usize = 95;
+/// 10 px further left / right (any value, not only the listed ones).
+const ID_POSITION_LEFT: usize = 96;
+const ID_POSITION_RIGHT: usize = 97;
+const POSITION_MAX: u32 = 1000;
 const POSITION_OFFSETS: [u32; 11] = [0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200];
 /// "Height on the taskbar": ID_HEIGHT_FIRST + i for HEIGHT_OFFSETS[i] (px, + = down).
 const ID_HEIGHT_FIRST: usize = 100;
 const ID_HEIGHT_CUSTOM: usize = 115;
+const ID_HEIGHT_UP: usize = 116;
+const ID_HEIGHT_DOWN: usize = 117;
+const HEIGHT_MAX: i32 = 40;
 const HEIGHT_OFFSETS: [i32; 7] = [-15, -10, -5, 0, 5, 10, 15];
+/// "Language": Windows' language, create a new one, open the folder, or ID_LANG_FIRST + i.
+const ID_LANG_AUTO: usize = 120;
+const ID_LANG_NEW: usize = 121;
+const ID_LANG_FOLDER: usize = 122;
+const ID_LANG_FIRST: usize = 130;
+const ID_LANG_LAST: usize = 199;
+const _: () = assert!(
+    ID_POSITION_RIGHT < ID_HEIGHT_FIRST && ID_HEIGHT_DOWN < ID_LANG_AUTO && ID_HEIGHT_CUSTOM < ID_LANG_AUTO && ID_LANG_LAST < settings::MENU_BASE,
+    "menu ids overlap"
+);
 
 pub const MAIN_CLASS: windows::core::PCWSTR = w!("BatteryHub.Taskbar.Main");
 const STRIP_CLASS: windows::core::PCWSTR = w!("BatteryHub.Taskbar.Strip");
@@ -221,6 +250,14 @@ struct App {
     card_surface: Option<Surface>,
     /// Scratch buffers of the card's blur, kept while the card is open.
     blur_scratch: BlurScratch,
+    /// Hour picked on the card's chart with the mouse (device key, time): its level and change
+    /// are shown above the chart.
+    card_scrub: Option<(String, u64)>,
+    /// Top and bottom of the card's chart (card pixels), to map the mouse to a time.
+    card_chart_y: (i32, i32),
+    /// Since when the mouse is on neither the strip nor the card: the card closes shortly after,
+    /// so the mouse can move from the strip onto it.
+    card_away: Option<Instant>,
     /// Fonts of the strip and the card for the current DPI scale.
     fonts: Option<Fonts>,
     history: batteryhub::history::History,
@@ -275,12 +312,32 @@ struct App {
     updated_from: Option<String>,
     /// Names chosen with "Rename device" (device key -> name).
     names: std::collections::HashMap<String, String>,
+    /// Keys of the devices with "Show on the taskbar" turned off.
+    hidden: HashSet<String>,
     /// "Warn at 5%" state per device.
     critical: settings::CriticalWarnings,
     /// Icon of the low-battery notification while it is shown.
     notify_icon: Option<HICON>,
     /// Registered message: a device was renamed.
     names_msg: u32,
+    /// Device order chosen by the user (dragged on the strip, or "Move left / right").
+    saved_order: Vec<String>,
+    /// Key of the device being dragged along the strip (left button held).
+    drag: Option<String>,
+    /// While dragging: the mouse along the strip, and where in the device it was grabbed.
+    drag_at: i32,
+    grab: i32,
+    /// Where each device starts along the strip in the last render: its place, and where it was
+    /// drawn (moving devices are drawn away from their place).
+    starts: std::collections::HashMap<String, i32>,
+    drawn_at: std::collections::HashMap<String, f32>,
+    /// Devices sliding to a new place: distance still to go when it started, and when.
+    slides: std::collections::HashMap<String, (f32, Instant)>,
+    /// The order changed since the last render: devices slide from where they were drawn.
+    reordered: bool,
+    /// When each device was last written as seen, and when unseen devices were last forgotten.
+    seen_saved: std::collections::HashMap<String, u64>,
+    forgot_at: u64,
 }
 
 thread_local! {
@@ -291,6 +348,33 @@ thread_local! {
 
 fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
     APP.with(|a| a.try_borrow_mut().ok().map(|mut a| f(&mut a)))
+}
+
+/// The time picked on the card's chart for a mouse at `t`: the nearest whole hour (local time)
+/// within 12 hours of now, or now itself.
+fn snap_hour(t: f64, now: u64) -> u64 {
+    let l = batteryhub::dashboard::local(now);
+    let base = now - (l.minute as u64 * 60 + l.second as u64);
+    let (lo, hi) = (now.saturating_sub(12 * 3600), now + 12 * 3600);
+    (-13i64..=13)
+        .map(|k| (base as i64 + k * 3600) as u64)
+        .filter(|h| (lo..=hi).contains(h))
+        .chain(std::iter::once(now))
+        .min_by(|a, b| (*a as f64 - t).abs().total_cmp(&(*b as f64 - t).abs()))
+        .unwrap_or(now)
+}
+
+/// A change of level for the card: "−2%", "+5%", "−0.4%" (tenths below 1 %), "±0%".
+fn fmt_change(d: f64) -> String {
+    let a = d.abs();
+    let num = if a > 0.0 && a < 0.95 { format!("{a:.1}") } else { format!("{:.0}", a) };
+    if num == "0" || num == "0.0" {
+        "±0%".into()
+    } else if d < 0.0 {
+        format!("−{num}%")
+    } else {
+        format!("+{num}%")
+    }
 }
 
 // ---- drawing -----------------------------------------------------------------------------------
@@ -347,6 +431,26 @@ impl Canvas {
         let steps = (x1 - x0).abs().max((y1 - y0).abs()).max(1);
         let half = (t / 2).max(0);
         for i in 0..=steps {
+            let x = x0 + (x1 - x0) * i / steps;
+            let y = y0 + (y1 - y0) * i / steps;
+            for oy in -half..t - half {
+                for ox in -half..t - half {
+                    self.blend(x + ox, y + oy, c, 255);
+                }
+            }
+        }
+    }
+
+    /// Dashed straight line (the card's forecast): dashes and gaps of `dash` px along it.
+    #[allow(clippy::too_many_arguments)]
+    fn dashed(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, t: i32, c: COLORREF, dash: i32) {
+        let steps = (x1 - x0).abs().max((y1 - y0).abs()).max(1);
+        let dash = dash.max(2);
+        let half = (t / 2).max(0);
+        for i in 0..=steps {
+            if (i / dash) % 2 == 1 {
+                continue;
+            }
             let x = x0 + (x1 - x0) * i / steps;
             let y = y0 + (y1 - y0) * i / steps;
             for oy in -half..t - half {
@@ -517,6 +621,66 @@ fn make_font(px: i32, weight: i32, face: &str, fallback: &str, fallback_px: i32)
     unreachable!()
 }
 
+/// Earbuds icon (drawn, no font has one): two buds outlined, `h` px tall. A bud that is not
+/// reported (in its case, or off) is grey, like a sleeping device.
+fn buds_mask(h: i32, left_on: bool, right_on: bool) -> Mask {
+    let n = h.max(8);
+    Mask { w: n, h: n, a: batteryhub::gui::earbuds_icon(n, left_on, right_on) }
+}
+
+/// Box blur (twice, close to a Gaussian) of a mask along x or y; the result is 2 * r larger on
+/// that axis.
+fn blur_mask(m: &Mask, r: i32, horizontal: bool) -> Mask {
+    let (w, h) = if horizontal { (m.w + 2 * r, m.h) } else { (m.w, m.h + 2 * r) };
+    let mut a = vec![0u32; (w * h) as usize];
+    for y in 0..m.h {
+        for x in 0..m.w {
+            let (tx, ty) = if horizontal { (x + r, y) } else { (x, y + r) };
+            a[(ty * w + tx) as usize] = m.a[(y * m.w + x) as usize] as u32;
+        }
+    }
+    let (lines, len) = if horizontal { (h, w) } else { (w, h) };
+    let at = |line: i32, i: i32| if horizontal { (line * w + i) as usize } else { (i * w + line) as usize };
+    let mut tmp = vec![0u32; len as usize];
+    for _ in 0..2 {
+        for line in 0..lines {
+            for i in 0..len {
+                tmp[i as usize] = a[at(line, i)];
+            }
+            for i in 0..len {
+                let (lo, hi) = ((i - r).max(0), (i + r).min(len - 1));
+                let sum: u32 = (lo..=hi).map(|j| tmp[j as usize]).sum();
+                a[at(line, i)] = sum / (2 * r + 1) as u32;
+            }
+        }
+    }
+    Mask { w, h, a: a.into_iter().map(|v| v.min(255) as u8).collect() }
+}
+
+/// The icon of a device on the strip and the card: its glyph, or the drawn earbuds.
+fn device_icon(d: &DeviceStatus, font: HFONT, light: bool) -> Mask {
+    if d.kind != DeviceKind::Earbuds {
+        return mask(&d.kind.glyph().to_string(), font, light);
+    }
+    let g = mask(&DeviceKind::Headset.glyph().to_string(), font, light);
+    let (l, r) = d.buds.map(|b| (b.left >= 0, b.right >= 0)).unwrap_or((true, true));
+    // Rows with ink in the headset glyph: the earbuds take the same top and bottom.
+    let ink: Vec<i32> = (0..g.h).filter(|&y| (0..g.w).any(|x| g.a[(y * g.w + x) as usize] > 60)).collect();
+    let (Some(&top), Some(&bottom)) = (ink.first(), ink.last()) else { return buds_mask(g.h, l, r) };
+    let (ink_top, ink_bottom) = batteryhub::gui::EARBUDS_INK;
+    let n = (((bottom - top + 1) as f32) / (ink_bottom - ink_top)).round() as i32;
+    let b = buds_mask(n, l, r);
+    let dy = top - (ink_top * n as f32).round() as i32;
+    let mut a = vec![0u8; (b.w * g.h) as usize];
+    for y in 0..b.h {
+        let ty = y + dy;
+        if (0..g.h).contains(&ty) {
+            a[(ty * b.w) as usize..((ty + 1) * b.w) as usize].copy_from_slice(&b.a[(y * b.w) as usize..((y + 1) * b.w) as usize]);
+        }
+    }
+    Mask { w: b.w, h: g.h, a }
+}
+
 struct Piece {
     /// Index of the device this piece belongs to (for hover hit-testing), None for others.
     dev: Option<usize>,
@@ -576,7 +740,7 @@ impl App {
 
     /// Device `i` of the strip (connected devices in strip order), without copying the list.
     fn visible_at(&self, i: usize) -> Option<&DeviceStatus> {
-        self.order.iter().filter_map(|k| self.devices.get(k)).map(|t| &t.status).filter(|s| s.connected).nth(i)
+        self.order.iter().filter_map(|k| self.devices.get(k)).map(|t| &t.status).filter(|s| s.connected && !self.hidden.contains(&s.key)).nth(i)
     }
 
     fn scale(&self) -> f32 {
@@ -584,7 +748,13 @@ impl App {
         if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 }
     }
 
+    /// Connected devices shown on the taskbar ("Show on the taskbar" not turned off).
     fn visible(&self) -> Vec<DeviceStatus> {
+        self.connected().into_iter().filter(|s| !self.hidden.contains(&s.key)).collect()
+    }
+
+    /// Every connected device, hidden ones too (the right-click menu lists them all).
+    fn connected(&self) -> Vec<DeviceStatus> {
         self.order.iter().filter_map(|k| self.devices.get(k)).map(|t| t.status.clone()).filter(|s| s.connected).collect()
     }
 
@@ -620,7 +790,7 @@ impl App {
             // Lightning bolt on power: green while charging, blue once it reached 100%.
             let bolt_color = ui::bolt_color(d, light);
             let mark = bolt_color.is_some();
-            pieces.push(Piece { dev: Some(i), m: mask(&d.kind.glyph().to_string(), icons, light), color: fg, alpha, gap_after: px(5.0) });
+            pieces.push(Piece { dev: Some(i), m: device_icon(d, icons, light), color: fg, alpha, gap_after: px(5.0) });
             let t = if !d.level_text.is_empty() && d.percent < 0 {
                 d.level_text.clone()
             } else if d.percent >= 0 {
@@ -646,7 +816,8 @@ impl App {
             let _ = GetClientRect(self.taskbar, &mut tb);
         }
         if self.vertical {
-            self.paint_column(&pieces, (tb.right - tb.left).clamp(px(32.0), px(160.0)), s, light);
+            let keys: Vec<String> = devices.iter().map(|d| d.key.clone()).collect();
+            self.paint_column(&pieces, &keys, (tb.right - tb.left).clamp(px(32.0), px(160.0)), s, light);
             return;
         }
         let h = (tb.bottom - tb.top).clamp(px(24.0), px(64.0));
@@ -662,6 +833,9 @@ impl App {
         }
         let mut x = pad;
         self.hits.clear();
+        let mut xs = Vec::with_capacity(pieces.len());
+        // Where each device's pieces start and end.
+        let mut ranges: Vec<(i32, i32)> = vec![(i32::MAX, 0); devices.len()];
         for p in &pieces {
             if let Some(dev) = p.dev {
                 // Each device owns its pieces plus half of the gap around them.
@@ -672,25 +846,43 @@ impl App {
                         self.hits.push((from, x + p.m.w + p.gap_after / 2, dev));
                     }
                 }
+                ranges[dev] = (ranges[dev].0.min(x), x + p.m.w);
             }
-            let y0 = ((h - p.m.h) / 2 + px(self.offset_y as f32)).clamp(0, (h - p.m.h).max(0));
-            for yy in 0..p.m.h {
-                for xx in 0..p.m.w {
-                    let a = p.m.a[(yy * p.m.w + xx) as usize] as u32 * p.alpha / 255;
-                    cv.blend(x + xx, y0 + yy, p.color, a);
+            xs.push(x);
+            x += p.m.w + p.gap_after;
+        }
+        let keys: Vec<String> = devices.iter().map(|d| d.key.clone()).collect();
+        let moves = self.motion(&keys, &ranges, w, s);
+        // The dragged device last, over the others.
+        let held = |p: &Piece| p.dev.is_some_and(|i| moves[i].2 < 255);
+        for pass in [false, true] {
+            for (p, &x) in pieces.iter().zip(&xs) {
+                if held(p) != pass {
+                    continue;
+                }
+                let (off, blur, alpha) = p.dev.map(|i| moves[i]).unwrap_or((0, 0, 255));
+                let y0 = ((h - p.m.h) / 2 + px(self.offset_y as f32)).clamp(0, (h - p.m.h).max(0));
+                if blur > 0 {
+                    let b = blur_mask(&p.m, blur, true);
+                    cv.draw(&b, x + off - blur, y0, p.color, p.alpha * alpha / 255);
+                } else {
+                    cv.draw(&p.m, x + off, y0, p.color, p.alpha * alpha / 255);
                 }
             }
-            x += p.m.w + p.gap_after;
         }
         if let Some(last) = self.hits.last_mut() {
             last.1 = w;
         }
+        let resized = self.size.cx != w || self.size.cy != h;
         self.size = SIZE { cx: w, cy: h };
         self.pixels = cv.px;
         self.lit = self.hover_pixels();
         self.push(self.strip);
         for i in 0..self.mirrors.len() {
             self.push(self.mirrors[i].1);
+        }
+        if !resized && (self.drag.is_some() || !self.slides.is_empty()) {
+            return; // an animation frame: same size, same place
         }
         self.last_place.2 = -1; // force a reposition with the new width
         self.place();
@@ -704,7 +896,7 @@ impl App {
 
     /// Vertical taskbar: each device as its icon over its level (the bolt beside the level when it
     /// fits), devices stacked, as wide as the taskbar. Hit ranges are rows (y).
-    fn paint_column(&mut self, pieces: &[Piece], w: i32, s: f32, light: bool) {
+    fn paint_column(&mut self, pieces: &[Piece], keys: &[String], w: i32, s: f32, light: bool) {
         let px = |v: f32| (v * s).round() as i32;
         let sizes: Vec<(Option<usize>, i32, i32)> = pieces.iter().map(|p| (p.dev, p.m.w, p.m.h)).collect();
         let (placed, h, hits) = column_layout(&sizes, w, px(8.0), px(2.0), px(12.0), px(2.0));
@@ -713,9 +905,25 @@ impl App {
             let plate = if light { rgb(243, 243, 243) } else { rgb(32, 32, 32) };
             cv.round_rect(0, px(6.0), plate, 235);
         }
-        for (p, &(x, y, show)) in pieces.iter().zip(&placed) {
-            if show {
-                cv.draw(&p.m, x, y, p.color, p.alpha);
+        let mut ranges: Vec<(i32, i32)> = vec![(i32::MAX, 0); keys.len()];
+        for (p, &(_, y, show)) in pieces.iter().zip(&placed) {
+            if let (Some(i), true) = (p.dev, show) {
+                ranges[i] = (ranges[i].0.min(y), ranges[i].1.max(y + p.m.h));
+            }
+        }
+        let moves = self.motion(keys, &ranges, h, s);
+        let held = |p: &Piece| p.dev.is_some_and(|i| moves[i].2 < 255);
+        for pass in [false, true] {
+            for (p, &(x, y, show)) in pieces.iter().zip(&placed) {
+                if !show || held(p) != pass {
+                    continue;
+                }
+                let (off, blur, alpha) = p.dev.map(|i| moves[i]).unwrap_or((0, 0, 255));
+                if blur > 0 {
+                    cv.draw(&blur_mask(&p.m, blur, false), x, y + off - blur, p.color, p.alpha * alpha / 255);
+                } else {
+                    cv.draw(&p.m, x, y + off, p.color, p.alpha * alpha / 255);
+                }
             }
         }
         self.hits = hits;
@@ -1174,7 +1382,7 @@ impl App {
             })
             .collect();
         if wanted.is_empty() {
-            wanted.push(("\u{0}none".into(), "-".into(), normal, -1, "BatteryHub: no devices found".into()));
+            wanted.push(("\u{0}none".into(), "-".into(), normal, -1, tr("BatteryHub: no devices found")));
         }
         let keep: HashSet<String> = wanted.iter().map(|w| w.0.clone()).collect();
         let stale: Vec<String> = self.tray.keys().filter(|k| !keep.contains(*k)).cloned().collect();
@@ -1303,6 +1511,13 @@ impl App {
         for s in fresh {
             if s.connected && !s.asleep && s.percent >= 0 && !s.key.starts_with("demo:") {
                 self.history.record(&s.key, now, s.percent, s.charging, s.is_full(), gap);
+                if let Some(b) = s.buds {
+                    for (side, level, charging) in [("L", b.left, b.left_charging), ("R", b.right, b.right_charging)] {
+                        if level >= 0 {
+                            self.history.record(&format!("{}#{side}", s.key), now, level, charging, false, gap);
+                        }
+                    }
+                }
             }
         }
         self.history.prune(now);
@@ -1342,7 +1557,7 @@ impl App {
         let h = self.history.points(&d.key);
         let last = self.history.latest(&d.key).map(|p| (p.t, p.level, p.flags));
         let text = format!(
-            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{:?}|{}",
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{:?}|{}|{:?}|{:?}|{:?}|{:?}",
             d.key,
             d.name,
             d.percent,
@@ -1355,7 +1570,12 @@ impl App {
             self.scale().to_bits(),
             last,
             h.len(),
-            batteryhub::history::now_secs() / 60
+            batteryhub::history::now_secs() / 60,
+            self.card_scrub.as_ref().filter(|(k, _)| *k == d.key).map(|(_, t)| t),
+            d.buds,
+            d.dock_percent,
+            // The buds' own charts.
+            ["#L", "#R"].map(|side| self.history.latest(&format!("{}{side}", d.key)).map(|p| (p.t, p.level, p.flags)))
         );
         batteryhub::util::fnv1a(&text) as u64
     }
@@ -1402,9 +1622,12 @@ impl App {
         let Some(f) = self.fonts.as_ref() else { return (1, 1, vec![0]) };
         let (icon_f, name_f, big_f, small_f) = (f.card_icon, f.card_name, f.card_big, f.card_small);
 
-        // As wide as the name needs, 300 to 400 px; longer names end in "…".
+        // As wide as the name needs, 300 to 400 px; longer names end in "…". Earbuds show each
+        // bud's level after the name.
         let pad = px(16.0);
-        let room = px(400.0) - 2 * pad - px(26.0);
+        let buds = d.buds.filter(|_| d.connected && !d.asleep).map(|b| mask(&b.text(), small_f, light));
+        let buds_w = buds.as_ref().map_or(0, |m| m.w + px(10.0));
+        let room = px(400.0) - 2 * pad - px(26.0) - buds_w;
         let mut name_text = d.name.clone();
         let mut name = mask(&name_text, name_f, light);
         let mut chars: Vec<char> = d.name.chars().collect();
@@ -1413,20 +1636,23 @@ impl App {
             name_text = format!("{}…", chars.iter().collect::<String>().trim_end());
             name = mask(&name_text, name_f, light);
         }
-        let w = (name.w + 2 * pad + px(26.0)).clamp(px(300.0), px(400.0));
+        let w = (name.w + buds_w + 2 * pad + px(26.0)).clamp(px(300.0), px(400.0));
         let chart_h = px(80.0);
         // Drawn on a tall canvas, then cut to the content's height plus the bottom margin.
-        let tall = px(360.0);
+        let tall = px(420.0);
         let mut cv = Canvas { w, h: tall, px: vec![0; (w * tall) as usize] };
 
         // Header: device glyph and name.
         let mut y = pad;
-        let glyph = mask(&d.kind.glyph().to_string(), icon_f, light);
+        let glyph = device_icon(d, icon_f, light);
         cv.draw(&glyph, pad, y + px(2.0), fg, 255);
         cv.draw(&name, pad + px(26.0), y, fg, 255);
+        if let Some(b) = &buds {
+            cv.draw(b, pad + px(26.0) + name.w + px(10.0), y + (name.h - b.h) / 2 + px(1.0), dim, 255);
+        }
         y += px(34.0);
 
-        // Big level (or the device's own word for it), then the bar.
+        // Big level (or the device's own word for it), the time left under it, then the bar.
         let big_text = if d.percent >= 0 {
             format!("{}%", d.percent)
         } else if !d.level_text.is_empty() {
@@ -1436,7 +1662,33 @@ impl App {
         };
         let big = mask(&big_text, big_f, light);
         cv.draw(&big, pad, y, if low { accent } else { fg }, 255);
-        y += px(42.0); // same layout for every device, so cards share one height
+        y += px(40.0);
+        let now = batteryhub::history::now_secs();
+        let series = self.history.series(&d.key);
+        let read_now = d.connected && !d.asleep && d.percent >= 0;
+        let st = batteryhub::stats::compute(&series, read_now.then_some((d.percent, d.charging)));
+        // Rate of the forecast: down on battery, up while charging (none when full or not read).
+        let est = if !read_now || d.is_full() {
+            None
+        } else if d.charging {
+            st.charge_estimate()
+        } else {
+            st.discharge_estimate()
+        };
+        let left_text = if !read_now || d.is_full() {
+            String::new()
+        } else {
+            match st.time_left(d.percent, d.charging) {
+                Some((h, _)) if d.charging => trf("full in about {time}", &[("time", &fmt_hours(h))]),
+                Some((h, _)) => trf("about {time} left", &[("time", &fmt_hours(h))]),
+                None => tr("Time left: not enough data yet"),
+            }
+        };
+        if !left_text.is_empty() {
+            let left = mask(&left_text, small_f, light);
+            cv.draw(&left, pad, y, if est.is_some() { fg } else { dim }, 255);
+        }
+        y += px(22.0); // same layout for every device, so cards share one height
         cv.fill_rrect(pad, y, w - pad, y + px(6.0), px(3.0), track, 255);
         if d.percent > 0 {
             let fill = pad + (w - 2 * pad) * d.percent.min(100) / 100;
@@ -1445,57 +1697,175 @@ impl App {
         y += px(18.0);
 
         // Connection and state.
-        let mut line = d.via.clone();
+        let mut line = tr(&d.via);
         if d.charging {
-            line.push_str(if d.full { " · Full" } else { " · Charging" });
+            line.push_str(&format!(" · {}", if d.full { tr("Full") } else { tr("Charging") }));
         } else if d.asleep {
-            line.push_str(" · Asleep");
+            line.push_str(&format!(" · {}", tr("Asleep")));
         }
         let via = mask(&line, small_f, light);
         cv.draw(&via, pad, y, dim, 255);
+        // The spare battery in the headset's dock, when there is one.
+        if let Some(dock) = d.dock_text() {
+            y += px(20.0);
+            cv.draw(&mask(&trf("Dock battery: {dock}", &[("dock", &dock)]), small_f, light), pad, y, dim, 255);
+        }
         y += px(30.0);
 
-        // Last 24 hours (the history keeps 7 days; the dashboard shows all of it).
-        let title = mask("Last 24 hours", small_f, light);
-        cv.draw(&title, pad, y, dim, 255);
+        // The last 12 hours, now in the middle, and the next 12 hours as a forecast at the current
+        // rate. Earbuds get one chart per bud, the left one over the right one. With the mouse on
+        // the chart, the hour under it (level and change) replaces the title.
+        let (from, to) = (now.saturating_sub(12 * 3600), now + 12 * 3600);
+        let title_y = y;
         y += px(22.0);
-        let (x0, x1, top, bottom) = (pad, w - pad, y, y + chart_h);
-        for gy in [top, (top + bottom) / 2, bottom] {
-            let mut x = x0;
-            while x < x1 {
-                cv.blend(x, gy, grid, 255);
-                x += px(4.0).max(2);
-            }
-        }
-        let now = batteryhub::history::now_secs();
-        let from = now.saturating_sub(24 * 3600);
+        // (history key, side label, level now, charging now)
+        let lanes: Vec<(String, Option<String>, i32, bool)> = match d.buds.filter(|_| d.connected) {
+            Some(b) => vec![
+                (format!("{}#L", d.key), Some(tr("L")), if read_now { b.left } else { -1 }, b.left_charging),
+                (format!("{}#R", d.key), Some(tr("R")), if read_now { b.right } else { -1 }, b.right_charging),
+            ],
+            None => vec![(d.key.clone(), None, if read_now { d.percent } else { -1 }, d.charging)],
+        };
+        let lane_h = if lanes.len() > 1 { px(56.0) } else { chart_h };
+        let lane_gap = px(12.0);
+        let (x0, x1) = (pad, w - pad);
         let lw = px(2.0).max(2);
-        let segs = batteryhub::history::segments(&self.history.series(&d.key), from, now);
-        let to_x = |t: u64| x0 + ((x1 - x0) as f32 * (t.saturating_sub(from) as f32 / (now - from).max(1) as f32).min(1.0)) as i32;
-        let to_y = |l: u8| bottom - (chart_h as f32 * l as f32 / 100.0) as i32;
-        for seg in &segs {
-            for pair in seg.windows(2) {
-                let (a, b) = (pair[0], pair[1]);
-                let c = if a.charging() { charge_c } else { accent };
-                // Steps, not slopes: a level holds until the next reading.
-                cv.line(to_x(a.t), to_y(a.level), to_x(b.t), to_y(a.level), lw, c);
-                cv.line(to_x(b.t), to_y(a.level), to_x(b.t), to_y(b.level), lw, c);
+        let to_x = |t: u64| x0 + ((x1 - x0) as f32 * (t.saturating_sub(from) as f32 / (to - from) as f32).min(1.0)) as i32;
+        let xm = to_x(now);
+        let scrub = self.card_scrub.as_ref().filter(|(k, _)| *k == d.key).map(|(_, t)| *t);
+        let first_top = y;
+        let mut scrub_texts: Vec<(Option<String>, Option<f64>, Option<f64>)> = Vec::new();
+        for (li, (key, label, level, charging)) in lanes.iter().enumerate() {
+            let (top, bottom) = (y, y + lane_h);
+            if li > 0 {
+                // Solid line between the two buds' charts.
+                let mid = top - lane_gap / 2;
+                for x in x0..x1 {
+                    cv.blend(x, mid, grid, 200);
+                }
             }
-        }
-        if let Some(last) = segs.last().and_then(|s| s.last()) {
-            // Dotted "now" line and the latest reading.
+            for gy in [top, (top + bottom) / 2, bottom] {
+                let mut x = x0;
+                while x < x1 {
+                    cv.blend(x, gy, grid, 255);
+                    x += px(4.0).max(2);
+                }
+            }
+            let to_yf = |l: f64| bottom - ((bottom - top) as f64 * l.clamp(0.0, 100.0) / 100.0).round() as i32;
+            let to_y = |l: u8| to_yf(l as f64);
+            let lane_now = *level >= 0;
+            let series = if label.is_none() { series.clone() } else { self.history.series(key) };
+            let lane_est = if label.is_none() {
+                est
+            } else {
+                let st = batteryhub::stats::compute(&series, lane_now.then_some((*level, *charging)));
+                if !lane_now || *level >= 100 {
+                    None
+                } else if *charging {
+                    st.charge_estimate()
+                } else {
+                    st.discharge_estimate()
+                }
+            };
+            let c_of = |chg: bool| if chg { charge_c } else { accent };
+            let segs = batteryhub::history::segments(&series, from, now);
+            for seg in &segs {
+                for pair in seg.windows(2) {
+                    let (a, b) = (pair[0], pair[1]);
+                    let c = c_of(a.charging());
+                    // Steps, not slopes: a level holds until the next reading.
+                    cv.line(to_x(a.t), to_y(a.level), to_x(b.t), to_y(a.level), lw, c);
+                    cv.line(to_x(b.t), to_y(a.level), to_x(b.t), to_y(b.level), lw, c);
+                }
+            }
+            // Dotted "now" line in the middle.
             let mut yy = top;
             while yy < bottom {
-                cv.blend(x1, yy, grid, 255);
+                cv.blend(xm, yy, grid, 255);
                 yy += px(4.0).max(2);
             }
-            cv.disc(to_x(last.t), to_y(last.level), px(3.5), if last.charging() { charge_c } else { accent });
+            // Forecast: dashed, from the current level until empty (or full), then level.
+            let level_now = (*level).clamp(0, 100) as f64;
+            if let Some(e) = lane_est {
+                let c = c_of(*charging);
+                let room = if *charging { 100.0 - level_now } else { level_now };
+                let reach = now + ((room / e.rate) * 3600.0).min((to - now) as f64) as u64;
+                let end_level = batteryhub::stats::project(level_now, e.rate, *charging, reach - now);
+                cv.dashed(xm, to_yf(level_now), to_x(reach), to_yf(end_level), lw, c, px(5.0));
+                if reach < to {
+                    cv.dashed(to_x(reach), to_yf(end_level), x1, to_yf(end_level), lw, c, px(5.0));
+                }
+            }
+            if let Some(last) = segs.last().and_then(|s| s.last()) {
+                cv.disc(to_x(last.t), to_y(last.level), px(3.5), c_of(last.charging()));
+            }
+            if let Some(l) = label {
+                let m = mask(l, small_f, light);
+                cv.draw(&m, x0 + px(3.0), top + px(2.0), if lane_now { fg } else { dim }, 255);
+            }
+            // The hour under the mouse.
+            if let Some(t) = scrub {
+                let open_until = if lane_now { now } else { 0 };
+                let value_at = |t: u64| -> Option<f64> {
+                    if t <= now {
+                        batteryhub::stats::level_at(&series, t, open_until).map(|p| p.level as f64)
+                    } else {
+                        lane_est.map(|e| batteryhub::stats::project(level_now, e.rate, *charging, t - now))
+                    }
+                };
+                let sx = to_x(t);
+                for yy in top..=bottom {
+                    cv.blend(sx, yy, dim, 255);
+                }
+                let v = if t.abs_diff(now) < 90 && lane_now { Some(level_now) } else { value_at(t) };
+                if let Some(v) = v {
+                    cv.disc(sx, to_yf(v), px(3.5), c_of(*charging && t >= now));
+                }
+                scrub_texts.push((label.clone(), v, value_at(t.saturating_sub(3600))));
+            }
+            y = bottom + lane_gap;
         }
+        let bottom = y - lane_gap;
+        self.card_chart_y = (first_top, bottom);
+        let title_text = match scrub {
+            Some(t) => {
+                let clock = if t.abs_diff(now) < 90 {
+                    tr("Now")
+                } else {
+                    let l = batteryhub::dashboard::local(t);
+                    format!("{:02}:{:02}", l.hour, l.minute)
+                };
+                let approx = if t > now { "≈ " } else { "" };
+                let parts: Vec<String> = scrub_texts
+                    .iter()
+                    .map(|(label, v, before)| {
+                        let side = label.as_ref().map(|l| format!("{l} ")).unwrap_or_default();
+                        match v {
+                            // One chart: the level and its change over the hour before.
+                            Some(v) if label.is_none() => {
+                                let change = before.map(|p| format!("   {} / 1 h", fmt_change(v - p))).unwrap_or_default();
+                                format!("{approx}{}%{change}", v.round())
+                            }
+                            Some(v) => format!("{side}{approx}{}%", v.round()),
+                            None if label.is_none() => tr("no reading"),
+                            None => format!("{side}-"),
+                        }
+                    })
+                    .collect();
+                let forecast = if t > now && scrub_texts.iter().any(|p| p.1.is_some()) { format!("   ({})", tr("forecast")) } else { String::new() };
+                format!("{clock}   {}{forecast}", parts.join("   "))
+            }
+            None => tr("Last 12 hours and the next 12 (forecast)"),
+        };
+        let title = mask(&title_text, small_f, light);
+        cv.draw(&title, pad, title_y, if scrub.is_some() { fg } else { dim }, 255);
         y = bottom + px(10.0);
-        let ago = mask("24h ago", small_f, light);
+        let ago = mask(&tr("12h ago"), small_f, light);
         cv.draw(&ago, x0, y, dim, 255);
-        let nowm = mask("Now", small_f, light);
-        cv.draw(&nowm, x1 - nowm.w, y, dim, 255);
+        let nowm = mask(&tr("Now"), small_f, light);
+        cv.draw(&nowm, xm - nowm.w / 2, y, dim, 255);
+        let ahead = mask(&tr("in 12h"), small_f, light);
+        cv.draw(&ahead, x1 - ahead.w, y, dim, 255);
         // As much room under the bottom labels as above the header.
         let h = (y + px(14.0) + px(18.0)).min(tall);
         cv.px.truncate((w * h) as usize);
@@ -1570,6 +1940,81 @@ impl App {
                 SetTimer(Some(self.main), TIMER_CARD, 15, None);
             }
             let _ = SetWindowPos(self.card, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
+    }
+
+    /// The mouse left the strip. An open card stays while the mouse moves onto it (the gap
+    /// between the two is crossed in a moment); TIMER_AWAY then watches where it is.
+    fn leave_strip(&mut self) {
+        self.tracking = false;
+        if !self.card.0.is_null() && self.card_anim.visible && self.card_anim.showing {
+            self.card_away = Some(Instant::now());
+            unsafe {
+                SetTimer(Some(self.main), TIMER_AWAY, 50, None);
+            }
+        } else {
+            self.hide_tip();
+            trim_memory();
+        }
+    }
+
+    /// TIMER_AWAY: keeps the card while the mouse is on it, and closes it once the mouse has been
+    /// on neither the card nor the strip for a moment.
+    fn away_step(&mut self) {
+        let mut pt = POINT::default();
+        let under = unsafe { GetCursorPos(&mut pt).is_ok().then(|| WindowFromPoint(pt)) };
+        if under.is_some_and(|w| w == self.card) && self.card_anim.showing {
+            self.card_away = None;
+            return;
+        }
+        self.set_card_scrub(None);
+        let since = *self.card_away.get_or_insert_with(Instant::now);
+        if since.elapsed().as_millis() >= CARD_AWAY_MS {
+            self.hide_tip();
+            trim_memory();
+        }
+    }
+
+    /// Mouse on the card: the hour under it on the chart (whole hours, or now) is shown.
+    fn card_mouse(&mut self) {
+        let Some(content) = self.card_anim.content.clone() else { return };
+        if !self.card_anim.showing || self.card_anim.prev.is_some() {
+            return;
+        }
+        self.card_away = None;
+        let (mut pt, mut rc) = (POINT::default(), RECT::default());
+        unsafe {
+            if GetCursorPos(&mut pt).is_err() || GetWindowRect(self.card, &mut rc).is_err() {
+                return;
+            }
+        }
+        let (cx, cy) = (pt.x - rc.left, pt.y - rc.top);
+        let pad = (16.0 * self.card_anim.scale).round() as i32;
+        let (x0, x1) = (pad, content.w - pad);
+        let (top, bottom) = self.card_chart_y;
+        let on_chart = cy >= top - pad && cy <= bottom + pad && cx >= x0 - pad / 2 && cx <= x1 + pad / 2;
+        let pick = on_chart.then(|| {
+            let now = batteryhub::history::now_secs();
+            let f = ((cx - x0) as f64 / (x1 - x0).max(1) as f64).clamp(0.0, 1.0);
+            (content.key.clone(), snap_hour(now.saturating_sub(12 * 3600) as f64 + f * 24.0 * 3600.0, now))
+        });
+        self.set_card_scrub(pick);
+    }
+
+    fn set_card_scrub(&mut self, pick: Option<(String, u64)>) {
+        if self.card_scrub == pick {
+            return;
+        }
+        self.card_scrub = pick;
+        // Draws the card again with (or without) the hour, in place.
+        let Some(key) = self.card_anim.content.as_ref().map(|c| c.key.clone()) else { return };
+        let Some(d) = self.devices.get(&key).map(|t| t.status.clone()) else { return };
+        let content = self.card_content(&d);
+        if self.card_anim.content.as_ref().is_some_and(|c| c.w == content.w && c.h == content.h) {
+            self.card_anim.content = Some(content);
+            if self.card_anim.at.is_none() {
+                self.card_frame(1.0);
+            }
         }
     }
 
@@ -1714,26 +2159,38 @@ impl App {
     fn tip_text(&self, i: usize) -> String {
         let devices = self.visible();
         let Some(d) = devices.get(i) else {
-            return "BatteryHub: no devices found".into();
+            return tr("BatteryHub: no devices found");
         };
         let level = d.level();
         let numeric = level.ends_with('%');
         let state = if d.asleep {
-            " (asleep)"
+            format!(" ({})", tr("asleep"))
         } else if d.is_full() && numeric {
-            " (full)"
+            format!(" ({})", tr("full"))
         } else if d.charging && numeric {
-            " (charging)"
+            format!(" ({})", tr("charging"))
         } else {
-            ""
+            String::new()
         };
         format!("{}: {level}{state}", d.name)
     }
 
     /// Mouse at (x, y) on a strip: the device under it (along x, or along y on a vertical taskbar).
     fn hover(&mut self, on: HWND, x: i32, y: i32) {
+        if MENU_OPEN.load(std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        if self.drag.is_some() {
+            self.drag_to(if self.vertical { y } else { x });
+            return;
+        }
         let x = if self.vertical { y } else { x };
         self.set_hovered(on);
+        if self.card_away.take().is_some() {
+            unsafe {
+                let _ = KillTimer(Some(self.main), TIMER_AWAY);
+            }
+        }
         if self.tip.0.is_null() {
             return;
         }
@@ -1763,6 +2220,11 @@ impl App {
 
     fn hide_tip(&mut self) {
         self.set_hovered(HWND::default());
+        self.card_away = None;
+        self.card_scrub = None;
+        unsafe {
+            let _ = KillTimer(Some(self.main), TIMER_AWAY);
+        }
         self.hide_card();
         self.tracking = false;
         self.tip_for = None;
@@ -1805,16 +2267,25 @@ impl App {
         ids.extend(self.devices.values().filter(|t| t.status.asleep).filter_map(|t| t.status.hw));
         // Headsets on a 2.4 GHz dongle are switched off and on all the time, and the dongle stays
         // plugged in, so Windows reports nothing: check them too (one short status report each).
-        ids.extend(self.devices.values().filter(|t| t.status.kind == DeviceKind::Headset).filter_map(|t| t.status.hw));
-        if ids.is_empty() {
+        ids.extend(self.devices.values().filter(|t| matches!(t.status.kind, DeviceKind::Headset | DeviceKind::Earbuds)).filter_map(|t| t.status.hw));
+        // AirPods only broadcast their state: listen for a moment so a bud taken out of the case
+        // (or put back) shows within seconds.
+        let airpods = self.devices.keys().any(|k| k.starts_with("airpods:"));
+        if ids.is_empty() && !airpods {
             return;
         }
         self.polling = true;
         let ids: Vec<(u16, u16)> = ids.into_iter().collect();
-        dbg_log(&format!("quick read of {ids:04X?}"));
+        dbg_log(&format!("quick read of {ids:04X?}{}", if airpods { " + AirPods" } else { "" }));
         let ids2 = ids.clone();
         QUICK_IDS.with(|q| *q.borrow_mut() = ids);
-        ui::run_async(self.main, WM_QUICK_DONE, move || batteryhub::device::poll_hardware(&ids2));
+        ui::run_async(self.main, WM_QUICK_DONE, move || {
+            let mut out = if ids2.is_empty() { Vec::new() } else { batteryhub::device::poll_hardware(&ids2) };
+            if airpods {
+                out.extend(batteryhub::device::poll_airpods());
+            }
+            out
+        });
     }
 
     /// Merges a quick read: only devices behind the receivers in `ids` are updated or removed.
@@ -1850,10 +2321,13 @@ impl App {
     /// receiver is remembered for quick checks.
     fn merge(&mut self, fresh: Vec<DeviceStatus>) {
         self.record_history(&fresh);
+        self.remember_devices(&fresh);
         let now = Instant::now();
         for mut s in fresh {
             if !self.order.contains(&s.key) {
                 self.order.push(s.key.clone());
+                settings::apply_order(&mut self.order, &self.saved_order);
+                self.reordered = true;
             }
             if !s.connected {
                 if let Some(hw) = s.hw {
@@ -1872,10 +2346,185 @@ impl App {
         self.send_to_dashboards();
     }
 
+    /// Every device keeps its place: one seen for the first time goes to the far left (saved).
+    /// Devices are dated as seen (at most hourly), and those not seen for 7 days are forgotten.
+    fn remember_devices(&mut self, fresh: &[DeviceStatus]) {
+        let connected: Vec<String> = fresh.iter().filter(|s| s.connected && !s.key.starts_with("demo:")).map(|s| s.key.clone()).collect();
+        let new: Vec<String> = connected.iter().filter(|k| !self.saved_order.contains(k)).cloned().collect();
+        if !new.is_empty() {
+            self.saved_order = settings::with_new_first(&self.saved_order, &new);
+            settings::set_order(SETTINGS_KEY, &self.saved_order);
+            dbg_log(&format!("new devices placed first: {new:?}"));
+        }
+        let now = batteryhub::history::now_secs();
+        let due: Vec<String> = connected.into_iter().filter(|k| self.seen_saved.get(k).is_none_or(|t| now.saturating_sub(*t) >= 3600)).collect();
+        if !due.is_empty() && settings::mark_seen(SETTINGS_KEY, &due, now) {
+            for k in due {
+                self.seen_saved.insert(k, now);
+            }
+        }
+        if now.saturating_sub(self.forgot_at) >= 3600 {
+            self.forgot_at = now;
+            let gone = settings::forget_unseen(SETTINGS_KEY, now);
+            if !gone.is_empty() {
+                dbg_log(&format!("forgot devices not seen for 7 days: {gone:?}"));
+                for k in &gone {
+                    self.history.remove(k);
+                }
+                self.history.mark_dirty();
+                self.saved_order = settings::order(SETTINGS_KEY);
+                self.names = settings::names(SETTINGS_KEY);
+                self.hidden = settings::hidden(SETTINGS_KEY);
+            }
+        }
+    }
+
+    /// Two devices swap places on the strip (and in the menu); the order is saved.
+    fn swap_devices(&mut self, a: &str, b: &str) {
+        if a == b {
+            return;
+        }
+        self.saved_order = settings::swapped(&self.order, &self.saved_order, a, b);
+        settings::set_order(SETTINGS_KEY, &self.saved_order);
+        settings::apply_order(&mut self.order, &self.saved_order);
+        self.reordered = true;
+        self.card_cache.clear();
+        self.paint();
+    }
+
+    /// While dragging: `a` takes the place of `b`, the devices between shift by one (saved).
+    fn move_device(&mut self, a: &str, b: &str) {
+        self.saved_order = settings::moved(&self.order, &self.saved_order, a, b);
+        settings::set_order(SETTINGS_KEY, &self.saved_order);
+        settings::apply_order(&mut self.order, &self.saved_order);
+        self.reordered = true;
+        self.card_cache.clear();
+        self.paint();
+    }
+
+    /// Where each device is drawn along the strip this frame: (offset from its place, blur radius,
+    /// opacity 0-255). The dragged device follows the mouse; devices that changed places slide
+    /// from where they were drawn, blurred while they move, like the card's contents.
+    fn motion(&mut self, keys: &[String], ranges: &[(i32, i32)], len: i32, s: f32) -> Vec<(i32, i32, u32)> {
+        let now = Instant::now();
+        if std::mem::take(&mut self.reordered) {
+            for (k, r) in keys.iter().zip(ranges) {
+                if self.drag.as_deref() == Some(k.as_str()) {
+                    continue;
+                }
+                if let Some(&was) = self.drawn_at.get(k) {
+                    let d = was - r.0 as f32;
+                    if d.abs() >= 1.0 {
+                        self.slides.insert(k.clone(), (d, now));
+                    }
+                }
+            }
+        }
+        self.slides.retain(|_, (_, t0)| (t0.elapsed().as_secs_f32() * 1000.0) < SLIDE_MS);
+        let mut out = Vec::with_capacity(keys.len());
+        self.starts.clear();
+        self.drawn_at.clear();
+        for (k, r) in keys.iter().zip(ranges) {
+            let (off, blur, alpha) = if self.drag.as_deref() == Some(k.as_str()) {
+                // Held by the mouse, kept on the strip.
+                let want = self.drag_at - self.grab;
+                let at = want.clamp(0, (len - (r.1 - r.0)).max(0));
+                (at - r.0, 0, 200)
+            } else if let Some((d, t0)) = self.slides.get(k) {
+                let p: f32 = (t0.elapsed().as_secs_f32() * 1000.0 / SLIDE_MS).clamp(0.0, 1.0);
+                let left = (1.0f32 - p).powi(3); // ease-out: what is left of the way
+                let off = (d * left).round() as i32;
+                // Blur with the speed: strongest at the start, gone when it settles.
+                let blur = ((1.0 - p) * (1.0 - p) * 3.0 * s).round() as i32;
+                (off, blur.min((d.abs() / 4.0) as i32), 255)
+            } else {
+                (0, 0, 255)
+            };
+            self.starts.insert(k.clone(), r.0);
+            self.drawn_at.insert(k.clone(), (r.0 + off) as f32);
+            out.push((off, blur, alpha));
+        }
+        unsafe {
+            if self.slides.is_empty() {
+                let _ = KillTimer(Some(self.main), TIMER_SLIDE);
+            } else {
+                SetTimer(Some(self.main), TIMER_SLIDE, 15, None);
+            }
+        }
+        out
+    }
+
+    /// Left button down on a strip: the device under the mouse can be dragged to another place.
+    fn start_drag(&mut self, strip: HWND, x: i32, y: i32) {
+        let x = if self.vertical { y } else { x };
+        let Some(i) = self.hits.iter().find(|h| x >= h.0 && x < h.1).map(|h| h.2) else { return };
+        let Some(key) = self.visible_at(i).map(|d| d.key.clone()) else { return };
+        self.drag_at = x;
+        self.grab = x - self.starts.get(&key).copied().unwrap_or(x);
+        self.drag = Some(key);
+        unsafe {
+            windows::Win32::UI::Input::KeyboardAndMouse::SetCapture(strip);
+        }
+    }
+
+    /// While dragging: the device moves to the place under the mouse.
+    fn drag_to(&mut self, x: i32) {
+        let Some(key) = self.drag.clone() else { return };
+        if x == self.drag_at {
+            return;
+        }
+        self.drag_at = x;
+        self.hide_tip();
+        let hit = self.hits.iter().find(|h| x >= h.0 && x < h.1).copied();
+        let mine = self.hits.iter().position(|h| self.visible_at(h.2).is_some_and(|d| d.key == key));
+        if let (Some((from, to, i)), Some(j)) = (hit, mine)
+            && let Some(other) = self.visible_at(i).map(|d| d.key.clone())
+            && other != key
+        {
+            // Past the middle of the other device: it makes room (no flicker between two of
+            // different widths).
+            let mid = (from + to) / 2;
+            let k = self.hits.iter().position(|h| h.2 == i).unwrap_or(j);
+            if (k > j && x >= mid) || (k < j && x <= mid) {
+                self.move_device(&key, &other);
+                return;
+            }
+        }
+        self.paint();
+    }
+
+    fn end_drag(&mut self) {
+        if let Some(key) = self.drag.take() {
+            unsafe {
+                let _ = windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture();
+            }
+            // Let go: the device slides into its place.
+            if let (Some(&at), Some(&place)) = (self.drawn_at.get(&key), self.starts.get(&key)) {
+                let d = at - place as f32;
+                if d.abs() >= 1.0 {
+                    self.slides.insert(key, (d, Instant::now()));
+                }
+            }
+            self.paint();
+        }
+    }
+
+    /// Deletes every measurement of a device; it is measured again from the next reading.
+    fn reset_history(&mut self, key: &str) {
+        self.history.flush();
+        self.history.remove(key);
+        self.history.mark_dirty();
+        self.save_history_now();
+        self.card_cache.clear();
+        batteryhub::dashboard::notify_history_changed();
+        dbg_log(&format!("measurements of {key} deleted"));
+    }
+
     /// Fresh readings for open dashboards (they show the live level and state).
     fn send_to_dashboards(&self) {
         if batteryhub::dashboard::any_open() {
-            let list: Vec<(DeviceStatus, String)> = self.devices.values().map(|t| (t.status.clone(), t.reported.clone())).collect();
+            let list: Vec<(DeviceStatus, String)> =
+                self.order.iter().filter_map(|k| self.devices.get(k)).map(|t| (t.status.clone(), t.reported.clone())).collect();
             batteryhub::dashboard::send_statuses(self.main, &list);
         }
     }
@@ -1912,8 +2561,8 @@ impl App {
         d.hIcon = icon;
         d.dwInfoFlags = NIIF_WARNING;
         ui::fill_wide(&mut d.szTip, &format!("{name}: {level}%"));
-        ui::fill_wide(&mut d.szInfoTitle, &format!("{name}: battery at {level}%"));
-        ui::fill_wide(&mut d.szInfo, "Charge it soon. BatteryHub warns once per discharge (right-click the device to turn this off).");
+        ui::fill_wide(&mut d.szInfoTitle, &trf("{name}: battery at {level}%", &[("name", name), ("level", &level.to_string())]));
+        ui::fill_wide(&mut d.szInfo, &tr("Charge it soon. BatteryHub warns once per discharge (right-click the device to turn this off)."));
         unsafe {
             if !Shell_NotifyIconW(NIM_MODIFY, &d).as_bool() {
                 let _ = Shell_NotifyIconW(NIM_ADD, &d);
@@ -2002,7 +2651,7 @@ impl App {
 
 /// A check or download is running (the menu item is greyed out meanwhile).
 static UPDATE_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-const UPDATE_TITLE: windows::core::PCWSTR = w!("BatteryHub - Check for updates");
+const UPDATE_TITLE: &str = "BatteryHub - Check for updates";
 
 /// Runs `work` on a worker thread and posts its boxed result to `hwnd` as `msg`.
 fn post_from_thread<T: Send + 'static>(hwnd: HWND, msg: u32, work: impl FnOnce() -> T + Send + 'static) {
@@ -2033,7 +2682,7 @@ fn check_for_updates(main: HWND, silent: bool) {
 fn message(owner: HWND, text: &str, style: MESSAGEBOX_STYLE) -> MESSAGEBOX_RESULT {
     unsafe {
         let _ = SetForegroundWindow(owner);
-        MessageBoxW(Some(owner), &windows::core::HSTRING::from(text), UPDATE_TITLE, style | MB_SETFOREGROUND | MB_TOPMOST)
+        MessageBoxW(Some(owner), &windows::core::HSTRING::from(text), &windows::core::HSTRING::from(tr(UPDATE_TITLE)), style | MB_SETFOREGROUND | MB_TOPMOST)
     }
 }
 
@@ -2056,7 +2705,10 @@ fn on_update_checked(main: HWND, check: batteryhub::update::Check) {
             UPDATE_BUSY.store(false, std::sync::atomic::Ordering::Relaxed);
             message(
                 main,
-                &format!("No new updates.\n\nYou have the latest version ({}).\nLatest release on GitHub: {}.", version_label(), label_of(&latest)),
+                &trf(
+                    "No new updates.\n\nYou have the latest version ({current}).\nLatest release on GitHub: {latest}.",
+                    &[("current", &version_label()), ("latest", &label_of(&latest))],
+                ),
                 MB_OK | MB_ICONINFORMATION,
             );
         }
@@ -2064,7 +2716,10 @@ fn on_update_checked(main: HWND, check: batteryhub::update::Check) {
             UPDATE_BUSY.store(false, std::sync::atomic::Ordering::Relaxed);
             message(
                 main,
-                &format!("Could not check for updates:\n{e}\n\nNew versions are also on GitHub:\nhttps://github.com/{}/releases", batteryhub::update::REPO),
+                &trf(
+                    "Could not check for updates:\n{error}\n\nNew versions are also on GitHub:\n{url}",
+                    &[("error", &e.to_string()), ("url", &format!("https://github.com/{}/releases", batteryhub::update::REPO))],
+                ),
                 MB_OK | MB_ICONWARNING,
             );
         }
@@ -2074,10 +2729,9 @@ fn on_update_checked(main: HWND, check: batteryhub::update::Check) {
             post_from_thread(main, WM_UPDATE_DOWNLOADED, move || batteryhub::update::download(&r));
         }
         Check::Available(r) => {
-            let text = format!(
-                "A new update is available:\n\n        {}  ->  {}\n\nDo you want to update now?\n\nThe setup is downloaded from GitHub, checked against the release's SHA-256 checksum and started; it keeps your settings and autostart.",
-                version_label(),
-                label_of(&r.version)
+            let text = trf(
+                "A new update is available:\n\n        {current}  ->  {new}\n\nDo you want to update now?\n\nThe setup is downloaded from GitHub, checked against the release's SHA-256 checksum and started; it keeps your settings and autostart.",
+                &[("current", &version_label()), ("new", &label_of(&r.version))],
             );
             if message(main, &text, MB_YESNO | MB_ICONQUESTION) == IDYES {
                 post_from_thread(main, WM_UPDATE_DOWNLOADED, move || batteryhub::update::download(&r));
@@ -2106,13 +2760,7 @@ fn on_update_downloaded(main: HWND, result: Result<batteryhub::update::Verified,
             if let Err(e) = setup.start(&["/update"], false) {
                 message(
                     main,
-                    &format!(
-                        "Could not start the setup:
-{e}
-
-{}",
-                        path.display()
-                    ),
+                    &trf("Could not start the setup:\n{error}\n\n{path}", &[("error", &e.to_string()), ("path", &path.display().to_string())]),
                     MB_OK | MB_ICONWARNING,
                 );
             }
@@ -2164,6 +2812,26 @@ fn trim_memory() {
 }
 
 /// Battery refresh interval in minutes (menu choice, default 1 minute).
+/// The language chosen in the menu: a language code, or "" for Windows' language.
+fn language_choice() -> String {
+    batteryhub::util::reg_get_string(SETTINGS_KEY, "Language").unwrap_or_default()
+}
+
+/// Switches the language ("" = Windows' language), saves the choice and redraws.
+fn set_language(code: &str) {
+    if code.is_empty() {
+        batteryhub::util::reg_delete_value(SETTINGS_KEY, "Language");
+    } else {
+        batteryhub::util::reg_set_string(SETTINGS_KEY, "Language", code);
+    }
+    batteryhub::i18n::set_language(code);
+    with_app(|a| {
+        a.hide_tip();
+        a.card_cache.clear();
+        a.paint();
+    });
+}
+
 fn refresh_minutes() -> u32 {
     batteryhub::util::reg_get_dword(SETTINGS_KEY, "RefreshMinutes").filter(|m| INTERVALS.iter().any(|(v, _)| v == m)).unwrap_or(1)
 }
@@ -2294,11 +2962,11 @@ fn monitor_id(bar: HWND) -> String {
 
 /// "Display 2 (left)": the number Windows gives the display and where it is next to the main one.
 fn monitor_label(bar: HWND) -> String {
-    let Some(mi) = monitor_info(bar) else { return "Other monitor".into() };
+    let Some(mi) = monitor_info(bar) else { return tr("Other monitor") };
     let device = batteryhub::util::from_wide(&mi.szDevice);
     let mut label = match device.find("DISPLAY") {
-        Some(i) => format!("Display {}", &device[i + 7..]),
-        None => "Other monitor".into(),
+        Some(i) => trf("Display {number}", &[("number", &device[i + 7..])]),
+        None => tr("Other monitor"),
     };
     unsafe {
         let mon = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
@@ -2389,10 +3057,10 @@ fn dbg_log(msg: &str) {
 /// The right-click menu (strip and fallback icons): per-device warning levels, refresh options, exit.
 unsafe fn show_menu() {
     unsafe {
-        let (main, devices, renamed) = with_app(|a| {
+        let (main, devices, renamed, hidden, vertical) = with_app(|a| {
             a.hide_tip();
             let renamed: HashSet<String> = a.names.keys().cloned().collect();
-            (a.main, a.visible(), renamed)
+            (a.main, a.connected(), renamed, a.hidden.clone(), a.vertical)
         })
         .unwrap_or_default();
         let dark = !ui::taskbar_is_light();
@@ -2400,13 +3068,13 @@ unsafe fn show_menu() {
         if let Ok(menu) = CreatePopupMenu() {
             ui::MenuIcons::check_or_icon(menu);
             // One submenu per device: dashboard, history, statistics, rename and its warnings.
-            settings::append_device_menus(menu, &devices, SETTINGS_KEY, &renamed, &mut icons);
+            settings::append_device_menus(menu, &devices, SETTINGS_KEY, &renamed, &hidden, vertical, &mut icons);
             if !devices.is_empty() {
                 let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             }
-            let _ = AppendMenuW(menu, MF_STRING, ID_REFRESH_DEVICES, w!("Refresh devices"));
+            let _ = AppendMenuW(menu, MF_STRING, ID_REFRESH_DEVICES, &windows::core::HSTRING::from(tr("Refresh devices")));
             icons.set(menu, ID_REFRESH_DEVICES as u32, false, ui::glyph::SYNC);
-            let _ = AppendMenuW(menu, MF_STRING, ID_REFRESH_LEVELS, w!("Refresh battery levels"));
+            let _ = AppendMenuW(menu, MF_STRING, ID_REFRESH_LEVELS, &windows::core::HSTRING::from(tr("Refresh battery levels")));
             icons.set(menu, ID_REFRESH_LEVELS as u32, false, ui::glyph::REFRESH);
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             // How often the battery levels are read, and whether a device change triggers a read.
@@ -2414,47 +3082,63 @@ unsafe fn show_menu() {
                 let current = refresh_minutes();
                 for (j, (m, label)) in INTERVALS.iter().enumerate() {
                     let check = if *m == current { MF_CHECKED } else { MF_UNCHECKED };
-                    let _ = AppendMenuW(sub, MF_STRING | check, ID_INTERVAL_BASE + j, &windows::core::HSTRING::from(*label));
+                    let _ = AppendMenuW(sub, MF_STRING | check, ID_INTERVAL_BASE + j, &windows::core::HSTRING::from(tr(label)));
                 }
                 let n = GetMenuItemCount(Some(menu));
-                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Refresh battery every"));
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Refresh battery every")));
                 icons.set(menu, n as u32, true, ui::glyph::HISTORY);
             }
             let on_change = if refresh_on_change() { MF_CHECKED } else { MF_UNCHECKED };
-            let _ = AppendMenuW(menu, MF_STRING | on_change, ID_ON_CHANGE, w!("Refresh when a device connects or disconnects"));
+            let _ = AppendMenuW(menu, MF_STRING | on_change, ID_ON_CHANGE, &windows::core::HSTRING::from(tr("Refresh when a device connects or disconnects")));
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
             // Look of the widget: plate behind it, position, and which monitors show it.
             let (choice, offset, background, offset_y, icons_mode) =
                 with_app(|a| (a.choice.clone(), a.offset, a.background, a.offset_y, a.icons_mode)).unwrap_or_default();
-            let _ = AppendMenuW(menu, MF_STRING | check(icons_mode), ID_ICONS_MODE, w!("Show as notification-area icons (Windows arranges them)"));
-            let _ = AppendMenuW(menu, MF_STRING | check(background), ID_BACKGROUND, w!("Background behind taskbar text (for translucent taskbars)"));
+            let _ = AppendMenuW(
+                menu,
+                MF_STRING | check(icons_mode),
+                ID_ICONS_MODE,
+                &windows::core::HSTRING::from(tr("Show as notification-area icons (Windows arranges them)")),
+            );
+            let _ = AppendMenuW(
+                menu,
+                MF_STRING | check(background),
+                ID_BACKGROUND,
+                &windows::core::HSTRING::from(tr("Background behind taskbar text (for translucent taskbars)")),
+            );
             if let Ok(sub) = CreatePopupMenu() {
                 let mut checked = ID_POSITION_CUSTOM;
                 for (i, px) in POSITION_OFFSETS.iter().enumerate() {
-                    let label = if *px == 0 { "Next to the notification area".to_string() } else { format!("{px} px to the left") };
+                    let label = if *px == 0 { tr("Next to the notification area") } else { trf("{px} px to the left", &[("px", &px.to_string())]) };
                     let _ = AppendMenuW(sub, MF_STRING, ID_POSITION_FIRST + i, &windows::core::HSTRING::from(label));
                     if *px == offset {
                         checked = ID_POSITION_FIRST + i;
                     }
                 }
                 if checked == ID_POSITION_CUSTOM {
-                    // A value set by hand in the registry (TaskbarOffset).
-                    let label = format!("Custom ({offset} px, TaskbarOffset in the registry)");
+                    // Set with the 10 px steps (or by hand in the registry, TaskbarOffset).
+                    let label = trf("Custom: {px} px to the left", &[("px", &offset.to_string())]);
                     let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_POSITION_CUSTOM, &windows::core::HSTRING::from(label));
                 }
                 let _ = CheckMenuRadioItem(sub, ID_POSITION_FIRST as u32, ID_POSITION_CUSTOM as u32, checked as u32, MF_BYCOMMAND.0);
+                let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+                let step = |on: bool| if on { MF_STRING } else { MF_STRING | MF_GRAYED };
+                let _ = AppendMenuW(sub, step(offset < POSITION_MAX), ID_POSITION_LEFT, &windows::core::HSTRING::from(tr("Move 10 px left")));
+                icons.set(sub, ID_POSITION_LEFT as u32, false, ui::glyph::LEFT);
+                let _ = AppendMenuW(sub, step(offset > 0), ID_POSITION_RIGHT, &windows::core::HSTRING::from(tr("Move 10 px right")));
+                icons.set(sub, ID_POSITION_RIGHT as u32, false, ui::glyph::RIGHT);
                 let n = GetMenuItemCount(Some(menu));
-                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Position on the taskbar"));
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Position on the taskbar")));
                 icons.set(menu, n as u32, true, ui::glyph::SETTINGS);
             }
             if let Ok(sub) = CreatePopupMenu() {
                 let mut checked = ID_HEIGHT_CUSTOM;
                 for (i, px) in HEIGHT_OFFSETS.iter().enumerate() {
                     let label = match *px {
-                        0 => "Centred".to_string(),
-                        p if p < 0 => format!("{} px up", -p),
-                        p => format!("{p} px down"),
+                        0 => tr("Centred"),
+                        p if p < 0 => trf("{px} px up", &[("px", &(-p).to_string())]),
+                        p => trf("{px} px down", &[("px", &p.to_string())]),
                     };
                     let _ = AppendMenuW(sub, MF_STRING, ID_HEIGHT_FIRST + i, &windows::core::HSTRING::from(label));
                     if *px == offset_y {
@@ -2462,12 +3146,22 @@ unsafe fn show_menu() {
                     }
                 }
                 if checked == ID_HEIGHT_CUSTOM {
-                    let label = format!("Custom ({offset_y} px, TaskbarOffsetY in the registry)");
+                    let label = if offset_y < 0 {
+                        trf("Custom: {px} px up", &[("px", &(-offset_y).to_string())])
+                    } else {
+                        trf("Custom: {px} px down", &[("px", &offset_y.to_string())])
+                    };
                     let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_HEIGHT_CUSTOM, &windows::core::HSTRING::from(label));
                 }
                 let _ = CheckMenuRadioItem(sub, ID_HEIGHT_FIRST as u32, ID_HEIGHT_CUSTOM as u32, checked as u32, MF_BYCOMMAND.0);
+                let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+                let step = |on: bool| if on { MF_STRING } else { MF_STRING | MF_GRAYED };
+                let _ = AppendMenuW(sub, step(offset_y > -HEIGHT_MAX), ID_HEIGHT_UP, &windows::core::HSTRING::from(tr("Move 10 px up")));
+                icons.set(sub, ID_HEIGHT_UP as u32, false, ui::glyph::UP);
+                let _ = AppendMenuW(sub, step(offset_y < HEIGHT_MAX), ID_HEIGHT_DOWN, &windows::core::HSTRING::from(tr("Move 10 px down")));
+                icons.set(sub, ID_HEIGHT_DOWN as u32, false, ui::glyph::DOWN);
                 let n = GetMenuItemCount(Some(menu));
-                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Height on the taskbar"));
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Height on the taskbar")));
                 icons.set(menu, n as u32, true, ui::glyph::SETTINGS);
             }
             // With more than one monitor: all of them, the main one only, or one other monitor only.
@@ -2476,8 +3170,8 @@ unsafe fn show_menu() {
             if !others.is_empty()
                 && let Ok(sub) = CreatePopupMenu()
             {
-                let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_ALL, w!("All monitors"));
-                let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_MAIN, w!("Main monitor only"));
+                let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_ALL, &windows::core::HSTRING::from(tr("All monitors")));
+                let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_MAIN, &windows::core::HSTRING::from(tr("Main monitor only")));
                 let ids: Vec<String> = others.iter().map(|o| o.0.clone()).collect();
                 let checked = match choice.as_str() {
                     "all" => ID_MONITOR_ALL,
@@ -2485,42 +3179,80 @@ unsafe fn show_menu() {
                     id => find_monitor(&ids, id).map(|i| ID_MONITOR_FIRST + i).unwrap_or(ID_MONITOR_GONE),
                 };
                 for (i, (_, label)) in others.iter().enumerate() {
-                    let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_FIRST + i, &windows::core::HSTRING::from(format!("{label} only")));
+                    let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_FIRST + i, &windows::core::HSTRING::from(trf("{monitor} only", &[("monitor", label)])));
                 }
                 if checked == ID_MONITOR_GONE {
-                    let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_MONITOR_GONE, w!("Chosen monitor (not connected, shown on main)"));
+                    let _ = AppendMenuW(
+                        sub,
+                        MF_STRING | MF_GRAYED,
+                        ID_MONITOR_GONE,
+                        &windows::core::HSTRING::from(tr("Chosen monitor (not connected, shown on main)")),
+                    );
                 }
                 let _ = CheckMenuRadioItem(sub, ID_MONITOR_ALL as u32, ID_MONITOR_GONE as u32, checked as u32, MF_BYCOMMAND.0);
                 let n = GetMenuItemCount(Some(menu));
-                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, w!("Show widget on"));
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Show widget on")));
                 icons.set(menu, n as u32, true, ui::glyph::MONITOR);
             }
+            // Language: Windows' language, every built-in and user language, and a new one.
+            let languages = batteryhub::i18n::available();
+            if let Ok(sub) = CreatePopupMenu() {
+                let chosen = language_choice();
+                // Names the language it resolves to: Windows' display language, not its region format.
+                let codes: Vec<String> = languages.iter().map(|(c, _)| c.clone()).collect();
+                let auto = batteryhub::i18n::pick(&batteryhub::i18n::windows_language(), &codes);
+                let auto_name = languages.iter().find(|(c, _)| c.eq_ignore_ascii_case(&auto)).map_or(auto.as_str(), |(_, n)| n.as_str());
+                let auto_label = format!("{} ({auto_name})", tr("Windows language"));
+                let _ = AppendMenuW(sub, MF_STRING | check(chosen.is_empty()), ID_LANG_AUTO, &windows::core::HSTRING::from(auto_label));
+                let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+                for (i, (code, name)) in languages.iter().enumerate().take(ID_LANG_LAST - ID_LANG_FIRST + 1) {
+                    let on = chosen.eq_ignore_ascii_case(code);
+                    let _ = AppendMenuW(sub, MF_STRING | check(on), ID_LANG_FIRST + i, &windows::core::HSTRING::from(name.as_str()));
+                }
+                let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+                let _ = AppendMenuW(sub, MF_STRING, ID_LANG_NEW, &windows::core::HSTRING::from(tr("Create your own language...")));
+                let _ = AppendMenuW(sub, MF_STRING, ID_LANG_FOLDER, &windows::core::HSTRING::from(tr("Open the languages folder")));
+                let n = GetMenuItemCount(Some(menu));
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Language")));
+                icons.set(menu, n as u32, true, ui::glyph::LANGUAGE);
+            }
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
-            let _ = AppendMenuW(menu, MF_STRING | check(ui::autostart_enabled(autostart_name())), ID_AUTOSTART, w!("Automatically start with Windows"));
-            let _ = AppendMenuW(menu, MF_STRING | check(auto_update()), ID_AUTO_UPDATE, w!("Automatically check for updates"));
+            let _ = AppendMenuW(
+                menu,
+                MF_STRING | check(ui::autostart_enabled(autostart_name())),
+                ID_AUTOSTART,
+                &windows::core::HSTRING::from(tr("Automatically start with Windows")),
+            );
+            let _ = AppendMenuW(menu, MF_STRING | check(auto_update()), ID_AUTO_UPDATE, &windows::core::HSTRING::from(tr("Automatically check for updates")));
             let _ = AppendMenuW(
                 menu,
                 MF_STRING | check(silent_install()) | if auto_update() { MF_ENABLED } else { MF_GRAYED },
                 ID_SILENT_UPDATE,
-                w!("Install updates silently"),
+                &windows::core::HSTRING::from(tr("Install updates silently")),
             );
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
-            let _ = AppendMenuW(menu, MF_STRING, ID_REQUEST, w!("Request support for a device..."));
+            let _ = AppendMenuW(menu, MF_STRING, ID_REQUEST, &windows::core::HSTRING::from(tr("Request support for a device...")));
             icons.set(menu, ID_REQUEST as u32, false, ui::glyph::MAIL);
             let busy = UPDATE_BUSY.load(std::sync::atomic::Ordering::Relaxed);
-            let label = if busy { "Checking for updates..." } else { "Check for updates..." };
+            let label = if busy { tr("Checking for updates...") } else { tr("Check for updates...") };
             let _ = AppendMenuW(menu, MF_STRING | if busy { MF_GRAYED } else { MF_ENABLED }, ID_CHECK_UPDATES, &windows::core::HSTRING::from(label));
             icons.set(menu, ID_CHECK_UPDATES as u32, false, ui::glyph::DOWNLOAD);
-            let _ = AppendMenuW(menu, MF_STRING, ID_VERSIONS, w!("Install another version..."));
+            let _ = AppendMenuW(menu, MF_STRING, ID_VERSIONS, &windows::core::HSTRING::from(tr("Install another version...")));
             icons.set(menu, ID_VERSIONS as u32, false, ui::glyph::HISTORY);
-            let _ = AppendMenuW(menu, MF_STRING, ID_EXIT, w!("Exit"));
+            let _ = AppendMenuW(menu, MF_STRING, ID_EXIT, &windows::core::HSTRING::from(tr("Exit")));
             icons.set(menu, ID_EXIT as u32, false, ui::glyph::EXIT);
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
             // Menu colours follow the taskbar: dark on a dark taskbar, light on a light one.
             ui::set_menu_theme(main, dark);
+            // Drawn like Windows 11's own context menus (rows, icons, highlight, chevrons).
+            let _modern = ui::ModernMenu::apply(menu, &icons, main, dark);
             let _ = SetForegroundWindow(main);
+            MENU_OPEN.store(true, std::sync::atomic::Ordering::Relaxed);
             let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, pt.x, pt.y, None, main, None);
+            MENU_OPEN.store(false, std::sync::atomic::Ordering::Relaxed);
+            // Whatever the mouse crossed while the menu was open does not open the card.
+            with_app(|a| a.hide_tip());
             let _ = PostMessageW(Some(main), WM_NULL, WPARAM(0), LPARAM(0));
             let _ = DestroyMenu(menu);
             match cmd.0 as usize {
@@ -2551,9 +3283,9 @@ unsafe fn show_menu() {
                     if on {
                         message(
                             main,
-                            "BatteryHub now shows one notification-area icon per device, with its level drawn in the icon.
-
-Windows places these icons like any other: drag them to reorder, or move them in or out of the hidden-icons area. If you don't see them, open Settings > Personalization > Taskbar > Other system tray icons and turn BatteryHub on.",
+                            &tr(
+                                "BatteryHub now shows one notification-area icon per device, with its level drawn in the icon.\n\nWindows places these icons like any other: drag them to reorder, or move them in or out of the hidden-icons area. If you don't see them, open Settings > Personalization > Taskbar > Other system tray icons and turn BatteryHub on.",
+                            ),
                             MB_OK | MB_ICONINFORMATION,
                         );
                     }
@@ -2565,33 +3297,12 @@ Windows places these icons like any other: drag them to reorder, or move them in
                         a.paint();
                     });
                 }
-                id if (ID_POSITION_FIRST..ID_POSITION_FIRST + POSITION_OFFSETS.len()).contains(&id) => {
-                    let px = POSITION_OFFSETS[id - ID_POSITION_FIRST];
-                    if px == 0 {
-                        batteryhub::util::reg_delete_value(SETTINGS_KEY, "TaskbarOffset");
-                    } else {
-                        save_dword("TaskbarOffset", px);
-                    }
-                    with_app(|a| {
-                        a.offset = px;
-                        a.last_place = Default::default();
-                        a.place();
-                        a.sync_mirrors();
-                    });
-                }
-                id if (ID_HEIGHT_FIRST..ID_HEIGHT_FIRST + HEIGHT_OFFSETS.len()).contains(&id) => {
-                    let px = HEIGHT_OFFSETS[id - ID_HEIGHT_FIRST];
-                    if px == 0 {
-                        batteryhub::util::reg_delete_value(SETTINGS_KEY, "TaskbarOffsetY");
-                    } else {
-                        save_dword("TaskbarOffsetY", px as u32);
-                    }
-                    with_app(|a| {
-                        a.offset_y = px;
-                        a.paint();
-                        a.sync_mirrors();
-                    });
-                }
+                id if (ID_POSITION_FIRST..ID_POSITION_FIRST + POSITION_OFFSETS.len()).contains(&id) => set_offset(POSITION_OFFSETS[id - ID_POSITION_FIRST]),
+                ID_POSITION_LEFT => set_offset((offset + 10).min(POSITION_MAX)),
+                ID_POSITION_RIGHT => set_offset(offset.saturating_sub(10)),
+                id if (ID_HEIGHT_FIRST..ID_HEIGHT_FIRST + HEIGHT_OFFSETS.len()).contains(&id) => set_offset_y(HEIGHT_OFFSETS[id - ID_HEIGHT_FIRST]),
+                ID_HEIGHT_UP => set_offset_y((offset_y - 10).max(-HEIGHT_MAX)),
+                ID_HEIGHT_DOWN => set_offset_y((offset_y + 10).min(HEIGHT_MAX)),
                 id if id == ID_MONITOR_ALL || id == ID_MONITOR_MAIN || (ID_MONITOR_FIRST..ID_MONITOR_FIRST + others.len()).contains(&id) => {
                     let v = match id {
                         ID_MONITOR_ALL => "all".to_string(),
@@ -2618,7 +3329,9 @@ Windows places these icons like any other: drag them to reorder, or move them in
                     if on {
                         message(
                             main,
-                            "Automatic update check is on.\n\nBatteryHub looks for a new version only when it starts (at sign-in or when you start it), not while it runs. When there is one, it asks you whether to update (or, with \"Install updates silently\", installs it in the background).",
+                            &tr(
+                                "Automatic update check is on.\n\nBatteryHub looks for a new version only when it starts (at sign-in or when you start it), not while it runs. When there is one, it asks you whether to update (or, with \"Install updates silently\", installs it in the background).",
+                            ),
                             MB_OK | MB_ICONINFORMATION,
                         );
                     }
@@ -2629,12 +3342,41 @@ Windows places these icons like any other: drag them to reorder, or move them in
                     if on {
                         message(
                             main,
-                            "Silent updates are on.\n\nWhen BatteryHub starts and finds a new version, it downloads it from GitHub, checks its SHA-256 checksum and installs it in the background, without asking and without showing anything. Your settings and autostart are kept.",
+                            &tr(
+                                "Silent updates are on.\n\nWhen BatteryHub starts and finds a new version, it downloads it from GitHub, checks its SHA-256 checksum and installs it in the background, without asking and without showing anything. Your settings and autostart are kept.",
+                            ),
                             MB_OK | MB_ICONINFORMATION,
                         );
                     }
                 }
                 ID_REQUEST => batteryhub::report_window::show(),
+                ID_LANG_AUTO => set_language(""),
+                id if (ID_LANG_FIRST..=ID_LANG_LAST).contains(&id) => {
+                    if let Some((code, _)) = languages.get(id - ID_LANG_FIRST) {
+                        set_language(code);
+                    }
+                }
+                ID_LANG_NEW => match batteryhub::i18n::create_template() {
+                    Ok(path) => {
+                        let _ = std::process::Command::new("notepad.exe").arg(&path).spawn();
+                        message(
+                            main,
+                            &trf(
+                                "A new language file was created:\n{path}\n\nIt lists every text of BatteryHub. Write the translation after the equals sign on each line, set @code and @name at the top, save it, and then pick it in the Language menu. Texts you leave out stay in English.",
+                                &[("path", &path.display().to_string())],
+                            ),
+                            MB_OK | MB_ICONINFORMATION,
+                        );
+                    }
+                    Err(e) => {
+                        message(main, &trf("Could not create the language file:\n{error}", &[("error", &e.to_string())]), MB_OK | MB_ICONWARNING);
+                    }
+                },
+                ID_LANG_FOLDER => {
+                    let dir = batteryhub::i18n::user_dir();
+                    let _ = std::fs::create_dir_all(&dir);
+                    let _ = std::process::Command::new("explorer.exe").arg(&dir).spawn();
+                }
                 ID_ON_CHANGE => {
                     let on = !refresh_on_change();
                     save_dword("RefreshOnDeviceChange", on as u32);
@@ -2649,7 +3391,7 @@ Windows places these icons like any other: drag them to reorder, or move them in
                     if let Some((dev, action)) = settings::decode_menu_id(id)
                         && let Some(d) = devices.get(dev)
                     {
-                        device_action(d, action);
+                        device_action(d, action, &devices);
                     }
                 }
             }
@@ -2657,8 +3399,53 @@ Windows places these icons like any other: drag them to reorder, or move them in
     }
 }
 
+/// Gap left of the notification area (TaskbarOffset, px).
+fn set_offset(px: u32) {
+    if px == 0 {
+        batteryhub::util::reg_delete_value(SETTINGS_KEY, "TaskbarOffset");
+    } else {
+        save_dword("TaskbarOffset", px);
+    }
+    with_app(|a| {
+        a.offset = px;
+        a.last_place = Default::default();
+        a.place();
+        a.sync_mirrors();
+    });
+}
+
+/// Up / down shift of the widget (TaskbarOffsetY, px, + = down).
+fn set_offset_y(px: i32) {
+    if px == 0 {
+        batteryhub::util::reg_delete_value(SETTINGS_KEY, "TaskbarOffsetY");
+    } else {
+        save_dword("TaskbarOffsetY", px as u32);
+    }
+    with_app(|a| {
+        a.offset_y = px;
+        a.paint();
+        a.sync_mirrors();
+    });
+}
+
+/// "Reset measurements": asks first, then deletes the device's history.
+fn confirm_reset(main: HWND, d: &DeviceStatus) {
+    let text = batteryhub::dashboard::reset_question(&d.name);
+    let answer = unsafe {
+        MessageBoxW(
+            Some(main),
+            &windows::core::HSTRING::from(text),
+            &windows::core::HSTRING::from(tr("Reset measurements")),
+            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND,
+        )
+    };
+    if answer == IDYES {
+        with_app(|a| a.reset_history(&d.key));
+    }
+}
+
 /// An item of a device's submenu was chosen.
-fn device_action(d: &DeviceStatus, action: settings::DeviceAction) {
+fn device_action(d: &DeviceStatus, action: settings::DeviceAction, devices: &[DeviceStatus]) {
     use settings::DeviceAction;
     let reported = with_app(|a| a.devices.get(&d.key).map(|t| t.reported.clone())).flatten().unwrap_or_else(|| d.name.clone());
     match action {
@@ -2672,6 +3459,16 @@ fn device_action(d: &DeviceStatus, action: settings::DeviceAction) {
             settings::set_name(SETTINGS_KEY, &d.key, None);
             with_app(|a| a.reload_names());
         }
+        DeviceAction::ToggleShown => {
+            with_app(|a| {
+                let hide = !a.hidden.contains(&d.key);
+                settings::set_hidden(SETTINGS_KEY, &d.key, hide);
+                a.hidden = settings::hidden(SETTINGS_KEY);
+                a.hide_tip();
+                a.card_cache.clear();
+                a.paint();
+            });
+        }
         DeviceAction::ToggleWarn5 => {
             settings::set_warn_critical(SETTINGS_KEY, &d.key, !settings::warn_critical(SETTINGS_KEY, &d.key));
         }
@@ -2681,6 +3478,18 @@ fn device_action(d: &DeviceStatus, action: settings::DeviceAction) {
                 a.card_cache.clear();
                 a.paint();
             });
+        }
+        DeviceAction::Move(on) => {
+            let Some(i) = devices.iter().position(|x| x.key == d.key) else { return };
+            let j = if on { i + 1 } else { i.wrapping_sub(1) };
+            if let Some(other) = devices.get(j) {
+                with_app(|a| a.swap_devices(&d.key, &other.key));
+            }
+        }
+        DeviceAction::ResetHistory => {
+            if let Some(main) = with_app(|a| a.main) {
+                confirm_reset(main, d);
+            }
         }
     }
 }
@@ -2916,12 +3725,13 @@ impl Drop for Surface {
 
 const CARD_CLASS: windows::core::PCWSTR = w!("BatteryHub.Taskbar.Card");
 
-/// The hover card: a layered, click-through, topmost popup owned by the main window.
+/// The hover card: a layered, topmost popup owned by the main window. It takes the mouse (to pick
+/// an hour on its chart) but is never activated.
 fn create_card(owner: HWND) -> HWND {
     unsafe {
         let hinst = GetModuleHandleW(None).unwrap_or_default();
         CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
+            WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
             CARD_CLASS,
             w!(""),
             WS_POPUP,
@@ -2941,7 +3751,14 @@ fn create_card(owner: HWND) -> HWND {
 extern "system" fn card_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     unsafe {
         match msg {
-            WM_NCHITTEST => LRESULT(HTTRANSPARENT as isize),
+            WM_MOUSEMOVE => {
+                with_app(|a| a.card_mouse());
+                LRESULT(0)
+            }
+            WM_RBUTTONUP => {
+                show_menu();
+                LRESULT(0)
+            }
             WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
             _ => DefWindowProcW(hwnd, msg, wp, lp),
         }
@@ -2970,13 +3787,25 @@ extern "system" fn strip_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> L
                         a.hover(hwnd, c.x, c.y);
                     });
                 } else {
-                    with_app(|a| a.hide_tip());
-                    trim_memory();
+                    with_app(|a| a.leave_strip());
                 }
                 LRESULT(0)
             }
             WM_RBUTTONUP => {
+                with_app(|a| a.end_drag());
                 show_menu();
+                LRESULT(0)
+            }
+            WM_LBUTTONDOWN => {
+                with_app(|a| a.start_drag(hwnd, (lp.0 & 0xFFFF) as i16 as i32, ((lp.0 >> 16) & 0xFFFF) as i16 as i32));
+                LRESULT(0)
+            }
+            WM_LBUTTONUP => {
+                with_app(|a| a.end_drag());
+                LRESULT(0)
+            }
+            WM_CAPTURECHANGED => {
+                with_app(|a| a.drag = None);
                 LRESULT(0)
             }
             WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
@@ -3011,13 +3840,14 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                     }
                     TIMER_QUICK => a.start_quick(),
                     TIMER_NOTIFY => a.end_notify(),
+                    TIMER_AWAY => a.away_step(),
+                    TIMER_SLIDE => a.paint(),
                     TIMER_UPDATED => {
                         let _ = KillTimer(Some(hwnd), TIMER_UPDATED);
                         if let Some(old) = a.updated_from.take() {
-                            let text = format!(
-                                "Update finished.\n\nBatteryHub was updated:  {}  ->  {}\n\nYour settings and autostart were kept.",
-                                batteryhub::install::label_of(&old),
-                                batteryhub::install::version_label()
+                            let text = trf(
+                                "Update finished.\n\nBatteryHub was updated:  {old}  ->  {new}\n\nYour settings and autostart were kept.",
+                                &[("old", &batteryhub::install::label_of(&old)), ("new", &batteryhub::install::version_label())],
                             );
                             post_from_thread(hwnd, WM_SHOW_UPDATED, move || text);
                         }
@@ -3100,6 +3930,20 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                 }
                 LRESULT(0)
             }
+            WM_MEASUREITEM if ui::measure_menu_item(lp) => LRESULT(1),
+            WM_DRAWITEM if ui::draw_menu_item(lp) => LRESULT(1),
+            WM_COPYDATA => {
+                // From a dashboard: delete a device's measurements (it asked the user already).
+                let cds = &*(lp.0 as *const windows::Win32::System::DataExchange::COPYDATASTRUCT);
+                if cds.dwData == batteryhub::dashboard::COPY_RESET && !cds.lpData.is_null() {
+                    let key = String::from_utf8_lossy(std::slice::from_raw_parts(cds.lpData as *const u8, cds.cbData as usize)).to_string();
+                    with_app(|a| a.reset_history(&key));
+                } else if cds.dwData == batteryhub::dashboard::COPY_HELLO {
+                    // A dashboard just opened: it gets every device right away (its device bar).
+                    with_app(|a| a.send_to_dashboards());
+                }
+                LRESULT(1)
+            }
             WM_HISTORY_SAVED => {
                 with_app(|a| {
                     if wp.0 == 0 {
@@ -3124,6 +3968,11 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                     SetTimer(Some(hwnd), TIMER_DEVCHANGE, 5000, None);
                 }
                 LRESULT(1)
+            }
+            WM_TIMECHANGE => {
+                batteryhub::dashboard::time_zone_changed();
+                with_app(|a| a.card_cache.clear());
+                LRESULT(0)
             }
             WM_SETTINGCHANGE | WM_DISPLAYCHANGE => {
                 with_app(|a| {
@@ -3174,6 +4023,7 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
 
 fn main() {
     unsafe {
+        batteryhub::i18n::set_language(&language_choice());
         // `--report`: only the "Request support for a device" window (also while BatteryHub runs).
         if std::env::args().any(|a| a == "--report") {
             let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -3247,6 +4097,8 @@ fn main() {
             a.create_tooltip();
             a.history = batteryhub::history::History::load(EDITION, SETTINGS_KEY);
             a.names = settings::names(SETTINGS_KEY);
+            a.hidden = settings::hidden(SETTINGS_KEY);
+            a.saved_order = settings::order(SETTINGS_KEY);
             a.names_msg = batteryhub::rename::names_changed_message();
             // BH_FORCE_FALLBACK (diagnostics): start with notification-area icons. Otherwise the
             // fallback is decided by tick() after FALLBACK_AFTER_TICKS, so a taskbar that is not
@@ -3322,5 +4174,34 @@ mod tests {
         assert_eq!(shift_left_of(1560, 100, 4, &[(1550, 1650)]), 1446);
         // Two widgets side by side: ends left of both.
         assert_eq!(shift_left_of(1560, 100, 4, &[(1550, 1650), (1400, 1500)]), 1296);
+    }
+
+    #[test]
+    fn earbuds_icon_greys_the_bud_that_is_not_reported() {
+        let both = buds_mask(32, true, true);
+        let right_only = buds_mask(32, false, true);
+        let sum = |m: &Mask, left: bool| -> u32 {
+            (0..m.h).flat_map(|y| (0..m.w).map(move |x| (x, y))).filter(|(x, _)| (x * 2 < m.w) == left).map(|(x, y)| m.a[(y * m.w + x) as usize] as u32).sum()
+        };
+        assert!(sum(&both, true) > 1000 && sum(&both, false) > 1000);
+        assert_eq!(sum(&right_only, false), sum(&both, false));
+        assert!(sum(&right_only, true) * 2 < sum(&both, true));
+        if let Some(path) = std::env::var_os("BH_DUMP_BUDS") {
+            // Big preview for a look: both buds over the right one alone.
+            let m = buds_mask(96, true, true);
+            let r = buds_mask(96, false, true);
+            let mut out = format!(
+                "P2
+{} {}
+255
+",
+                m.w,
+                m.h * 2
+            );
+            for a in m.a.iter().chain(r.a.iter()) {
+                out.push_str(&format!("{} ", 255 - a));
+            }
+            std::fs::write(path, out).unwrap();
+        }
     }
 }

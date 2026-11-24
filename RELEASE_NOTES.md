@@ -1,4 +1,4 @@
-# BatteryHub v1.6.1 (Rust)
+# BatteryHub v1.7 (Rust)
 
 An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor). All credit for the original idea, look and device protocols goes to the original project.
 
@@ -6,10 +6,19 @@ An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of 
 
 | File | |
 |---|---|
-| `BatteryHub-Taskbar-Setup-v1.6.1.exe` | Setup: Install / Update / Uninstall |
+| `BatteryHub-Taskbar-Setup-v1.7.exe` | Setup: Install / Update / Uninstall |
 | `SHA256SUMS.txt` | Checksum |
 
 Already installed? Use *Check for updates...* in the right-click menu (v1.1 and later), or run the new setup and click **Update**. Your settings and autostart choice are kept.
+
+## New in v1.7
+
+- **21 languages**, following Windows by default; pick another or make your own under *Language* (#177).
+- **Hide a device** from the taskbar from its menu (#176). **Drag devices** to reorder them; every device keeps its place, new ones start on the left.
+- **AirPods and other earbuds:** their own icon, the weaker bud on the taskbar, a chart per bud in the card, and charging updates within seconds.
+- **New dashboard look**, and the card's forecast per hour when you move the mouse along the chart.
+- **New devices:** ASTRO A50 Gen 5 and Pulsar XS-1 TenZ (by [fevegit](https://github.com/fevegit), #174), NZXT Lift Elite (by [BatuDege](https://github.com/BatuDege), #184), Corsair Scimitar, SteelSeries Arctis Nova Pro Omni and the dock battery (by [Simdrom](https://github.com/Simdrom), #189), Cidoo QK61 V2 and other keyboards on `36B0:3002` (#175), Ardor Gaming receivers (#181, #185), IO Nova SE on its cable (#172).
+- **Fixes:** Corsair headsets answering on another report (#161); devices not seen for 7 days are forgotten; times follow your current time zone.
 
 ## New in v1.6.1
 

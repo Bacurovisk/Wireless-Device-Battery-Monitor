@@ -80,16 +80,47 @@ fn arctis_pro_wireless(d: &HidDev, pid: u16) -> Option<DeviceStatus> {
     Some(s)
 }
 
-/// Arctis Nova Pro Wireless: 06 B0 -> [15] status (01 offline, 02 charging), [6] level 0..8.
+/// Spare battery in the base station's charging slot, 0..`max`. The status has no known "slot
+/// empty" state; level 0 is taken as that.
+fn dock(level: u8, max: u8) -> Option<i32> {
+    (level > 0 && level <= max).then(|| level as i32 * 100 / max as i32)
+}
+
+/// Arctis Nova Pro Wireless (X): 06 B0 -> [15] status (01 offline, 02 charging), [6] headset and
+/// [7] dock battery level 0..8 (dock byte as named by Linux-Arctis-Manager).
 fn nova_pro_wireless(d: &HidDev, pid: u16) -> Option<DeviceStatus> {
     let r = write_read(d, &[0x06, 0xB0], 1000).filter(|r| r.len() >= 16)?;
+    Some(decode_nova_pro_wireless(pid, &r))
+}
+
+fn decode_nova_pro_wireless(pid: u16, r: &[u8]) -> DeviceStatus {
     let mut s = headset(pid, "SteelSeries Arctis Nova Pro Wireless");
     s.connected = r[15] != 0x01;
     s.charging = r[15] == 0x02;
     if s.connected {
         s.percent = map_to_100(r[6] as i32, 0, 8);
     }
-    Some(s)
+    s.dock_percent = dock(r[7], 8);
+    s
+}
+
+/// Arctis Nova Pro Omni: 01 B0 -> [6] headset %, [7] dock %, [14] link, [15] charge. The Nova Elite
+/// uses the same block (Linux-Arctis-Manager; untested here).
+fn nova_pro_omni(d: &HidDev, pid: u16) -> Option<DeviceStatus> {
+    let r = write_read(d, &[0x01, 0xB0], 1000).filter(|r| r.len() >= 17 && r[0] == 0x01 && r[1] == 0xB0)?;
+    Some(decode_nova_pro_omni(pid, &r))
+}
+
+fn decode_nova_pro_omni(pid: u16, r: &[u8]) -> DeviceStatus {
+    let mut s = headset(pid, if pid == 0x2290 { "SteelSeries Arctis Nova Pro Omni" } else { "SteelSeries Arctis Nova Elite" });
+    s.connected = r[14] == 0x08 && r[15] != 0x01;
+    s.charging = r[15] == 0x02;
+    s.percent = if s.connected { r[6].min(99) as i32 } else { -1 };
+    if s.percent == 99 {
+        s.percent = 100;
+    }
+    s.dock_percent = dock(r[7], 100);
+    s
 }
 
 /// Nova family: 00 B0 -> status block; layout depends on the model.
@@ -115,6 +146,9 @@ fn decode_nova(pid: u16, r: &[u8]) -> DeviceStatus {
     } else if pid == 0x230A {
         // Arctis GameBuds: lowest of the buds that are out of the case.
         s = headset(pid, "SteelSeries Arctis GameBuds");
+        s.kind = DeviceKind::Earbuds;
+        let side = |state: u8, level: u8| if state == 0x03 { clamp100(level as i32) } else { -1 };
+        s.buds = Some(crate::device::Buds { left: side(r[3], r[5]), right: side(r[4], r[6]), ..Default::default() });
         let mut lvl = -1;
         if r[3] == 0x03 {
             lvl = r[5] as i32;
@@ -296,7 +330,8 @@ fn models() -> Vec<(Vec<u16>, AcceptFn, PollFn)> {
         (vec![0x1260, 0x12AD, 0x1252], page_ff43, arctis7),
         (vec![0x12C2], iface0, arctis9),
         (vec![0x1290], iface0, arctis_pro_wireless),
-        (vec![0x12E0, 0x225D], iface4, nova_pro_wireless),
+        (vec![0x12E0, 0x12E5, 0x225D], iface4, nova_pro_wireless),
+        (vec![0x2290, 0x2244, 0x2270], page_ffc0, nova_pro_omni),
         (
             vec![
                 0x220E, 0x2212, 0x2216, 0x2236, 0x2269, 0x226D, 0x2232, 0x2253, 0x230A, 0x2202, 0x22A1, 0x227E, 0x2206, 0x2258, 0x229E, 0x22AD, 0x223A, 0x22A9,
@@ -363,5 +398,39 @@ mod tests {
         // Nova 7 (2202) reports 0..4 steps.
         let s = decode_nova(0x2202, &[0xB0, 0x00, 0x03, 0x03, 0x00, 0x00, 0x00]);
         assert_eq!(s.percent, 75);
+    }
+
+    #[test]
+    fn nova_pro_omni_status() {
+        let mut r = vec![0u8; 17];
+        r[..2].copy_from_slice(&[0x01, 0xB0]);
+        r[6] = 99;
+        r[7] = 42;
+        r[14] = 0x08;
+        r[15] = 0x02;
+        let s = decode_nova_pro_omni(0x2290, &r);
+        assert!(s.connected && s.charging);
+        assert_eq!(s.percent, 100);
+        assert_eq!(s.dock_text().as_deref(), Some("42%, charging"));
+        r[7] = 0;
+        assert_eq!(decode_nova_pro_omni(0x2290, &r).dock_text(), None);
+        // Recorded on a Nova Pro Omni: headset 17%, full spare battery in the dock.
+        let rec = [0x01, 0xB0, 0x00, 0x02, 0x01, 0x00, 0x11, 0x64, 0x08, 0x01, 0x02, 0x01, 0x02, 0x00, 0x08, 0x08, 0x03];
+        let s = decode_nova_pro_omni(0x2290, &rec);
+        assert_eq!((s.percent, s.charging, s.dock_percent), (17, false, Some(100)));
+        assert_eq!(s.dock_text().as_deref(), Some("full"));
+    }
+
+    #[test]
+    fn nova_pro_wireless_dock() {
+        let mut r = vec![0u8; 16];
+        r[..2].copy_from_slice(&[0x06, 0xB0]);
+        (r[6], r[7], r[15]) = (4, 6, 0x08);
+        let s = decode_nova_pro_wireless(0x12E0, &r);
+        assert_eq!((s.percent, s.dock_percent), (50, Some(75)));
+        (r[7], r[15]) = (8, 0x01); // headset off, its spare battery full
+        let s = decode_nova_pro_wireless(0x12E0, &r);
+        assert!(!s.connected);
+        assert_eq!(s.dock_percent, Some(100));
     }
 }

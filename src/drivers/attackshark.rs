@@ -30,6 +30,10 @@
 //! Model bytes on FA60, from the original's model table (misc_mice.cpp): 55 X11, 4E X3 Max, E5 V3
 //! Pro, 24 V6, and 10 for the X6 / R1, which reports its level in tens (0..10: `03 10 40 01 09` is
 //! 90 %, issue #8). 47 is the IO Nova SE on its dongle (`03 47 40 01 64`, USB capture in #172).
+//!
+//! On its USB cable the IO Nova SE is 1D57:2015 and sends the same frames itself, on interface 2
+//! (the same 000A:0000 collection, report 03) every 2 s: `03 47 40 03 64` while charging (USB
+//! capture with the dongle unplugged, #172).
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::HidDev;
 use crate::util::hex4;
@@ -38,6 +42,8 @@ const VID: u16 = 0x1D57;
 const RECEIVER: u16 = 0xFA60;
 /// Delux / Inphic "KP 8K" receiver.
 const RECEIVER_8K: u16 = 0xFA65;
+/// IO Nova SE on its USB cable.
+const CABLE_NOVA: u16 = 0x2015;
 const ON_BATTERY: u8 = 0x01;
 const ON_POWER: u8 = 0x02;
 const CHARGING: u8 = 0x03;
@@ -93,7 +99,7 @@ fn base(pid: u16, model: Option<u8>) -> DeviceStatus {
         key: format!("attackshark:{}", hex4(pid)),
         name: model_name(pid, model.unwrap_or(0)).into(),
         kind: DeviceKind::Mouse,
-        via: "2.4 GHz receiver".into(),
+        via: if pid == CABLE_NOVA { "USB cable" } else { "2.4 GHz receiver" }.into(),
         hw: Some((VID, pid)),
         grace_sec: 60,
         ..Default::default()
@@ -123,7 +129,7 @@ fn read_frames(d: &HidDev) -> Option<((i32, u8), u8)> {
 
 pub fn poll(ctx: &mut PollContext) {
     for (vid, pid) in ctx.products(VID) {
-        if pid != RECEIVER && pid != RECEIVER_8K {
+        if pid != RECEIVER && pid != RECEIVER_8K && pid != CABLE_NOVA {
             continue;
         }
         // The battery collection: page 000A (or a vendor page) with a 5-byte input report.
@@ -156,6 +162,8 @@ pub fn poll(ctx: &mut PollContext) {
                 },
                 ..base(pid, Some(model))
             },
+            // A cable with no frames is not a mouse that is off: leave it out.
+            None if pid == CABLE_NOVA => continue,
             None => DeviceStatus { connected: false, ..base(pid, None) },
         };
         ctx.add(s, vid, pid);
@@ -199,6 +207,15 @@ mod tests {
         assert_eq!(percent(RECEIVER_8K, 0x10, 9), 9);
         assert_eq!(model_name(RECEIVER, 0x10), "Attack Shark X6 / R1");
         assert_eq!(model_name(RECEIVER, 0x47), "IO Nova SE");
+    }
+
+    #[test]
+    fn nova_se_on_its_cable() {
+        // #172, 1D57:2015 with the dongle unplugged.
+        assert_eq!(decode(&[0x03, 0x47, 0x40, 0x03, 0x64]), Some((100, CHARGING)));
+        assert_eq!(model_name(CABLE_NOVA, 0x47), "IO Nova SE");
+        assert_eq!(percent(CABLE_NOVA, 0x47, 100), 100);
+        assert_eq!(base(CABLE_NOVA, Some(0x47)).via, "USB cable");
     }
 
     #[test]

@@ -5,7 +5,8 @@
 //!       single-battery models: low nibble = battery
 //!   [7] high nibble: bit0 broadcasting/single charging, bit1 other bud charging, bit2 case charging;
 //!       low nibble: case level
-//! Only messages whose model matches the PID of a paired device are used; strongest recent signal wins.
+//! Only messages whose model matches the PID of a paired device are used (decoding as in
+//! AirPodsDesktop's AppleCP.h). Each side takes its newest reading of the last minute (see `combine`).
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
@@ -150,49 +151,47 @@ fn paired_apple_audio() -> Vec<AppleDevice> {
     out
 }
 
-/// Best message for one device (see the module docs); fills a missing side from the other bud.
+/// How long a side's last reading still counts when newer messages leave it out (the buds report
+/// the other bud only now and then).
+const SIDE_KEEP_SECS: u64 = 60;
+/// Messages this much weaker than the strongest recent one are taken as another pair nearby.
+const RSSI_SPREAD: i32 = 15;
+
+/// The state of one device from its recent messages (see the module docs).
 fn pick(dev: &AppleDevice) -> Option<Advert> {
     let max_age = if dev.connected { 300 } else { 90 };
     let min_rssi = if dev.connected { -90 } else { -80 };
     let m = adverts().lock().ok()?;
-    let fresh = |a: &Advert| a.at.elapsed().as_secs() < 90;
-    let mut best: Option<Advert> = None;
-    for a in m.values() {
-        if dev.pid != 0 && a.model != dev.pid {
-            continue;
-        }
-        if a.at.elapsed().as_secs() > max_age || a.rssi < min_rssi {
-            continue;
-        }
-        let better = match &best {
-            None => true,
-            Some(b) => (fresh(a) && !fresh(b)) || (fresh(a) && fresh(b) && a.rssi > b.rssi) || (!fresh(a) && !fresh(b) && a.at > b.at),
-        };
-        if better {
-            best = Some(*a);
-        }
+    let mine: Vec<Advert> =
+        m.values().filter(|a| (dev.pid == 0 || a.model == dev.pid) && a.at.elapsed().as_secs() <= max_age && a.rssi >= min_rssi).copied().collect();
+    combine(&mine, Instant::now())
+}
+
+/// Whether a message of this device arrived after `since`.
+fn heard_since(dev: &AppleDevice, since: Instant) -> bool {
+    adverts().lock().is_ok_and(|m| m.values().any(|a| (dev.pid == 0 || a.model == dev.pid) && a.at >= since))
+}
+
+/// Combines the messages of one pair. Both buds and the case broadcast, each under its own
+/// (rotating) address, and a bud reports the other one only now and then: the newest message is
+/// the base, and each side (left, right, case) takes its newest known level and charging state
+/// from the last SIDE_KEEP_SECS. Older messages are used only when there is nothing newer.
+fn combine(all: &[Advert], now: Instant) -> Option<Advert> {
+    let age = |a: &Advert| now.saturating_duration_since(a.at).as_secs();
+    let recent: Vec<&Advert> = all.iter().filter(|a| age(a) <= SIDE_KEEP_SECS).collect();
+    if recent.is_empty() {
+        return all.iter().max_by_key(|a| a.at).copied();
     }
-    let mut best = best?;
-    if !best.single {
-        for a in m.values() {
-            if a.model != best.model || a.single {
-                continue;
-            }
-            let gap = if best.at > a.at { best.at - a.at } else { a.at - best.at };
-            if gap.as_secs() > 15 {
-                continue;
-            }
-            if best.left < 0 && a.left >= 0 {
-                (best.left, best.left_chg) = (a.left, a.left_chg);
-            }
-            if best.right < 0 && a.right >= 0 {
-                (best.right, best.right_chg) = (a.right, a.right_chg);
-            }
-            if best.case < 0 && a.case >= 0 {
-                (best.case, best.case_chg) = (a.case, a.case_chg);
-            }
-        }
+    let strongest = recent.iter().map(|a| a.rssi).max()?;
+    let near: Vec<&Advert> = recent.into_iter().filter(|a| a.rssi >= strongest - RSSI_SPREAD).collect();
+    let mut best = **near.iter().max_by_key(|a| a.at)?;
+    if best.single {
+        return Some(best);
     }
+    let newest = |known: fn(&Advert) -> bool| near.iter().filter(|a| !a.single && known(a)).max_by_key(|a| a.at).copied();
+    (best.left, best.left_chg) = newest(|a| a.left >= 0).map_or((-1, false), |a| (a.left, a.left_chg));
+    (best.right, best.right_chg) = newest(|a| a.right >= 0).map_or((-1, false), |a| (a.right, a.right_chg));
+    (best.case, best.case_chg) = newest(|a| a.case >= 0).map_or((-1, false), |a| (a.case, a.case_chg));
     Some(best)
 }
 
@@ -205,11 +204,13 @@ pub fn poll(ctx: &mut PollContext) {
     if devices.is_empty() {
         return;
     }
-    if ble::ensure_watcher() {
-        // Just started (every read starts the watcher): give the headphones up to 5 s to broadcast;
-        // in the ear they can be quieter than the 1-2 s interval of an open case.
+    ble::ensure_watcher();
+    // Every read starts listening again: wait (up to 5 s) for a message heard since then, so a bud
+    // just taken out of the case is not shown as charging from an older message. In the ear the
+    // buds can be quieter than the 1-2 s interval of an open case.
+    if let Some(since) = ble::listening_since() {
         for _ in 0..25 {
-            if devices.iter().any(|d| pick(d).is_some()) {
+            if devices.iter().all(|d| heard_since(d, since)) {
                 break;
             }
             sleep_ms(200);
@@ -238,26 +239,11 @@ pub fn poll(ctx: &mut PollContext) {
             s.percent = a.left;
             s.charging = a.left_chg;
         } else {
-            // Prefer the lower discharging bud (the one in use); charging only if every online bud is.
-            let (mut dis, mut chg) = (-1, -1);
-            for (p, c) in [(a.left, a.left_chg), (a.right, a.right_chg)] {
-                if p < 0 {
-                    continue;
-                }
-                let dst = if c { &mut chg } else { &mut dis };
-                if *dst < 0 || p < *dst {
-                    *dst = p;
-                }
-            }
-            if dis >= 0 {
-                s.percent = dis;
-            } else if chg >= 0 {
-                s.percent = chg;
-                s.charging = true;
-            } else {
-                s.percent = a.case;
-                s.charging = a.case_chg;
-            }
+            // The weaker bud (lower level) is the one shown; the card lists both.
+            let buds = crate::device::Buds { left: a.left, right: a.right, left_charging: a.left_chg, right_charging: a.right_chg };
+            (s.percent, s.charging) = buds.weaker().unwrap_or((a.case, a.case_chg));
+            s.kind = DeviceKind::Earbuds;
+            s.buds = Some(buds);
             let z = |c: bool| if c { "⚡" } else { "" };
             s.detail = format!("L {}{}  R {}{}  case {}{}", pct(a.left), z(a.left_chg), pct(a.right), z(a.right_chg), pct(a.case), z(a.case_chg));
         }
@@ -300,5 +286,33 @@ mod tests {
     fn rejects_other_messages() {
         assert!(parse(&[0x10, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05]).is_none()); // nearby-info, not proximity
         assert!(parse(&msg(0x1234, 0x20, 0x89, 0x45)).is_none()); // not an audio model
+    }
+
+    #[test]
+    fn newest_side_wins_and_gaps_are_filled() {
+        let now = Instant::now();
+        let at = |secs: u64, rssi: i32, l: i32, r: i32, lc: bool, rc: bool| Advert {
+            model: 0x2014,
+            single: false,
+            left: l,
+            right: r,
+            case: -1,
+            left_chg: lc,
+            right_chg: rc,
+            case_chg: false,
+            rssi,
+            at: now - std::time::Duration::from_secs(secs),
+        };
+        // Strong but old message: left charging. Newer one: left out of the case, right unknown.
+        let v = [at(40, -40, 100, 70, true, false), at(5, -55, 90, -1, false, false)];
+        let a = combine(&v, now).unwrap();
+        assert_eq!((a.left, a.left_chg, a.right, a.right_chg), (90, false, 70, false));
+        // A side not heard for over a minute is no longer shown.
+        let v = [at(90, -50, 100, 70, false, false), at(5, -50, 90, -1, false, false)];
+        assert_eq!(combine(&v, now).unwrap().right, -1);
+        // Another pair nearby (much weaker) does not mix in.
+        let v = [at(2, -45, 80, 80, false, false), at(1, -85, 10, 10, true, true)];
+        let a = combine(&v, now).unwrap();
+        assert_eq!((a.left, a.right, a.left_chg), (80, 80, false));
     }
 }

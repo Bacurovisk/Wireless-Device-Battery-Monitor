@@ -344,6 +344,8 @@ mod tests {
 
 /// Segoe Fluent Icons code points used in the menus (one icon set, the one Windows 11 uses).
 pub mod glyph {
+    /// Not a font glyph: stands for the drawn earbuds icon (crate::gui::earbuds_icon).
+    pub const EARBUDS: char = '\u{F0000}';
     pub const DASHBOARD: char = '\u{F246}';
     /// Segoe MDL2 Assets (Windows 10) has no dashboard glyph: four tiles instead.
     pub const DASHBOARD_MDL2: char = '\u{E80A}';
@@ -362,6 +364,14 @@ pub mod glyph {
     pub const MAIL: char = '\u{E715}';
     pub const EXIT: char = '\u{E8BB}';
     pub const INFO: char = '\u{E946}';
+    pub const LANGUAGE: char = '\u{E774}';
+    pub const VIEW: char = '\u{E890}';
+    pub const LEFT: char = '\u{E76B}';
+    pub const RIGHT: char = '\u{E76C}';
+    pub const UP: char = '\u{E70E}';
+    pub const DOWN: char = '\u{E70D}';
+    pub const DELETE: char = '\u{E74D}';
+    pub const CHECK: char = '\u{E73E}';
 }
 
 /// Whether Segoe Fluent Icons is installed (Windows 11); otherwise Segoe MDL2 Assets is used.
@@ -410,6 +420,18 @@ pub fn glyph_bitmap(g: char, size: i32, dark: bool) -> Option<windows::Win32::Gr
         let old_f = SelectObject(dc, HGDIOBJ(f.0));
         let px = std::slice::from_raw_parts_mut(bits as *mut u32, (size * size) as usize);
         px.fill(0);
+        if g == glyph::EARBUDS {
+            let (r, gg, b) = if dark { (255, 255, 255) } else { (0, 0, 0) };
+            let a = crate::gui::earbuds_icon(size, true, true);
+            for (p, a) in px.iter_mut().zip(a) {
+                *p = premul(r, gg, b, a);
+            }
+            SelectObject(dc, old_f);
+            SelectObject(dc, old_b);
+            let _ = DeleteObject(HGDIOBJ(f.0));
+            let _ = DeleteDC(dc);
+            return Some(bmp);
+        }
         SetBkMode(dc, TRANSPARENT);
         SetTextColor(dc, rgb(255, 255, 255));
         let mut rc = RECT { left: 0, top: 0, right: size, bottom: size };
@@ -434,6 +456,8 @@ pub struct MenuIcons {
     size: i32,
     dark: bool,
     bitmaps: Vec<windows::Win32::Graphics::Gdi::HBITMAP>,
+    /// (menu, item, by position, glyph): the icons again, for ModernMenu.
+    glyphs: Vec<(usize, u32, bool, char)>,
 }
 
 impl MenuIcons {
@@ -442,11 +466,12 @@ impl MenuIcons {
         use windows::Win32::UI::WindowsAndMessaging::SM_CXSMICON;
         let dpi = unsafe { GetDpiForWindow(owner) }.max(96);
         let size = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, dpi) }.max(16);
-        MenuIcons { size, dark, bitmaps: Vec::new() }
+        MenuIcons { size, dark, bitmaps: Vec::new(), glyphs: Vec::new() }
     }
 
     /// Gives menu item `item` (a command id, or a position when `by_pos`) the icon `g`.
     pub fn set(&mut self, menu: windows::Win32::UI::WindowsAndMessaging::HMENU, item: u32, by_pos: bool, g: char) {
+        self.glyphs.push((menu.0 as usize, item, by_pos, g));
         use windows::Win32::UI::WindowsAndMessaging::{MENUITEMINFOW, MIIM_BITMAP, SetMenuItemInfoW};
         let Some(bmp) = glyph_bitmap(g, self.size, self.dark) else { return };
         let mii = MENUITEMINFOW { cbSize: size_of::<MENUITEMINFOW>() as u32, fMask: MIIM_BITMAP, hbmpItem: bmp, ..Default::default() };
@@ -454,6 +479,12 @@ impl MenuIcons {
             let _ = SetMenuItemInfoW(menu, item, by_pos, &mii);
         }
         self.bitmaps.push(bmp);
+    }
+
+    /// The icon given to the item at `pos` (command id `id`) of `menu`.
+    fn glyph_of(&self, menu: windows::Win32::UI::WindowsAndMessaging::HMENU, pos: u32, id: u32) -> Option<char> {
+        let m = menu.0 as usize;
+        self.glyphs.iter().rev().find(|(mm, item, by_pos, _)| *mm == m && if *by_pos { *item == pos } else { *item == id && id != 0 }).map(|g| g.3)
     }
 
     /// A checked item shows its check mark instead of its icon (no overlap in the gutter).
@@ -474,4 +505,348 @@ impl Drop for MenuIcons {
             }
         }
     }
+}
+
+// ---- Windows 11 style menus --------------------------------------------------------------------
+
+/// What an owner-drawn menu item shows.
+struct MenuItemData {
+    text: String,
+    glyph: Option<char>,
+    popup: bool,
+    separator: bool,
+}
+
+/// Colours, sizes and fonts of the open menu (one menu is open at a time).
+struct MenuStyle {
+    s: f32,
+    font: HFONT,
+    icons: HFONT,
+    chevron: HFONT,
+    bg: COLORREF,
+    hover: COLORREF,
+    text: COLORREF,
+    disabled: COLORREF,
+    line: COLORREF,
+}
+
+thread_local! {
+    static MENU_STYLE: std::cell::RefCell<Option<MenuStyle>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A popup menu (and its submenus) drawn like Windows 11's own context menus: taller rows,
+/// Fluent icons, a rounded highlight, check marks in the icon column and a chevron for
+/// submenus. Built over a normal menu, so keyboard use and submenus stay Windows' own. Keep it
+/// until TrackPopupMenu returned; it frees its fonts and brush on drop.
+pub struct ModernMenu {
+    /// Rounds the corners of the menu windows (#32768) while this menu is open.
+    hook: Option<windows::Win32::UI::WindowsAndMessaging::HHOOK>,
+    /// Boxed: the menu items point at them, so they must not move when the list grows.
+    #[allow(clippy::vec_box)]
+    items: Vec<Box<MenuItemData>>,
+    brush: windows::Win32::Graphics::Gdi::HBRUSH,
+}
+
+impl ModernMenu {
+    pub fn apply(menu: windows::Win32::UI::WindowsAndMessaging::HMENU, icons: &MenuIcons, owner: HWND, dark: bool) -> Self {
+        use windows::Win32::Graphics::Gdi::{CLEARTYPE_QUALITY, CreateSolidBrush};
+        use windows::Win32::UI::HiDpi::GetDpiForWindow;
+        use windows::Win32::UI::WindowsAndMessaging::{MENUINFO, MIM_APPLYTOSUBMENUS, MIM_BACKGROUND, SetMenuInfo};
+        let s = unsafe { GetDpiForWindow(owner) }.max(96) as f32 / 96.0;
+        let px = |v: f32| (v * s).round() as i32;
+        let face = crate::gui::text_face(false);
+        let text_font = unsafe {
+            CreateFontW(-px(12.0), 0, 0, 0, 400, 0, 0, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, 0, &HSTRING::from(face))
+        };
+        let (bg, hover, text, disabled, line) = if dark {
+            (rgb(44, 44, 44), rgb(61, 61, 61), rgb(255, 255, 255), rgb(120, 120, 120), rgb(64, 64, 64))
+        } else {
+            (rgb(249, 249, 249), rgb(234, 234, 234), rgb(26, 26, 26), rgb(160, 160, 160), rgb(226, 226, 226))
+        };
+        let style = MenuStyle {
+            s,
+            font: text_font,
+            icons: font(px(14.0), 400, icon_font_face()),
+            chevron: font(px(8.0), 400, icon_font_face()),
+            bg,
+            hover,
+            text,
+            disabled,
+            line,
+        };
+        MENU_STYLE.with(|m| {
+            if let Some(old) = m.borrow_mut().replace(style) {
+                free_style(old);
+            }
+        });
+        let brush = unsafe { CreateSolidBrush(bg) };
+        let mi = MENUINFO { cbSize: size_of::<MENUINFO>() as u32, fMask: MIM_BACKGROUND | MIM_APPLYTOSUBMENUS, hbrBack: brush, ..Default::default() };
+        unsafe {
+            let _ = SetMenuInfo(menu, &mi);
+        }
+        let hook = unsafe {
+            windows::Win32::UI::WindowsAndMessaging::SetWindowsHookExW(
+                windows::Win32::UI::WindowsAndMessaging::WH_CALLWNDPROC,
+                Some(round_menu_windows),
+                None,
+                windows::Win32::System::Threading::GetCurrentThreadId(),
+            )
+            .ok()
+        };
+        let mut me = ModernMenu { hook, items: Vec::new(), brush };
+        me.convert(menu, icons);
+        me
+    }
+
+    fn convert(&mut self, menu: windows::Win32::UI::WindowsAndMessaging::HMENU, icons: &MenuIcons) {
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        let n = unsafe { GetMenuItemCount(Some(menu)) };
+        for pos in 0..n.max(0) as u32 {
+            let mut buf = [0u16; 512];
+            let mut mii = MENUITEMINFOW {
+                cbSize: size_of::<MENUITEMINFOW>() as u32,
+                fMask: MIIM_FTYPE | MIIM_ID | MIIM_SUBMENU | MIIM_STRING,
+                dwTypeData: windows::core::PWSTR(buf.as_mut_ptr()),
+                cch: buf.len() as u32 - 1,
+                ..Default::default()
+            };
+            if unsafe { GetMenuItemInfoW(menu, pos, true, &mut mii) }.is_err() {
+                continue;
+            }
+            let separator = mii.fType.0 & MFT_SEPARATOR.0 != 0;
+            let popup = !mii.hSubMenu.0.is_null();
+            let text = util::from_wide(&buf[..(mii.cch as usize).min(buf.len())]);
+            let glyph = icons.glyph_of(menu, pos, mii.wID);
+            let data = Box::new(MenuItemData { text, glyph, popup, separator });
+            let set = MENUITEMINFOW {
+                cbSize: size_of::<MENUITEMINFOW>() as u32,
+                fMask: MIIM_FTYPE | MIIM_DATA | MIIM_BITMAP,
+                fType: MENU_ITEM_TYPE(mii.fType.0 | MFT_OWNERDRAW.0),
+                dwItemData: &*data as *const MenuItemData as usize,
+                hbmpItem: windows::Win32::Graphics::Gdi::HBITMAP::default(),
+                ..Default::default()
+            };
+            unsafe {
+                let _ = SetMenuItemInfoW(menu, pos, true, &set);
+            }
+            self.items.push(data);
+            if popup {
+                self.convert(mii.hSubMenu, icons);
+            }
+        }
+    }
+}
+
+/// WH_CALLWNDPROC hook: a menu window being created gets Windows 11's rounded corners.
+unsafe extern "system" fn round_menu_windows(code: i32, wp: WPARAM, lp: LPARAM) -> windows::Win32::Foundation::LRESULT {
+    use windows::Win32::UI::WindowsAndMessaging::{CWPSTRUCT, CallNextHookEx, GetClassNameW, HHOOK, WM_CREATE};
+    unsafe {
+        if code >= 0 {
+            let m = &*(lp.0 as *const CWPSTRUCT);
+            if m.message == WM_CREATE {
+                let mut class = [0u16; 16];
+                let n = GetClassNameW(m.hwnd, &mut class) as usize;
+                if &class[..n] == "#32768".encode_utf16().collect::<Vec<u16>>().as_slice() {
+                    let round: i32 = 2; // DWMWCP_ROUND
+                    let _ = windows::Win32::Graphics::Dwm::DwmSetWindowAttribute(
+                        m.hwnd,
+                        windows::Win32::Graphics::Dwm::DWMWINDOWATTRIBUTE(33),
+                        &round as *const i32 as *const c_void,
+                        4,
+                    );
+                }
+            }
+        }
+        CallNextHookEx(Some(HHOOK::default()), code, wp, lp)
+    }
+}
+
+fn free_style(st: MenuStyle) {
+    unsafe {
+        for f in [st.font, st.icons, st.chevron] {
+            let _ = DeleteObject(HGDIOBJ(f.0));
+        }
+    }
+}
+
+impl Drop for ModernMenu {
+    fn drop(&mut self) {
+        if let Some(h) = self.hook.take() {
+            unsafe {
+                let _ = windows::Win32::UI::WindowsAndMessaging::UnhookWindowsHookEx(h);
+            }
+        }
+        MENU_STYLE.with(|m| {
+            if let Some(st) = m.borrow_mut().take() {
+                free_style(st);
+            }
+        });
+        unsafe {
+            let _ = DeleteObject(HGDIOBJ(self.brush.0));
+        }
+        self.items.clear();
+    }
+}
+
+/// WM_MEASUREITEM for a menu: true when it was one of ours.
+pub fn measure_menu_item(lp: LPARAM) -> bool {
+    use windows::Win32::UI::Controls::{MEASUREITEMSTRUCT, ODT_MENU};
+    let mis = unsafe { &mut *(lp.0 as *mut MEASUREITEMSTRUCT) };
+    if mis.CtlType != ODT_MENU || mis.itemData == 0 {
+        return false;
+    }
+    MENU_STYLE.with(|m| {
+        let m = m.borrow();
+        let Some(st) = m.as_ref() else { return false };
+        let item = unsafe { &*(mis.itemData as *const MenuItemData) };
+        let px = |v: f32| (v * st.s).round() as i32;
+        if item.separator {
+            mis.itemWidth = px(16.0) as u32;
+            mis.itemHeight = px(7.0) as u32;
+            return true;
+        }
+        let w = unsafe {
+            let dc = CreateCompatibleDC(None);
+            let old = SelectObject(dc, HGDIOBJ(st.font.0));
+            let w = text_width(dc, &item.text);
+            SelectObject(dc, old);
+            let _ = DeleteDC(dc);
+            w
+        };
+        // Icon column, text, then room for the chevron. Windows adds the check-mark width
+        // itself; it is taken back here.
+        let check = unsafe { windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(windows::Win32::UI::WindowsAndMessaging::SM_CXMENUCHECK) };
+        mis.itemWidth = (px(34.0) + w + px(30.0) - check).max(px(120.0)) as u32;
+        mis.itemHeight = px(24.0) as u32;
+        true
+    })
+}
+
+/// WM_DRAWITEM for a menu: true when it was one of ours.
+pub fn draw_menu_item(lp: LPARAM) -> bool {
+    use windows::Win32::Graphics::Gdi::{BitBlt, ExcludeClipRect, SRCCOPY};
+    use windows::Win32::UI::Controls::{DRAWITEMSTRUCT, ODS_CHECKED, ODS_DISABLED, ODS_GRAYED, ODS_SELECTED, ODT_MENU};
+    let dis = unsafe { &*(lp.0 as *const DRAWITEMSTRUCT) };
+    if dis.CtlType != ODT_MENU || dis.itemData == 0 {
+        return false;
+    }
+    MENU_STYLE.with(|m| {
+        let m = m.borrow();
+        let Some(st) = m.as_ref() else { return false };
+        let item = unsafe { &*(dis.itemData as *const MenuItemData) };
+        let px = |v: f32| (v * st.s).round() as i32;
+        let rc = dis.rcItem;
+        let (w, h) = (rc.right - rc.left, rc.bottom - rc.top);
+        if w <= 0 || h <= 0 {
+            return true;
+        }
+        let disabled = dis.itemState.0 & (ODS_DISABLED.0 | ODS_GRAYED.0) != 0;
+        let selected = dis.itemState.0 & ODS_SELECTED.0 != 0 && !disabled && !item.separator;
+        let checked = dis.itemState.0 & ODS_CHECKED.0 != 0;
+        unsafe {
+            // Drawn into a bitmap first: the rounded highlight is antialiased there.
+            let dc = CreateCompatibleDC(Some(dis.hDC));
+            let bmi = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: w,
+                    biHeight: -h,
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut bits: *mut c_void = std::ptr::null_mut();
+            let Ok(bmp) = CreateDIBSection(Some(dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) else {
+                let _ = DeleteDC(dc);
+                return true;
+            };
+            let old_b = SelectObject(dc, HGDIOBJ(bmp.0));
+            let pix = std::slice::from_raw_parts_mut(bits as *mut u32, (w * h) as usize);
+            let bgr = |c: COLORREF| {
+                let (r, g, b) = split(c);
+                (r as u32) << 16 | (g as u32) << 8 | b as u32
+            };
+            pix.fill(bgr(st.bg));
+            if item.separator {
+                let y = h / 2;
+                let c = bgr(st.line);
+                for x in px(1.0)..w - px(1.0) {
+                    pix[(y * w + x) as usize] = c;
+                }
+            } else if selected {
+                // Rounded highlight, 4 px in from the sides and 1 px from the rows around it.
+                let (x0, y0, x1, y1) = (px(4.0) as f32, px(1.0) as f32, (w - px(4.0)) as f32, (h - px(1.0)) as f32);
+                let r = 4.0 * st.s;
+                let (br, bg_, bb) = split(st.bg);
+                let (hr, hg, hb) = split(st.hover);
+                for y in 0..h {
+                    for x in 0..w {
+                        let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
+                        let qx = (x0 + r - fx).max(fx - (x1 - r)).max(0.0);
+                        let qy = (y0 + r - fy).max(fy - (y1 - r)).max(0.0);
+                        let outside = (qx * qx + qy * qy).sqrt() - r;
+                        let inside = (x0 - fx).max(fx - x1).max(y0 - fy).max(fy - y1);
+                        let d = if qx > 0.0 && qy > 0.0 { outside } else { inside };
+                        let a = (0.5 - d).clamp(0.0, 1.0);
+                        if a > 0.0 {
+                            let mixc = |b: u8, f: u8| (b as f32 + (f as f32 - b as f32) * a).round() as u32;
+                            pix[(y * w + x) as usize] = mixc(br, hr) << 16 | mixc(bg_, hg) << 8 | mixc(bb, hb);
+                        }
+                    }
+                }
+            }
+            if !item.separator {
+                SetBkMode(dc, TRANSPARENT);
+                let fg = if disabled { st.disabled } else { st.text };
+                SetTextColor(dc, fg);
+                // Icon column: the check mark when checked, else the item's icon.
+                let mark = if checked { Some(glyph::CHECK) } else { item.glyph };
+                if mark == Some(glyph::EARBUDS) {
+                    // Drawn, not a font glyph: blended in the text colour.
+                    let n = px(16.0);
+                    let (x0, y0) = (px(9.0), (h - n) / 2);
+                    let (fr, fg_, fb) = split(fg);
+                    for (i, a) in crate::gui::earbuds_icon(n, true, true).into_iter().enumerate() {
+                        let (x, y) = (x0 + i as i32 % n, y0 + i as i32 / n);
+                        if a == 0 || y < 0 || y >= h {
+                            continue;
+                        }
+                        let d = &mut pix[(y * w + x) as usize];
+                        let mixc = |sh: u32, f: u8| {
+                            let b = ((*d >> sh) & 0xFF) as f32;
+                            (b + (f as f32 - b) * a as f32 / 255.0).round() as u32
+                        };
+                        *d = mixc(16, fr) << 16 | mixc(8, fg_) << 8 | mixc(0, fb);
+                    }
+                } else if let Some(g) = mark {
+                    let g = if g == glyph::DASHBOARD && !has_fluent_icons() { glyph::DASHBOARD_MDL2 } else { g };
+                    let old = SelectObject(dc, HGDIOBJ(st.icons.0));
+                    let mut r = RECT { left: px(9.0), top: 0, right: px(9.0) + px(16.0), bottom: h };
+                    draw_text(dc, &g.to_string(), &mut r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                    SelectObject(dc, old);
+                }
+                let old = SelectObject(dc, HGDIOBJ(st.font.0));
+                let mut r = RECT { left: px(34.0), top: 0, right: w - px(22.0), bottom: h };
+                draw_text(dc, &item.text, &mut r, DT_VCENTER | DT_SINGLELINE | windows::Win32::Graphics::Gdi::DT_END_ELLIPSIS);
+                SelectObject(dc, old);
+                if item.popup {
+                    let old = SelectObject(dc, HGDIOBJ(st.chevron.0));
+                    let mut r = RECT { left: w - px(22.0), top: 0, right: w - px(9.0), bottom: h };
+                    draw_text(dc, &glyph::RIGHT.to_string(), &mut r, windows::Win32::Graphics::Gdi::DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+                    SelectObject(dc, old);
+                }
+            }
+            let _ = windows::Win32::Graphics::Gdi::GdiFlush();
+            let _ = BitBlt(dis.hDC, rc.left, rc.top, w, h, Some(dc), 0, 0, SRCCOPY);
+            SelectObject(dc, old_b);
+            let _ = DeleteObject(HGDIOBJ(bmp.0));
+            let _ = DeleteDC(dc);
+            // Keeps Windows from drawing its own submenu arrow over ours.
+            ExcludeClipRect(dis.hDC, rc.left, rc.top, rc.right, rc.bottom);
+        }
+        true
+    })
 }

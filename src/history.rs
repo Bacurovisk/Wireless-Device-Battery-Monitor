@@ -161,6 +161,17 @@ impl History {
         s.pending.or(s.pts.last().copied())
     }
 
+    /// Deletes every reading of a device (and of its parts, e.g. "key#L" / "key#R" for earbuds).
+    /// True if anything was there.
+    pub fn remove(&mut self, key: &str) -> bool {
+        let part = format!("{key}#");
+        let before = self.devices.len();
+        self.devices.retain(|k, _| k != key && !k.starts_with(&part));
+        let changed = before != self.devices.len();
+        self.dirty |= changed;
+        changed
+    }
+
     pub fn keys(&self) -> impl Iterator<Item = &String> {
         self.devices.keys()
     }
@@ -472,5 +483,18 @@ mod tests {
         // No temporary file left behind.
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remove_deletes_the_device_and_its_buds() {
+        let mut h = History::default();
+        for k in ["pods", "pods#L", "pods#R", "podsX", "mouse"] {
+            h.record(k, 1000, 50, false, false, 900);
+        }
+        assert!(h.remove("pods"));
+        let mut left: Vec<&String> = h.keys().collect();
+        left.sort();
+        assert_eq!(left, ["mouse", "podsX"]);
+        assert!(!h.remove("pods"));
     }
 }

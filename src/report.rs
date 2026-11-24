@@ -199,7 +199,7 @@ fn apply_kind(d: &mut Candidate) {
     match crate::util::guess_kind(&d.name) {
         DeviceKind::Mouse => d.mouse = true,
         DeviceKind::Keyboard => d.keyboard = true,
-        DeviceKind::Headset => d.audio = true,
+        DeviceKind::Headset | DeviceKind::Earbuds => d.audio = true,
         DeviceKind::Gamepad => d.gamepad = true,
         _ => {}
     }
