@@ -18,7 +18,7 @@ in about <b>0.2 MB of RAM</b>.
 
 <p align="center">
 <img src="res/screenshot-card.png" width="300" alt="Hover card: Logitech PRO 2 LIGHTSPEED, 71%, about 3 d 13 h left, level bar, Logitech receiver, chart of the last 12 hours and a 12-hour forecast"><br>
-<img src="res/screenshot-taskbar.png" width="415" alt="BatteryHub on the Windows 11 taskbar next to the notification area: headset 72%, mouse 71%">
+<img src="res/screenshot-taskbar.png" width="402" alt="BatteryHub on the Windows 11 taskbar next to the notification area: headset 72%, mouse 71%">
 </p>
 
 > [!IMPORTANT]
