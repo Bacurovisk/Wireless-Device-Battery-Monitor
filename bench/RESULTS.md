@@ -20,7 +20,7 @@ Measured on 2026-11-25, both programs running at the same time on the same PC (W
 | Handles (max) | **379** | 427 |
 | Program file | **1,598 KB** | 2,630 KB |
 
-v1.7.3 does much more than v1.1 (over 60 drivers, the hover card with forecast, the dashboard, copies on other monitors, animations); its CPU time per minute doubled (0.11 -> 0.23 s), its memory went down.
+v1.7.3 does much more than v1.1 (about 60 drivers, the hover card with forecast, the dashboard, copies on other monitors, animations); its CPU time per minute doubled (0.11 -> 0.23 s), its memory went down.
 
 ## Earlier: side by side, v1.1 vs. C++ 1.1.0
 

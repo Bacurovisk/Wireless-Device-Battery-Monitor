@@ -226,7 +226,7 @@ Both programs running **side by side on the same PC** (Windows 11 build 26300, x
 | Handles | **379** | 427 | |
 | Program file | **1,598 KB** | 2,630 KB | 1.6× smaller |
 
-The short peaks (max 1.8 MB) come while the devices are read; the memory goes back to Windows right after. Since v1.1 the program grew from about 500 KB to 1.6 MB with over 60 device drivers, 21 languages, the hover card with its forecast, the dashboard and the animations, and it still uses less memory than then (median 0.20 MB in v1.1).
+The short peaks (max 1.8 MB) come while the devices are read; the memory goes back to Windows right after. Since v1.1 the program grew from about 500 KB to 1.6 MB with about 60 device drivers, 21 languages, the hover card with its forecast, the dashboard and the animations, and it still uses less memory than then (median 0.20 MB in v1.1).
 
 What keeps it small: memory needed only for a moment (a read, a Bluetooth check) is handed back to Windows right after; settings are cached; Bluetooth LE is listened to only while reading; the device list is cached and rescanned only when it changes; only Bluetooth device nodes are enumerated; the Xbox input APIs and WinHTTP are loaded only when needed.
 
