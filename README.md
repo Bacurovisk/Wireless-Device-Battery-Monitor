@@ -13,6 +13,7 @@ in about <b>0.2 MB of RAM</b>.
 <a href="../../actions/workflows/ci.yml"><img src="../../actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 <img src="https://img.shields.io/badge/written%20in-Rust-dea584?logo=rust" alt="Written in Rust">
 <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="GPL-3.0">
+<a href="https://revolut.me/p2ps"><img src="https://img.shields.io/badge/support-Revolut-191C1F?logo=revolut&logoColor=white" alt="Support on Revolut"></a>
 </p>
 
 <p align="center">
@@ -34,7 +35,7 @@ Developed by [@ferloom](https://github.com/ferloom) with the help of Claude (AI)
 
 ## Contents
 
-[Download](#download) · [Problem with a new version?](#problem-with-a-new-version-downgrade-and-report-it) · [Features](#features) · [Using it](#using-it) · [Your own language](#translations-create-your-own-language) · [Setup](#setup-install--update--uninstall) · [Resource usage vs. the original](#resource-usage-vs-the-original) · [Taskbar compatibility](#taskbar-compatibility) · [Supported devices](#supported-devices) · [Unsupported devices](#unsupported-devices) · [Testing](#testing) · [Building](#building-from-source) · [License](#license)
+[Download](#download) · [Support the project](#support-the-project) · [Problem with a new version?](#problem-with-a-new-version-downgrade-and-report-it) · [Features](#features) · [Using it](#using-it) · [Your own language](#translations-create-your-own-language) · [Setup](#setup-install--update--uninstall) · [Resource usage vs. the original](#resource-usage-vs-the-original) · [Taskbar compatibility](#taskbar-compatibility) · [Supported devices](#supported-devices) · [Unsupported devices](#unsupported-devices) · [Testing](#testing) · [Building](#building-from-source) · [License](#license)
 
 ## Download
 
@@ -44,6 +45,19 @@ Get **`BatteryHub-Taskbar-Setup-v1.7.exe`** from the [**latest release**](../../
 - Already installed? Use *Check for updates...* in the right-click menu, or run the new setup and click **Update**.
 - It does not interfere with the original C++ BatteryHub if you have that installed too.
 - Windows may show a SmartScreen warning because the file is not code-signed: *More info* → *Run anyway*.
+
+## Support the project
+
+BatteryHub is free and stays free. It is made by one person in their spare time, and every new device, fix and update takes hours of reading protocols and testing.
+
+If BatteryHub is useful to you, a small tip helps a lot: it **lets me spend more time on it, so new devices and updates come faster**, and it supports me directly. Any amount is appreciated, thank you!
+
+<p align="center">
+<a href="https://revolut.me/p2ps"><img src="https://img.shields.io/badge/Revolut-Support%20BatteryHub-191C1F?style=for-the-badge&logo=revolut&logoColor=white" alt="Support BatteryHub on Revolut" height="40"></a><br>
+<sub>Sends a tip through Revolut: <a href="https://revolut.me/p2ps">revolut.me/p2ps</a></sub>
+</p>
+
+Not able to tip? Reporting a device, testing a new version or sharing BatteryHub helps just as much.
 
 ## Problem with a new version? Downgrade and report it
 
