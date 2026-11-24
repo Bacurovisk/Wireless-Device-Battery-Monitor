@@ -13,7 +13,7 @@ Already installed? Use *Check for updates...* in the right-click menu (v1.1 and 
 
 ## New in v1.7
 
-- **21 languages**, following Windows by default; pick another or make your own under *Language* (#177).
+- **21 languages** (#177): besides English, 20 new ones: Polish, German, French, Spanish, Portuguese (Brazil), Italian, Dutch, Czech, Hungarian, Swedish, Russian, Ukrainian, Turkish, Japanese, Korean, Chinese (Simplified), Chinese (Traditional), Vietnamese, Indonesian and Thai. BatteryHub follows the Windows language by default; pick another or make your own under *Language*.
 - **Move and swap devices on the taskbar:** drag a device onto another place with the mouse (the others slide aside), or use *Move left / Move right* in its menu. Every device keeps its place, and a new device starts on the far left.
 - **Hide a device** from the taskbar from its menu (#176).
 - **AirPods and other earbuds:** their own icon, the weaker bud on the taskbar, a chart per bud in the card, and charging updates within seconds.
