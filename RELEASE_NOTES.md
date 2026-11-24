@@ -1,4 +1,4 @@
-# BatteryHub v1.7.3 (Rust)
+# BatteryHub v1.7.4 (Rust)
 
 An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor). All credit for the original idea, look and device protocols goes to the original project.
 
@@ -6,10 +6,16 @@ An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of 
 
 | File | |
 |---|---|
-| `BatteryHub-Taskbar-Setup-v1.7.3.exe` | Setup: Install / Update / Uninstall |
+| `BatteryHub-Taskbar-Setup-v1.7.4.exe` | Setup: Install / Update / Uninstall |
 | `SHA256SUMS.txt` | Checksum |
 
 Already installed? Use *Check for updates...* in the right-click menu (v1.1 and later), or run the new setup and click **Update**. Your settings and autostart choice are kept.
+
+## New in v1.7.4
+
+- **New device:** SteelSeries Arctis GameBuds X (`1038:2317`), with the level of each bud (by [Simdrom](https://github.com/Simdrom), #246).
+- **Earbuds show both buds** on the taskbar, e.g. `12% 86%`; the warning still follows the weaker one.
+- **Snappier card:** moving between devices switches the card at once, with a shorter cross-fade that also works between cards of different height.
 
 ## New in v1.7.3
 

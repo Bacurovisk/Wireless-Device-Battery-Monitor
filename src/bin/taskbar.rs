@@ -136,7 +136,7 @@ const CARD_HIDE_MS: f32 = 110.0;
 /// How long the mouse may be off both the strip and the card before the card closes.
 const CARD_AWAY_MS: u128 = 300;
 /// Old and new card blending when the mouse moves to another device (like the taskbar's previews).
-const CARD_CROSS_MS: f32 = 220.0;
+const CARD_CROSS_MS: f32 = 130.0;
 /// Strongest blur of the card's content during its animations (px at 100 % scaling).
 const BLUR_MAX: f32 = 6.0;
 /// Automatic update check this long after start-up; when the network is not up yet (e.g. right
@@ -972,6 +972,9 @@ impl App {
             pieces.push(Piece { dev: Some(i), m: device_icon(d, icons, light), color: fg, alpha, gap_after: px(5.0) });
             let t = if !d.level_text.is_empty() && d.percent < 0 {
                 d.level_text.clone()
+            } else if let Some(b) = d.buds.filter(|b| d.percent >= 0 && b.left >= 0 && b.right >= 0) {
+                // Earbuds with both buds out: each bud's own level.
+                format!("{}% {}%", b.left, b.right)
             } else if d.percent >= 0 {
                 format!("{}%", d.percent)
             } else {
@@ -2407,7 +2410,7 @@ impl App {
             // another is still running starts from what is on screen now (no jump back), and the
             // card that is more visible at that moment is the one that fades out.
             let prev = match (&old.content, was_shown && !same) {
-                (Some(c), true) if c.h == h => {
+                (Some(c), true) => {
                     let outgoing = match (&old.prev, old.at) {
                         (Some((_, _, p)), Some(at)) if at.elapsed().as_secs_f32() * 1000.0 < CARD_CROSS_MS * 0.5 => p.clone(),
                         _ => c.clone(),
@@ -2733,7 +2736,15 @@ impl App {
                 let mut tme = TRACKMOUSEEVENT { cbSize: size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: on, dwHoverTime: 0 };
                 self.tracking = TrackMouseEvent(&mut tme).is_ok();
             }
-            let hit = self.hits.iter().find(|h| x >= h.0 && x < h.1).map(|h| (h.2, h.0, h.1));
+            let mut hit = self.hits.iter().find(|h| x >= h.0 && x < h.1).map(|h| (h.2, h.0, h.1));
+            // In the gap between two devices with the card open: the nearer device takes over at
+            // once, instead of the card fading out and in again.
+            if hit.is_none() && self.card_anim.visible && self.card_anim.showing {
+                let (lo, hi) = (self.hits.iter().map(|h| h.0).min(), self.hits.iter().map(|h| h.1).max());
+                if lo.is_some_and(|lo| x >= lo) && hi.is_some_and(|hi| x < hi) {
+                    hit = self.hits.iter().min_by_key(|h| (x - h.0).abs().min((x - h.1).abs())).map(|h| (h.2, h.0, h.1));
+                }
+            }
             let key = hit.map(|h| h.0).unwrap_or(usize::MAX);
             if self.tip_for == Some(key) {
                 return;

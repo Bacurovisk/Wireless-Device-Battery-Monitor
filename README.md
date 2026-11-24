@@ -249,7 +249,7 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Family | Notes |
 |---|---|
 | Logitech | HID++ 1.0 / 2.0 over Unifying, Bolt, LIGHTSPEED, Bluetooth and USB, plus G headsets (voltage curves) |
-| SteelSeries | Arctis 1 / 7 / 9 / Pro, Arctis Nova (3P, 5, 7, 7+, Pro, Pro Omni, Elite; with the dock battery on Pro Wireless, Pro Omni and Elite; Pro Omni and Scimitar below contributed by [Simdrom](https://github.com/Simdrom) in #189), GameBuds, Aerox, Prime, Rival |
+| SteelSeries | Arctis 1 / 7 / 9 / Pro, Arctis Nova (3P, 5, 7, 7+, Pro, Pro Omni, Elite; with the dock battery on Pro Wireless, Pro Omni and Elite; Pro Omni and Scimitar below contributed by [Simdrom](https://github.com/Simdrom) in #189), GameBuds, GameBuds X, Aerox, Prime, Rival |
 | Razer | Mice, keyboards and receivers (90-byte feature report protocol); BlackShark V3 headset over its HyperSpeed dongle `1532:057A` or USB cable `1532:0579` (protocol from OpenRazer PR #2794 and Joule); BlackShark V2 Pro (2023) over its HyperSpeed dongle `1532:0555` (protocol from OpenRazer PR #2862 and [blackshark-battery](https://github.com/matej-basic/blackshark-battery), MIT); Barracuda X Chroma over its 2.4 GHz dongle `1532:0574` (protocol from [batterywatch](https://github.com/itayavra/batterywatch), GPL-3.0); Nari over its 2.4 GHz dongle `1532:051C` (request and answer from [RazerNariBatteryLevel](https://github.com/Modzeleczek/RazerNariBatteryLevel)'s Synapse capture, field layout from [HaloBattery](https://github.com/HeyOkay/HaloBattery), MIT, and [BrimDeck](https://github.com/MoFeng2223/BrimDeck), Apache-2.0; level in coarse steps, none while charging) |
 | Razer Barracuda X (2022) | Over its 2.4 GHz dongle `1532:0550` or `1532:0552` (protocol from [barracuda-x-battery](https://github.com/nightdevx/barracuda-x-battery) and [razer-barracuda-x-battery](https://github.com/mehdibouchami/razer-barracuda-x-battery), both MIT) |
 | RAWM | Leviathan V4 and other mice on the RAWM HS Receiver `1915:2346` (protocol from USB captures of RAWM's software, [#188](../../issues/188)) |
@@ -426,7 +426,7 @@ BatteryHub is not made by one person alone. Thank you to everyone who helped!
 - **[@ferloom](https://github.com/ferloom)**: author and maintainer.
 - **Claude (AI, by Anthropic)**: writes much of the code together with ferloom: drivers, the taskbar strip, the dashboard and the setup.
 - **Daniel Gutschalk**: ROCCAT Syn Max Air headset driver.
-- **[@Simdrom](https://github.com/Simdrom)**: Corsair Scimitar, Arctis Nova Pro Omni, dock battery (#189).
+- **[@Simdrom](https://github.com/Simdrom)**: Corsair Scimitar, Arctis Nova Pro Omni, dock battery (#189), Arctis GameBuds X and snappier card switching (#246).
 - **[@fevegit](https://github.com/fevegit)**: ASTRO A50 Gen 5, Pulsar XS-1 TenZ (#174).
 - **[@BatuDege](https://github.com/BatuDege)**: NZXT Lift Elite (#184).
 - **[@NeroHole](https://github.com/NeroHole)**: SinoWealth receivers, Redragon M602-KS (#111).
