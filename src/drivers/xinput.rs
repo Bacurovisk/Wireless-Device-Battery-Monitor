@@ -75,6 +75,33 @@ fn query(user: u32, ty: BATTERY_DEVTYPE) -> Option<XINPUT_BATTERY_INFORMATION> {
     (ok && bi.BatteryType != BATTERY_TYPE_DISCONNECTED && bi.BatteryType != BATTERY_TYPE_WIRED).then_some(bi)
 }
 
+// XInput 1.4 exposes the slot's VID/PID via ordinal 108 (also used by SDL).
+// Match the slot before suppressing its duplicate gamepad and headset readings.
+fn slot_product(user: u32) -> Option<(u16, u16)> {
+    use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+    use windows::Win32::UI::Input::XboxController::XINPUT_CAPABILITIES;
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct CapabilitiesEx {
+        capabilities: XINPUT_CAPABILITIES,
+        vendor: u16,
+        product: u16,
+        version: u16,
+        reserved: u16,
+        reserved2: u32,
+    }
+    type Query = unsafe extern "system" fn(u32, u32, u32, *mut CapabilitiesEx) -> u32;
+    static QUERY: OnceLock<Option<Query>> = OnceLock::new();
+    let query = (*QUERY.get_or_init(|| unsafe {
+        let module = GetModuleHandleW(windows::core::w!("xinput1_4.dll")).ok()?;
+        let proc = GetProcAddress(module, windows::core::PCSTR(108 as *const u8))?;
+        Some(std::mem::transmute::<unsafe extern "system" fn() -> isize, Query>(proc))
+    }))?;
+    let mut caps = CapabilitiesEx::default();
+    (unsafe { query(1, user, 0, &mut caps) } == 0).then_some((caps.vendor, caps.product))
+}
+
 pub fn poll(ctx: &mut PollContext) {
     let bt_xbox = ctx.out.iter().any(|s| s.via == "Bluetooth" && s.name.contains("Xbox"));
     // Windows.Gaming.Input loads a whole input stack into the process, so it is only used when an
@@ -88,6 +115,7 @@ pub fn poll(ctx: &mut PollContext) {
     let (precise, third) = if bt_xbox || !(xinput_pad || hid_pad) { (0, 0) } else { poll_wgi(ctx) };
     // GameSir pads answer the headset query with their own battery; skip if all precise pads are third-party.
     let skip_headset = precise > 0 && third == precise;
+    let gamesir_hid = ctx.out.iter().any(|s| s.hw.is_some_and(|(vid, pid)| super::gamesir::supports(vid, pid)));
 
     for user in 0..4u32 {
         let mut state = XINPUT_STATE::default();
@@ -95,6 +123,9 @@ pub fn poll(ctx: &mut PollContext) {
             continue; // only slots with a controller connected
         }
         let pad = query(user, BATTERY_DEVTYPE_GAMEPAD);
+        if gamesir_hid && slot_product(user).is_some_and(|(vid, pid)| super::gamesir::supports(vid, pid) && ctx.is_claimed(vid, pid)) {
+            continue;
+        }
         for ty in [BATTERY_DEVTYPE_GAMEPAD, BATTERY_DEVTYPE_HEADSET] {
             let is_pad = ty == BATTERY_DEVTYPE_GAMEPAD;
             if is_pad && (bt_xbox || precise > 0) {
