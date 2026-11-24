@@ -358,7 +358,6 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | MCHOSE G11 headset | `3554:FD01` | No documented battery query for its dongle; commands are not guessed | [#213](../../issues/213) |
 | BTP-KP70A controller (X-input dongle) | `20BC:5130` | The dongle shows Windows an Xbox pad that reports no level; its vendor channel is undocumented | [#212](../../issues/212) |
 | Bloody R72 Pro | — | No documented protocol; the documented Bloody protocol is for other models | [#211](../../issues/211) |
-| Smailwolf RS6 | `A8A5:2255` | Shares the AJAZZ AJ139 id but has a different vendor channel (63-byte numbered reports), so the AJ139 read does not apply; commands are not guessed | [#208](../../issues/208) |
 | L7 Mix mouse | `248A:FF4C` | No documented protocol for this receiver | [#207](../../issues/207) |
 | Logitech G325 LIGHTSPEED headset | `046D:0B21` | No documented battery read for this model (the PRO X 2 protocol is not confirmed on it); commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#206](../../issues/206) |
 | ATK ZERO | `373B:11FE` | Not among the documented ATK receiver ids; commands are not guessed | [#204](../../issues/204) |
