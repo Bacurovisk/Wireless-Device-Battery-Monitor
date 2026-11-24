@@ -41,6 +41,8 @@ const WM_UPDATE_DOWNLOADED: u32 = WM_APP + 6;
 const WM_SHOW_UPDATED: u32 = WM_APP + 7;
 /// tray_probe found where a secondary taskbar's notification area begins.
 const WM_TRAY_PROBED: u32 = WM_APP + 8;
+/// Another window came to the front: copies over a full-screen window step aside at once.
+const WM_FOREGROUND: u32 = WM_APP + 20;
 /// A background write of the history finished (wparam: 1 = written).
 const WM_HISTORY_SAVED: u32 = WM_APP + 9;
 // Not exported by the windows crate's WindowsAndMessaging module.
@@ -304,6 +306,10 @@ struct App {
     /// strip when the widget moves to or from another monitor. A copy that left is destroyed, the
     /// main strip hidden, once it has popped out.
     mirror_in: Vec<(HWND, Instant, bool)>,
+    /// Hidden copies kept ready on taskbars that don't show the widget (taskbar, strip). A window
+    /// created at the moment it is needed loses its first updates (its pop-in stalled, or it
+    /// stayed blank), so a copy is made ahead of time and reused when the widget comes back.
+    parked: Vec<(HWND, HWND)>,
     /// Strip x ranges of the devices drawn in the last paint: (from, to, device index).
     hits: Vec<(i32, i32, usize)>,
     /// Hover tooltip (tracking tooltip owned by the main window) and what it shows right now.
@@ -1077,6 +1083,12 @@ impl App {
                 self.push(m);
             }
         }
+        for i in 0..self.parked.len() {
+            let m = self.parked[i].1;
+            if !self.popping(m) {
+                self.push(m);
+            }
+        }
         if !resized && (self.drag.is_some() || !self.slides.is_empty() || !self.presence.is_empty()) {
             return; // an animation frame: same size, same place
         }
@@ -1418,42 +1430,73 @@ impl App {
             }
         }
         // Drop copies whose taskbar is gone or no longer wanted.
+        let all_bars = secondary_taskbars();
+        let usable = |bar: HWND, strip: HWND| unsafe { IsWindow(Some(strip)).as_bool() && GetWindow(strip, GW_OWNER).is_ok_and(|p| p == bar) };
         let mut keep = Vec::new();
         for (bar, strip) in std::mem::take(&mut self.mirrors) {
-            let alive = unsafe { bars.contains(&bar) && IsWindow(Some(strip)).as_bool() && GetParent(strip).is_ok_and(|p| p == bar) };
-            if alive {
+            if bars.contains(&bar) && usable(bar, strip) {
                 keep.push((bar, strip));
+            } else if all_bars.contains(&bar) && usable(bar, strip) {
+                // No longer wanted on that monitor: pops out, then waits hidden for its return.
+                if unsafe { IsWindowVisible(strip).as_bool() } {
+                    self.start_pop(strip, true);
+                }
+                self.parked.push((bar, strip));
             } else if is_our_strip(strip) {
                 unsafe {
-                    if IsWindow(Some(bar)).as_bool() && IsWindowVisible(strip).as_bool() {
-                        // No longer wanted on that monitor: pops out, then is destroyed.
-                        self.start_pop(strip, true);
-                    } else {
-                        let _ = DestroyWindow(strip);
-                    }
+                    let _ = DestroyWindow(strip);
                 }
             }
         }
         self.mirrors = keep;
+        // Parked copies whose taskbar is gone go too.
+        for (bar, strip) in std::mem::take(&mut self.parked) {
+            if all_bars.contains(&bar) && usable(bar, strip) {
+                self.parked.push((bar, strip));
+            } else if is_our_strip(strip) {
+                self.mirror_in.retain(|(h, _, _)| *h != strip);
+                unsafe {
+                    let _ = DestroyWindow(strip);
+                }
+            }
+        }
         for bar in bars {
             if self.mirrors.iter().any(|m| m.0 == bar) {
                 continue;
             }
-            let Some(strip) = create_strip(bar) else { continue };
-            dbg_log(&format!("mirror strip {strip:?} on {bar:?}"));
+            // A parked copy comes back (it pops in when place_mirror_at shows it).
+            let strip = match self.parked.iter().position(|m| m.0 == bar) {
+                Some(i) => self.parked.remove(i).1,
+                None => {
+                    let Some(strip) = create_copy(bar) else { continue };
+                    dbg_log(&format!("mirror strip {strip:?} on {bar:?}"));
+                    strip
+                }
+            };
             self.mirrors.push((bar, strip));
             self.push(strip);
         }
-        // Stray copies (e.g. left by an Explorer restart) on any secondary taskbar.
-        for bar in secondary_taskbars() {
+        // Every other taskbar gets a hidden copy ready, so the widget can appear there smoothly.
+        for bar in all_bars {
+            if self.mirrors.iter().any(|m| m.0 == bar) || self.parked.iter().any(|m| m.0 == bar) {
+                continue;
+            }
+            if let Some(strip) = create_copy(bar) {
+                dbg_log(&format!("parked strip {strip:?} on {bar:?}"));
+                self.push(strip);
+                self.parked.push((bar, strip));
+            }
+        }
+        // Stray copies (e.g. left by an Explorer restart): our popups not in either list.
+        {
             unsafe {
                 let mut after: Option<HWND> = None;
-                while let Ok(h) = FindWindowExW(Some(bar), after, STRIP_CLASS, None) {
+                while let Ok(h) = FindWindowExW(None, after, STRIP_CLASS, None) {
                     if h.0.is_null() {
                         break;
                     }
                     after = Some(h);
-                    if !self.mirrors.iter().any(|m| m.1 == h) && !self.popping(h) && is_our_strip(h) {
+                    if !self.mirrors.iter().any(|m| m.1 == h) && !self.parked.iter().any(|m| m.1 == h) && !self.popping(h) && is_our_strip(h) {
                         let _ = DestroyWindow(h);
                     }
                 }
@@ -1536,7 +1579,10 @@ impl App {
 
     fn drop_mirrors(&mut self) {
         self.set_primary_hidden(false);
-        for (_, strip) in std::mem::take(&mut self.mirrors) {
+        self.mirror_in.retain(|(h, _, _)| *h == self.strip);
+        let mut all = std::mem::take(&mut self.mirrors);
+        all.append(&mut self.parked);
+        for (_, strip) in all {
             if is_our_strip(strip) {
                 unsafe {
                     let _ = DestroyWindow(strip);
@@ -1620,7 +1666,7 @@ impl App {
                 self.mirror_in.push((strip, t0, leaving));
             } else if leaving {
                 unsafe {
-                    if strip == self.strip {
+                    if strip == self.strip || self.parked.iter().any(|m| m.1 == strip) {
                         let _ = ShowWindow(strip, SW_HIDE);
                         self.push(strip); // full content again for its next appearance
                     } else if is_our_strip(strip) && !self.mirrors.iter().any(|m| m.1 == strip) {
@@ -1642,6 +1688,14 @@ impl App {
     /// Returns true while the copy is hidden because its place is not known yet.
     fn place_mirror(&self, bar: HWND, strip: HWND) -> bool {
         unsafe {
+            // A copy is a topmost window of its own: it must not stay over a full-screen game or
+            // video on that monitor (the taskbar itself goes behind those).
+            if fullscreen_over(bar) {
+                if IsWindowVisible(strip).as_bool() {
+                    let _ = ShowWindow(strip, SW_HIDE);
+                }
+                return false;
+            }
             let mut br = RECT::default();
             let _ = GetWindowRect(bar, &mut br);
             let dpi = GetDpiForWindow(bar);
@@ -1730,10 +1784,13 @@ impl App {
             let _ = GetWindowRect(strip, &mut cur);
             let mut cp = POINT { x: cur.left, y: cur.top };
             let _ = ScreenToClient(bar, &mut cp);
-            let covered = GetWindow(strip, GW_HWNDPREV).is_ok_and(|h| !h.0.is_null()) || !IsWindowVisible(strip).as_bool();
+            let hidden = !IsWindowVisible(strip).as_bool();
             let same = cp.x == left && cp.y == top && cur.right - cur.left == size.cx && cur.bottom - cur.top == size.cy;
-            if covered || !same {
-                let _ = SetWindowPos(strip, Some(HWND_TOP), left, top, size.cx, size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            if hidden || !same {
+                // A popup: screen coordinates, above the (topmost) taskbar.
+                let mut sp = POINT { x: left, y: top };
+                let _ = ClientToScreen(bar, &mut sp);
+                let _ = SetWindowPos(strip, Some(HWND_TOPMOST), sp.x, sp.y, size.cx, size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
                 if !self.popping(strip) {
                     self.push(strip);
                 }
@@ -3376,6 +3433,87 @@ fn save_dword(name: &str, value: u32) {
     }
 }
 
+/// A full-screen window (game, video) is in front on the monitor of taskbar `bar`.
+fn fullscreen_over(bar: HWND) -> bool {
+    unsafe {
+        let fg = GetForegroundWindow();
+        if fg.0.is_null() {
+            return false;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(fg, Some(&mut pid));
+        if pid == std::process::id() {
+            return false;
+        }
+        let mut class = [0u16; 64];
+        let n = GetClassNameW(fg, &mut class) as usize;
+        let class = String::from_utf16_lossy(&class[..n]);
+        if matches!(class.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd") {
+            return false;
+        }
+        // A maximized window covers the whole monitor too when the taskbar hides itself; a
+        // full-screen game or video has no title bar and is not maximized.
+        let style = GetWindowLongW(fg, GWL_STYLE) as u32;
+        if IsZoomed(fg).as_bool() || style & WS_CAPTION.0 == WS_CAPTION.0 {
+            return false;
+        }
+        let mon = MonitorFromWindow(bar, MONITOR_DEFAULTTONEAREST);
+        if MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST) != mon {
+            return false;
+        }
+        let mut mi = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+        let _ = GetMonitorInfoW(mon, &mut mi);
+        let mut r = RECT::default();
+        let _ = GetWindowRect(fg, &mut r);
+        let m = mi.rcMonitor;
+        r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom
+    }
+}
+
+/// EVENT_SYSTEM_FOREGROUND: tells the main window, which places the copies again.
+unsafe extern "system" fn foreground_changed(
+    _hook: windows::Win32::UI::Accessibility::HWINEVENTHOOK,
+    _event: u32,
+    _hwnd: HWND,
+    _object: i32,
+    _child: i32,
+    _thread: u32,
+    _time: u32,
+) {
+    unsafe {
+        if let Ok(main) = FindWindowW(MAIN_CLASS, None) {
+            let _ = PostMessageW(Some(main), WM_FOREGROUND, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
+/// Creates a (hidden) copy for another monitor's taskbar: a topmost popup owned by that taskbar,
+/// not a child of it. Windows 11 composes child windows of the secondary taskbars late (their
+/// animations stuttered, and a new copy could stay blank), top-level windows on time.
+fn create_copy(taskbar: HWND) -> Option<HWND> {
+    unsafe {
+        let hinst = GetModuleHandleW(None).unwrap_or_default();
+        let r = CreateWindowExW(
+            WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            STRIP_CLASS,
+            w!(""),
+            WS_POPUP,
+            0,
+            0,
+            1,
+            1,
+            Some(taskbar),
+            None,
+            Some(hinst.into()),
+            None,
+        );
+        if r.is_err() {
+            dbg_log(&format!("CreateWindowExW (copy) failed: {:?}", windows::Win32::Foundation::GetLastError()));
+        }
+        r.ok()
+    }
+}
+
 /// Creates a (hidden) strip window as a child of a taskbar.
 fn create_strip(taskbar: HWND) -> Option<HWND> {
     unsafe {
@@ -4433,6 +4571,14 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                 trim_memory();
                 LRESULT(0)
             }
+            WM_FOREGROUND => {
+                with_app(|a| {
+                    if !a.mirrors.is_empty() {
+                        a.sync_mirrors();
+                    }
+                });
+                LRESULT(0)
+            }
             WM_TRAY_PROBED => {
                 with_app(|a| a.sync_mirrors());
                 trim_memory();
@@ -4655,6 +4801,16 @@ fn main() {
         });
         SetTimer(Some(main), TIMER_POLL, refresh_minutes() * 60_000, None);
         SetTimer(Some(main), TIMER_PLACE, 1000, None);
+        // Copies hide over full-screen windows at once, not only at the next placement tick.
+        let _ = windows::Win32::UI::Accessibility::SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_FOREGROUND,
+            None,
+            Some(foreground_changed),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT,
+        );
         SetTimer(Some(main), TIMER_BTWATCH, 3000, None);
         SetTimer(Some(main), TIMER_QUICK, QUICK_MS, None);
         if auto_update() {
