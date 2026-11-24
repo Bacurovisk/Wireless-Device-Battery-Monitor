@@ -902,6 +902,9 @@ impl App {
             pieces.push(Piece { dev: Some(i), m: device_icon(d, icons, light), color: fg, alpha, gap_after: px(5.0) });
             let t = if !d.level_text.is_empty() && d.percent < 0 {
                 d.level_text.clone()
+            } else if let Some(b) = d.buds.filter(|b| d.percent >= 0 && b.left >= 0 && b.right >= 0) {
+                // Earbuds with both buds out: each bud's own level.
+                format!("{}% {}%", b.left, b.right)
             } else if d.percent >= 0 {
                 format!("{}%", d.percent)
             } else {
