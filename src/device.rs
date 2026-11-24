@@ -203,7 +203,18 @@ impl DeviceStatus {
 }
 
 /// Connection names drivers use, translated where they are shown.
-pub const CONNECTIONS: [&str; 4] = [n_("2.4 GHz receiver"), n_("2.4 GHz dongle"), n_("USB cable"), n_("USB / Bluetooth")];
+pub const CONNECTIONS: [&str; 10] = [
+    n_("2.4 GHz receiver"),
+    n_("2.4 GHz dongle"),
+    n_("USB cable"),
+    n_("USB / Bluetooth"),
+    n_("Logitech receiver"),
+    n_("Razer receiver"),
+    n_("Corsair receiver"),
+    n_("USB base station"),
+    n_("UWB base station"),
+    n_("Wireless adapter"),
+];
 
 /// Shared state handed through the driver chain. A driver claims a (vid, pid) once it has handled
 /// it, so the generic fallbacks further down do not report it twice.
