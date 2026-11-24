@@ -1,6 +1,7 @@
 # BatteryHub: 日本語. Each line: English text = translation (see src/i18n.rs).
 @code = ja
 @name = 日本語
+@decimal = .
 
 1 hour = 1 時間
 1 minute = 1 分

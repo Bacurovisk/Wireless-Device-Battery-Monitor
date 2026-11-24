@@ -1,6 +1,7 @@
 # BatteryHub: Русский. Each line: English text = translation (see src/i18n.rs).
 @code = ru
 @name = Русский
+@decimal = ,
 
 1 hour = 1 час
 1 minute = 1 минута

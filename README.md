@@ -161,13 +161,14 @@ BatteryHub comes in 21 languages (the files are in [`lang/`](lang)). If yours is
    ```
    @code = custom
    @name = My language
+   @decimal = .
 
    Battery history = Battery history
    Charging = Charging
    {name}: battery at {level}% = {name}: battery at {level}%
    ```
 
-2. Set **`@code`** to the language's code (e.g. `eo`, `ro`, `pt-PT`) and **`@name`** to its own name (e.g. `Română`), as it should appear in the menu.
+2. Set **`@code`** to the language's code (e.g. `eo`, `ro`, `pt-PT`), **`@name`** to its own name (e.g. `Română`), as it should appear in the menu, and **`@decimal`** to its decimal separator: `.` (3.9 %/h) or `,` (3,9 %/h).
 3. Translate the text **after** each `=`; leave the English text before it as it is. Keep `{placeholders}` such as `{name}` or `{level}` and `\n` (a line break) unchanged. A line left empty, or removed, shows the English text.
 4. Save the file (UTF-8, Notepad's default), right-click BatteryHub → *Language* and pick your language. To see a change, pick it again.
 

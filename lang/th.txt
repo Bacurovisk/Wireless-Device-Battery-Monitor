@@ -1,6 +1,7 @@
 # BatteryHub: ไทย. Each line: English text = translation (see src/i18n.rs).
 @code = th
 @name = ไทย
+@decimal = .
 
 1 hour = 1 ชั่วโมง
 1 minute = 1 นาที

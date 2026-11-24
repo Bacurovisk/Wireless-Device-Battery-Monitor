@@ -447,17 +447,15 @@ fn snap_hour(t: f64, now: u64) -> u64 {
         .unwrap_or(now)
 }
 
-/// A change of level for the card: "−2%", "+5%", "−0.4%" (tenths below 1 %), "±0%".
+/// A change of level for the card: "−2%", "+5%", "−0.4%" (tenths below 1 %, with the language's
+/// decimal separator), "±0%".
 fn fmt_change(d: f64) -> String {
     let a = d.abs();
-    let num = if a > 0.0 && a < 0.95 { format!("{a:.1}") } else { format!("{:.0}", a) };
-    if num == "0" || num == "0.0" {
-        "±0%".into()
-    } else if d < 0.0 {
-        format!("−{num}%")
-    } else {
-        format!("+{num}%")
+    if a < 0.05 {
+        return "±0%".into(); // rounds to 0.0
     }
+    let num = if a < 0.95 { batteryhub::i18n::decimal(a, 1) } else { format!("{a:.0}") };
+    if d < 0.0 { format!("−{num}%") } else { format!("+{num}%") }
 }
 
 // ---- drawing -----------------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 # template for new languages (see src/i18n.rs).
 @code = en
 @name = English
+@decimal = .
 
 1 hour = 1 hour
 1 minute = 1 minute

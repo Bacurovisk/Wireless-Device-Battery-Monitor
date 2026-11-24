@@ -1,6 +1,7 @@
 # BatteryHub: 한국어. Each line: English text = translation (see src/i18n.rs).
 @code = ko
 @name = 한국어
+@decimal = .
 
 1 hour = 1시간
 1 minute = 1분

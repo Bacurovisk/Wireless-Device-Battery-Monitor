@@ -1,6 +1,7 @@
 # BatteryHub: Türkçe. Each line: English text = translation (see src/i18n.rs).
 @code = tr
 @name = Türkçe
+@decimal = ,
 
 1 hour = 1 saat
 1 minute = 1 dakika

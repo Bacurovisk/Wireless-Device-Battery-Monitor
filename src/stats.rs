@@ -246,7 +246,7 @@ pub fn fmt_hours(h: f64) -> String {
 
 /// "12.5 %/h", "0.8 %/h".
 pub fn fmt_rate(r: f64) -> String {
-    if r >= 10.0 { format!("{r:.0} %/h") } else { format!("{r:.1} %/h") }
+    if r >= 10.0 { format!("{r:.0} %/h") } else { format!("{} %/h", crate::i18n::decimal(r, 1)) }
 }
 
 #[cfg(test)]

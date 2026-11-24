@@ -1,6 +1,7 @@
 # BatteryHub: Português (Brasil). Each line: English text = translation (see src/i18n.rs).
 @code = pt-BR
 @name = Português (Brasil)
+@decimal = ,
 
 1 hour = 1 hora
 1 minute = 1 minuto

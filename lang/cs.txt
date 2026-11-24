@@ -1,6 +1,7 @@
 # BatteryHub: Čeština. Each line: English text = translation (see src/i18n.rs).
 @code = cs
 @name = Čeština
+@decimal = ,
 
 1 hour = 1 hodina
 1 minute = 1 minuta
