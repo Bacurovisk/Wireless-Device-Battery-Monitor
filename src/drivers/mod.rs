@@ -4,6 +4,7 @@ pub mod airpods;
 pub mod ajazz_aj139;
 pub mod areson;
 pub mod astro;
+pub mod astro_a50_gen4;
 pub mod atk;
 pub mod atk_mercury;
 pub mod atk_serial;

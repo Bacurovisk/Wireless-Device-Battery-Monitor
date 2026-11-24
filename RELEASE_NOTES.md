@@ -1,4 +1,4 @@
-# BatteryHub v1.7.4 (Rust)
+# BatteryHub v1.7.3 (Rust)
 
 An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor). All credit for the original idea, look and device protocols goes to the original project.
 
@@ -6,22 +6,18 @@ An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of 
 
 | File | |
 |---|---|
-| `BatteryHub-Taskbar-Setup-v1.7.4.exe` | Setup: Install / Update / Uninstall |
+| `BatteryHub-Taskbar-Setup-v1.7.3.exe` | Setup: Install / Update / Uninstall |
 | `SHA256SUMS.txt` | Checksum |
 
 Already installed? Use *Check for updates...* in the right-click menu (v1.1 and later), or run the new setup and click **Update**. Your settings and autostart choice are kept.
 
-## New in v1.7.4
-
-- **New device:** SteelSeries Arctis GameBuds X (`1038:2317`), with the level of each bud (by [Simdrom](https://github.com/Simdrom), #246).
-- **Earbuds show both buds** on the taskbar, e.g. `12% 86%` (left over right on a vertical taskbar), and in the card; the warning still follows the weaker one. The card shows the charging case's level next to the name (AirPods).
-- **Snappier card:** a shorter cross-fade when moving between devices.
-
 ## New in v1.7.3
 
-- **Vertical and auto-hiding taskbars:** the widget now also shows on other monitors' vertical taskbars, right above their clock; the right-click menu stays open on an auto-hiding taskbar; the card slides in from the side and glides between devices.
-- **Other monitors:** the widget pops in and out (with motion blur) when it appears on or leaves a monitor, animates smoothly there, no longer stays blank until the mouse goes over it, and steps aside for full-screen games and videos.
-- **Charts show the warning level:** the card's chart and forecast are red at or below the device's red-warning level.
+- **New devices:** SteelSeries Arctis GameBuds X (`1038:2317`, by [Simdrom](https://github.com/Simdrom), #246) and ASTRO A50 Gen 4 on its base station (`9886:002C`, #248).
+- **Dashboard:** right at the top of the right-click menu, and it now lists every device with saved history, also the ones not connected right now.
+- **Earbuds:** both buds' levels on the taskbar (left over right on a vertical taskbar) and in the card, and the charging case's level next to the name (AirPods).
+- **Vertical, auto-hiding and other monitors' taskbars:** the widget shows on every monitor's vertical taskbar right above its clock, pops in and out when it appears on or leaves a monitor, animates smoothly there, and steps aside for full-screen games; the right-click menu stays open on an auto-hiding taskbar.
+- **Card:** red chart and forecast at or below the device's warning level, and smoother switching between devices (also between cards of different height).
 
 ## New in v1.7.2
 

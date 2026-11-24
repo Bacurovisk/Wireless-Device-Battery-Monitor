@@ -1,6 +1,6 @@
 <p align="center"><img src="res/batteryhub.png" width="112" alt="BatteryHub icon"></p>
 
-<h1 align="center">BatteryHub v1.7</h1>
+<h1 align="center">BatteryHub v1.7.3</h1>
 
 <p align="center">
 <b>An ultra-lightweight Rust implementation of BatteryHub for Windows.</b><br>
@@ -39,7 +39,7 @@ Developed by [@ferloom](https://github.com/ferloom) with the help of Claude (AI)
 
 ## Download
 
-Get **`BatteryHub-Taskbar-Setup-v1.7.exe`** from the [**latest release**](../../releases/latest), run it and click **Install**.
+Get **`BatteryHub-Taskbar-Setup-v1.7.3.exe`** from the [**latest release**](../../releases/latest), run it and click **Install**.
 
 - No administrator rights needed (per-user install).
 - Already installed? Use *Check for updates...* in the right-click menu, or run the new setup and click **Update**.
@@ -289,6 +289,7 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Logitech G PRO X 2 | PRO X 2 LIGHTSPEED headset over its 2.4 GHz receiver `046D:0AF7` (Logitech's "Centurion" transport, as documented by [HeadsetControl](https://github.com/Sapd/HeadsetControl), GPL-3.0, [Solaar](https://github.com/pwr-Solaar/Solaar) and [HaloBattery](https://github.com/HeyOkay/HaloBattery), MIT) |
 | Logitech G533 | Headset over its dongle `046D:0A66`, read with its fixed HID++ battery request (protocol and voltage calibration from [HeadsetControl](https://github.com/Sapd/HeadsetControl), GPL-3.0) |
 | Logitech ASTRO A50 Gen 5 | USB base station `046D:0B1C`; read-only battery request on `FF32:0074` (interface 8), reports battery percentage and charging status (protocol documented by [HeadsetControl](https://github.com/Sapd/HeadsetControl), GPL-3.0, and implemented in the original C++ BatteryHub, GPL-3.0); contributed by [fevegit](https://github.com/fevegit) in #174 |
+| ASTRO A50 (Gen 4) | Base station `9886:002C` in PC mode; battery level and charging over its vendor channel `FF32:0074` (protocol from [HeadsetControl](https://github.com/Sapd/HeadsetControl), GPL-3.0, [#248](../../issues/248)) |
 | ZOWIE | DW-series mice (FK2-DW, U2-DW, S2-DW, EC-DW ...) on the DW receiver `04A5:800A`, ZOWIE U2 on `04A5:8008`; level estimated from the battery voltage, charging on the dock inferred from its trend (protocol from [zowie-battery-tray](https://github.com/IgnacioBarb/zowie-battery-tray), MIT, as used by the original C++ BatteryHub) |
 | NZXT Lift Elite | Battery percentage, charging and cell voltage over receiver `1E71:2101` (tested on hardware); USB cable `1E71:2129` implemented from the C++ protocol, not yet hardware-tested. Cable takes priority with one shared device entry. Close NZXT CAM if telemetry does not answer. Protocol from the C++ BatteryHub `nzxt.cpp`, crediting HaloBattery (MIT); Windows report framing corrected against the actual receiver. Diagnostic: `cargo run --example nzxt`.; contributed by [BatuDege](https://github.com/BatuDege) in #184 |
 | Keychron | Mice (M1, M2, M3, M3 mini, M6, M7) on the Keychron Link receiver `3434:D030` / `3434:D031`; keyboards on it only with the `KC_GET_BATTERY` firmware patch ([ldkv/qmk_firmware#1](https://github.com/ldkv/qmk_firmware/pull/1)), as stock keyboard firmware reports its battery over Bluetooth only (protocol as documented by the original C++ BatteryHub, GPL-3.0) |
@@ -391,6 +392,10 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | Lenovo Legion M410 Wireless | `17EF:6197` | No documented battery protocol for this receiver; commands are not guessed | [#231](../../issues/231) |
 | Apple Watch Magnetic Charging Cable | `05AC:1392` | A charger: the watch does not report its battery to Windows through it | [#230](../../issues/230) |
 | KRUX Plasma Wireless | not reported | The receiver's id was not in the request; please comment with its VID:PID | [#239](../../issues/239) |
+| Ardor Gaming Edge Wireless | `3206:0881` | The dongle has only media keys, no vendor channel. Over Bluetooth it works when Windows shows the level. | [#244](../../issues/244) |
+| ASUS ROG Delta II (2.4 GHz) | `0B05:1AFA` | No documented battery read for its dongle; commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#252](../../issues/252) |
+| Rapoo gaming receiver | `24AE:1416` | No documented protocol for this receiver (like the VT9PRO on `24AE:1211`); commands are not guessed | [#249](../../issues/249) |
+| H2015 Pro headset | `3206:0871` | No documented battery query for its dongle; commands are not guessed | [#242](../../issues/242) |
 
 ## Testing
 
@@ -407,7 +412,7 @@ Requirements: Rust 1.99 or newer (stable, MSVC toolchain; the crates use the 202
 .\build-release.ps1
 ```
 
-This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.7.exe` and `SHA256SUMS.txt`. The version comes from the `VERSION` file (up to four parts, e.g. `1.0.1.1`).
+This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.7.3.exe` and `SHA256SUMS.txt`. The version comes from the `VERSION` file (up to four parts, e.g. `1.0.1.1`).
 
 | Path | Contents |
 |---|---|
