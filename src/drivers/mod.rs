@@ -25,6 +25,7 @@ pub mod endgame_4k;
 pub mod evision;
 pub mod flydigi;
 pub mod fnatic;
+pub mod gamesir;
 pub mod generic;
 pub mod hyperx;
 pub mod hyperx_cloud2;

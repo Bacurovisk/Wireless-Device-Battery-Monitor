@@ -348,6 +348,7 @@ pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
     drivers::hyperx_legacy::poll(&mut ctx);
     drivers::drivercore::poll(&mut ctx);
     drivers::flydigi::poll(&mut ctx);
+    drivers::gamesir::poll(&mut ctx);
     drivers::sinowealth::poll(&mut ctx);
     drivers::endgame_4k::poll(&mut ctx);
     drivers::mchose_glw::poll(&mut ctx);
@@ -494,6 +495,7 @@ fn poll_with(colls: Vec<HidColl>) -> Vec<DeviceStatus> {
     drivers::hyperx_legacy::poll(&mut ctx);
     drivers::drivercore::poll(&mut ctx);
     drivers::flydigi::poll(&mut ctx);
+    drivers::gamesir::poll(&mut ctx);
     drivers::sinowealth::poll(&mut ctx);
     drivers::endgame_4k::poll(&mut ctx);
     drivers::mchose_glw::poll(&mut ctx);
