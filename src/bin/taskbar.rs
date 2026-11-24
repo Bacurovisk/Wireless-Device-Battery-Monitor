@@ -2170,8 +2170,9 @@ impl App {
         y += px(34.0);
 
         // Big level (or the device's own word for it), the time left under it, then the bar.
-        let big_text = if let Some(both) = d.buds.filter(|_| d.percent >= 0).and_then(|b| b.both()) {
-            both
+        let big_text = if let Some(b) = d.buds.filter(|b| d.percent >= 0 && b.left >= 0 && b.right >= 0) {
+            // Earbuds: each bud, labelled.
+            format!("{}: {}%  {}: {}%", tr("R"), b.right, tr("L"), b.left)
         } else if d.percent >= 0 {
             format!("{}%", d.percent)
         } else if !d.level_text.is_empty() {
@@ -2180,7 +2181,15 @@ impl App {
             "?".into()
         };
         let big = mask(&big_text, big_f, light);
-        cv.draw(&big, pad, y, if low { accent } else { fg }, 255);
+        // Too long for the card at the big size (both buds): the name's size, on the same line.
+        let (big, dy) = if big.w > w - 2 * pad {
+            let small = mask(&big_text, name_f, light);
+            let dy = (big.h - small.h) / 2;
+            (small, dy)
+        } else {
+            (big, 0)
+        };
+        cv.draw(&big, pad, y + dy, if low { accent } else { fg }, 255);
         y += px(40.0);
         let now = batteryhub::history::now_secs();
         let series = self.history.series(&d.key);
