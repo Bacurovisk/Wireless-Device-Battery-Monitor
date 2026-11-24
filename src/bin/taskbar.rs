@@ -61,6 +61,10 @@ const TIMER_NOTIFY: usize = 21;
 const TIMER_AWAY: usize = 22;
 /// Devices sliding to their new places on the strip.
 const TIMER_SLIDE: usize = 23;
+/// Frames of a copy on another monitor popping in as it appears.
+const TIMER_MIRROR_IN: usize = 24;
+/// Length of that pop-in.
+const MIRROR_IN_MS: f32 = 320.0;
 /// How long a device takes to slide to its new place (ms).
 const SLIDE_MS: f32 = 220.0;
 /// An item appearing on the strip first opens its space (the others move aside), then pops in;
@@ -296,6 +300,8 @@ struct App {
     main_tray: RECT,
     /// Every copy on another monitor knows its place: the strips appear on all taskbars together.
     mirrors_ready: bool,
+    /// Copies popping in (strip, start).
+    mirror_in: Vec<(HWND, Instant)>,
     /// Strip x ranges of the devices drawn in the last paint: (from, to, device index).
     hits: Vec<(i32, i32, usize)>,
     /// Hover tooltip (tracking tooltip owned by the main window) and what it shows right now.
@@ -694,6 +700,62 @@ fn buds_mask(h: i32, left_on: bool, right_on: bool) -> Mask {
     Mask { w: n, h: n, a: batteryhub::gui::earbuds_icon(n, left_on, right_on) }
 }
 
+/// A premultiplied BGRA image (w x h) scaled by `k` around its centre, box-blurred with radius
+/// `blur` (twice, close to a Gaussian) and faded to `fade`: one frame of a copy popping in.
+fn pop_pixels(src: &[u32], w: usize, h: usize, k: f32, blur: usize, fade: f32) -> Vec<u32> {
+    if src.len() != w * h || w == 0 || h == 0 {
+        return src.to_vec();
+    }
+    let ch = |p: u32, i: u32| ((p >> (8 * i)) & 0xFF) as f32;
+    let (cx, cy) = (w as f32 / 2.0, h as f32 / 2.0);
+    let at = |x: i32, y: i32| if x < 0 || y < 0 || x >= w as i32 || y >= h as i32 { 0 } else { src[y as usize * w + x as usize] };
+    let mut img = vec![[0f32; 4]; w * h];
+    for y in 0..h {
+        let sy = cy + (y as f32 + 0.5 - cy) / k - 0.5;
+        let (y0, fy) = (sy.floor() as i32, sy - sy.floor());
+        for x in 0..w {
+            let sx = cx + (x as f32 + 0.5 - cx) / k - 0.5;
+            let (x0, fx) = (sx.floor() as i32, sx - sx.floor());
+            let (a, b, c, d) = (at(x0, y0), at(x0 + 1, y0), at(x0, y0 + 1), at(x0 + 1, y0 + 1));
+            let o = &mut img[y * w + x];
+            for (i, v) in o.iter_mut().enumerate() {
+                let i = i as u32;
+                let top = ch(a, i) * (1.0 - fx) + ch(b, i) * fx;
+                let bottom = ch(c, i) * (1.0 - fx) + ch(d, i) * fx;
+                *v = top * (1.0 - fy) + bottom * fy;
+            }
+        }
+    }
+    if blur > 0 {
+        let r = blur as i32;
+        let mut tmp = vec![[0f32; 4]; w.max(h)];
+        for horizontal in [true, false, true, false] {
+            let (lines, len) = if horizontal { (h, w) } else { (w, h) };
+            for line in 0..lines {
+                let idx = |i: usize| if horizontal { line * w + i } else { i * w + line };
+                for i in 0..len {
+                    tmp[i] = img[idx(i)];
+                }
+                for i in 0..len as i32 {
+                    let mut sum = [0f32; 4];
+                    for j in (i - r).max(0)..=(i + r).min(len as i32 - 1) {
+                        for (s, v) in sum.iter_mut().zip(tmp[j as usize]) {
+                            *s += v;
+                        }
+                    }
+                    img[idx(i as usize)] = sum.map(|v| v / (2 * r + 1) as f32);
+                }
+            }
+        }
+    }
+    img.iter()
+        .map(|p| {
+            let c = |i: usize| ((p[i] * fade).round().clamp(0.0, 255.0) as u32) << (8 * i);
+            c(0) | c(1) | c(2) | c(3)
+        })
+        .collect()
+}
+
 /// Bilinear scaling of a mask by `k`.
 fn scale_mask(m: &Mask, k: f32) -> Mask {
     let w = ((m.w as f32 * k).round() as i32).max(1);
@@ -1006,7 +1068,10 @@ impl App {
         self.lit = self.hover_pixels();
         self.push(self.strip);
         for i in 0..self.mirrors.len() {
-            self.push(self.mirrors[i].1);
+            let m = self.mirrors[i].1;
+            if !self.mirror_in.iter().any(|(h, _)| *h == m) {
+                self.push(m);
+            }
         }
         if !resized && (self.drag.is_some() || !self.slides.is_empty() || !self.presence.is_empty()) {
             return; // an animation frame: same size, same place
@@ -1016,8 +1081,7 @@ impl App {
         // The copies keep their left edge when their width changes: move them too, so their right
         // edge stays next to the clock (not only at the next timer tick).
         for i in 0..self.mirrors.len() {
-            let (bar, strip) = self.mirrors[i];
-            self.place_mirror(bar, strip);
+            self.place_mirror_at(i);
         }
     }
 
@@ -1134,8 +1198,17 @@ impl App {
 
     /// Hands the last render to a strip window (the main strip or a mirror).
     fn push(&self, strip: HWND) {
+        if strip == self.hovered && self.lit.len() == self.pixels.len() {
+            self.push_px(strip, &self.lit);
+        } else {
+            self.push_px(strip, &self.pixels);
+        }
+    }
+
+    /// Shows `px` (premultiplied, the strip's size) in `strip`.
+    fn push_px(&self, strip: HWND, px: &[u32]) {
         let (w, h) = (self.size.cx, self.size.cy);
-        if strip.0.is_null() || self.pixels.len() != (w * h) as usize {
+        if strip.0.is_null() || px.len() != (w * h) as usize {
             return;
         }
         unsafe {
@@ -1155,11 +1228,7 @@ impl App {
             };
             let mut bits: *mut c_void = std::ptr::null_mut();
             if let Ok(bmp) = CreateDIBSection(Some(mem), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) {
-                if strip == self.hovered && self.lit.len() == self.pixels.len() {
-                    std::ptr::copy_nonoverlapping(self.lit.as_ptr(), bits as *mut u32, self.lit.len());
-                } else {
-                    std::ptr::copy_nonoverlapping(self.pixels.as_ptr(), bits as *mut u32, self.pixels.len());
-                }
+                std::ptr::copy_nonoverlapping(px.as_ptr(), bits as *mut u32, px.len());
                 let ob = SelectObject(mem, HGDIOBJ(bmp.0));
                 let src = POINT::default();
                 let bf = BLENDFUNCTION { BlendOp: AC_SRC_OVER as u8, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: AC_SRC_ALPHA as u8 };
@@ -1383,8 +1452,7 @@ impl App {
         }
         let mut pending = false;
         for i in 0..self.mirrors.len() {
-            let (bar, strip) = self.mirrors[i];
-            pending |= self.place_mirror(bar, strip);
+            pending |= self.place_mirror_at(i);
         }
         // The main strip waits for the copies, so all taskbars show the widget at the same moment.
         let was_ready = self.mirrors_ready;
@@ -1457,6 +1525,55 @@ impl App {
                 unsafe {
                     let _ = DestroyWindow(strip);
                 }
+            }
+        }
+    }
+
+    /// Places copy `i`; when that shows it (new, or hidden until now) it pops in with fresh content.
+    fn place_mirror_at(&mut self, i: usize) -> bool {
+        let (bar, strip) = self.mirrors[i];
+        let was = unsafe { IsWindowVisible(strip).as_bool() };
+        let pending = self.place_mirror(bar, strip);
+        if !was && unsafe { IsWindowVisible(strip).as_bool() } {
+            self.mirror_in.retain(|(h, _)| *h != strip);
+            self.mirror_in.push((strip, Instant::now()));
+            self.mirror_in_frame(strip, 0.0);
+            unsafe {
+                SetTimer(Some(self.main), TIMER_MIRROR_IN, 15, None);
+            }
+        }
+        pending
+    }
+
+    /// One frame of a copy popping in (`p` 0 to 1): it grows from 60 % around its centre with a
+    /// small overshoot, fades in and is blurred while it moves, like the devices on the strip.
+    fn mirror_in_frame(&self, strip: HWND, p: f32) {
+        if p >= 1.0 {
+            self.push(strip);
+            return;
+        }
+        let (c1, c3) = (1.70158f32, 2.70158f32);
+        let back = 1.0 + c3 * (p - 1.0).powi(3) + c1 * (p - 1.0).powi(2);
+        let k = (0.6 + 0.4 * back).max(0.05);
+        let blur = ((1.0 - p) * (1.0 - p) * 4.0 * self.scale()).round() as usize;
+        let fade = p * p * (3.0 - 2.0 * p);
+        let px = pop_pixels(&self.pixels, self.size.cx as usize, self.size.cy as usize, k, blur, fade);
+        self.push_px(strip, &px);
+    }
+
+    /// TIMER_MIRROR_IN: advances the copies popping in; stops when all are in.
+    fn mirror_in_step(&mut self) {
+        let list = std::mem::take(&mut self.mirror_in);
+        for (strip, t0) in list {
+            let p = t0.elapsed().as_secs_f32() * 1000.0 / MIRROR_IN_MS;
+            self.mirror_in_frame(strip, p.min(1.0));
+            if p < 1.0 {
+                self.mirror_in.push((strip, t0));
+            }
+        }
+        if self.mirror_in.is_empty() {
+            unsafe {
+                let _ = KillTimer(Some(self.main), TIMER_MIRROR_IN);
             }
         }
     }
@@ -4201,6 +4318,7 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                     TIMER_NOTIFY => a.end_notify(),
                     TIMER_AWAY => a.away_step(),
                     TIMER_SLIDE => a.paint(),
+                    TIMER_MIRROR_IN => a.mirror_in_step(),
                     TIMER_UPDATED => {
                         let _ = KillTimer(Some(hwnd), TIMER_UPDATED);
                         if let Some(old) = a.updated_from.take() {
