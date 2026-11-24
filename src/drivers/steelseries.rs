@@ -143,9 +143,9 @@ fn decode_nova(pid: u16, r: &[u8]) -> DeviceStatus {
         s.connected = r[1] != 0x02;
         s.percent = clamp100(r[3] as i32);
         s.charging = r[4] == 0x01;
-    } else if pid == 0x230A {
+    } else if pid == 0x230A || pid == 0x2317 {
         // Arctis GameBuds: lowest of the buds that are out of the case.
-        s = headset(pid, "SteelSeries Arctis GameBuds");
+        s = headset(pid, if pid == 0x2317 { "SteelSeries Arctis GameBuds X" } else { "SteelSeries Arctis GameBuds" });
         s.kind = DeviceKind::Earbuds;
         let side = |state: u8, level: u8| if state == 0x03 { clamp100(level as i32) } else { -1 };
         s.buds = Some(crate::device::Buds { left: side(r[3], r[5]), right: side(r[4], r[6]), ..Default::default() });
@@ -334,7 +334,7 @@ fn models() -> Vec<(Vec<u16>, AcceptFn, PollFn)> {
         (vec![0x2290, 0x2244, 0x2270], page_ffc0, nova_pro_omni),
         (
             vec![
-                0x220E, 0x2212, 0x2216, 0x2236, 0x2269, 0x226D, 0x2232, 0x2253, 0x230A, 0x2202, 0x22A1, 0x227E, 0x2206, 0x2258, 0x229E, 0x22AD, 0x223A, 0x22A9,
+                0x220E, 0x2212, 0x2216, 0x2236, 0x2269, 0x226D, 0x2232, 0x2253, 0x230A, 0x2317, 0x2202, 0x22A1, 0x227E, 0x2206, 0x2258, 0x229E, 0x22AD, 0x223A, 0x22A9,
                 0x227A, 0x22A4, 0x22A5, 0x220A, 0x22A7,
             ],
             page_ffc0,
@@ -391,6 +391,15 @@ mod tests {
         let off = decode_nova(0x2269, &[0xB0, 0x02, 0x00, 64, 0x00, 0x00, 0x00]);
         assert!(!off.connected);
         assert_eq!(off.percent, -1);
+    }
+
+    // 00 B0 reply recorded from an Arctis GameBuds X (1038:2317), both buds out of the case.
+    #[test]
+    fn gamebuds_x_both_buds_out() {
+        let s = decode_nova(0x2317, &[0xB0, 0x01, 0x01, 0x03, 0x03, 0x0C, 0x56, 0x0A]);
+        assert!(s.connected);
+        assert_eq!(s.name, "SteelSeries Arctis GameBuds X");
+        assert_eq!(s.percent, 12);
     }
 
     #[test]
