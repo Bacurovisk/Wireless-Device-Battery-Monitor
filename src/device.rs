@@ -338,6 +338,7 @@ pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
     drivers::barracuda_chroma::poll(&mut ctx);
     drivers::barracuda_x::poll(&mut ctx);
     drivers::hyperx_cloud2::poll(&mut ctx);
+    drivers::rawm::poll(&mut ctx);
     drivers::jabra::poll(&mut ctx);
     drivers::zowie::poll(&mut ctx);
     drivers::nzxt::poll(&mut ctx);
@@ -484,6 +485,7 @@ fn poll_with(colls: Vec<HidColl>) -> Vec<DeviceStatus> {
     drivers::barracuda_chroma::poll(&mut ctx);
     drivers::barracuda_x::poll(&mut ctx);
     drivers::hyperx_cloud2::poll(&mut ctx);
+    drivers::rawm::poll(&mut ctx);
     drivers::jabra::poll(&mut ctx);
     drivers::zowie::poll(&mut ctx);
     drivers::nzxt::poll(&mut ctx);
