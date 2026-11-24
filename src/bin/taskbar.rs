@@ -3289,6 +3289,28 @@ fn dbg_log(msg: &str) {
 }
 
 /// The right-click menu (strip and fallback icons): per-device warning levels, refresh options, exit.
+/// The taskbar is set to hide automatically.
+fn taskbar_autohides() -> bool {
+    use windows::Win32::UI::Shell::{ABM_GETSTATE, APPBARDATA, SHAppBarMessage};
+    let mut abd = APPBARDATA { cbSize: size_of::<APPBARDATA>() as u32, ..Default::default() };
+    unsafe { SHAppBarMessage(ABM_GETSTATE, &mut abd) & 0x1 != 0 } // ABS_AUTOHIDE
+}
+
+/// Window that owns the context menu: the strip under the cursor while the taskbar hides itself
+/// automatically, otherwise our own (hidden) main window.
+unsafe fn menu_owner(main: HWND, pt: POINT) -> HWND {
+    unsafe {
+        let under = WindowFromPoint(pt);
+        if under.0.is_null() || !taskbar_autohides() {
+            return main;
+        }
+        let mut class = [0u16; 64];
+        let n = GetClassNameW(under, &mut class) as usize;
+        let strip: Vec<u16> = STRIP_CLASS.as_wide().to_vec();
+        if class[..n] == strip[..] { under } else { main }
+    }
+}
+
 unsafe fn show_menu() {
     unsafe {
         let (main, devices, renamed, hidden, vertical) = with_app(|a| {
@@ -3477,13 +3499,18 @@ unsafe fn show_menu() {
             icons.set(menu, ID_EXIT as u32, false, ui::glyph::EXIT);
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
+            // With an auto-hiding taskbar the menu belongs to the strip under the cursor (a child of
+            // the taskbar): the taskbar then stays the active window and stays shown while the menu
+            // is open. Owned by our own window instead, the taskbar hid as soon as the mouse left it
+            // for the menu, and took the menu with it.
+            let owner = menu_owner(main, pt);
             // Menu colours follow the taskbar: dark on a dark taskbar, light on a light one.
-            ui::set_menu_theme(main, dark);
+            ui::set_menu_theme(owner, dark);
             // Drawn like Windows 11's own context menus (rows, icons, highlight, chevrons).
-            let _modern = ui::ModernMenu::apply(menu, &icons, main, dark);
-            let _ = SetForegroundWindow(main);
+            let _modern = ui::ModernMenu::apply(menu, &icons, owner, dark);
+            let _ = SetForegroundWindow(owner);
             MENU_OPEN.store(true, std::sync::atomic::Ordering::Relaxed);
-            let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, pt.x, pt.y, None, main, None);
+            let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, pt.x, pt.y, None, owner, None);
             MENU_OPEN.store(false, std::sync::atomic::Ordering::Relaxed);
             // Whatever the mouse crossed while the menu was open does not open the card.
             with_app(|a| a.hide_tip());
@@ -4002,6 +4029,9 @@ extern "system" fn card_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
 extern "system" fn strip_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     unsafe {
         match msg {
+            // The context menu is owned by the strip with an auto-hiding taskbar (menu_owner).
+            WM_MEASUREITEM if ui::measure_menu_item(lp) => LRESULT(1),
+            WM_DRAWITEM if ui::draw_menu_item(lp) => LRESULT(1),
             WM_MOUSEMOVE => {
                 with_app(|a| a.hover(hwnd, (lp.0 & 0xFFFF) as i16 as i32, ((lp.0 >> 16) & 0xFFFF) as i16 as i32));
                 LRESULT(0)
