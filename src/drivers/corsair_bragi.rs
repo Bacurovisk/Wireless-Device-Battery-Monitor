@@ -109,17 +109,27 @@ fn agreed(mut read: impl FnMut() -> Option<u32>) -> Option<u32> {
     None
 }
 
+/// Mouse name by its USB product id (reported by the receiver as property 12).
+fn mouse_name(product: u32) -> String {
+    match product {
+        0x2B22 => "Corsair Scimitar Elite Wireless SE".into(),
+        _ => "Corsair wireless mouse".into(),
+    }
+}
+
 fn scimitar(c: &HidColl, target: u8, receiver: bool) -> Option<DeviceStatus> {
     let d = HidDev::open(c)?;
     // shortcut: only Slipstream channel 1 is queried; add channel discovery if multi-device support is needed.
-    if receiver && mouse_get(&d, target, PROP_PRODUCT)? != SCIMITAR_PID as u32 {
+    // Any mouse on a Slipstream receiver answers the same GETs (e.g. the M65 RGB Ultra Wireless, #202).
+    let product = if receiver { mouse_get(&d, target, PROP_PRODUCT)? } else { SCIMITAR_PID as u32 };
+    if product == 0 || product > 0xFFFF {
         return None;
     }
     let level = percent(mouse_get(&d, target, PROP_BATTERY)?)?;
     let charge = mouse_get(&d, target, PROP_CHARGE);
     Some(DeviceStatus {
-        key: format!("corsair:{}", hex4(SCIMITAR_PID)),
-        name: "Corsair Scimitar Elite Wireless SE".into(),
+        key: format!("corsair:{}", hex4(product as u16)),
+        name: mouse_name(product),
         kind: DeviceKind::Mouse,
         via: if receiver { "2.4 GHz receiver".into() } else { "USB cable".into() },
         percent: level,

@@ -13,7 +13,7 @@ Already installed? Use *Check for updates...* in the right-click menu (v1.1 and 
 
 ## New in v1.7.2
 
-- **New devices:** RAWM Leviathan V4 on the RAWM HS Receiver (`1915:2346`, #188), GameSir G7 Pro 8K with its exact level instead of the Xbox one (by [denwir](https://github.com/denwir), #238) and Smailwolf RS6 (by [elcio96](https://github.com/elcio96), #233, #208).
+- **New devices:** RAWM Leviathan V4 on the RAWM HS Receiver (`1915:2346`, #188), GameSir G7 Pro 8K with its exact level instead of the Xbox one (by [denwir](https://github.com/denwir), #238) and Smailwolf RS6 (by [elcio96](https://github.com/elcio96), #233, #208); Corsair mice other than the Scimitar on Slipstream receivers, e.g. M65 RGB Ultra Wireless (#202).
 - **Translations:** receiver names and the display side ("Display 2 (left)") are now translated in every language (by [Bacurovisk](https://github.com/Bacurovisk), #237).
 
 ## New in v1.7.1
