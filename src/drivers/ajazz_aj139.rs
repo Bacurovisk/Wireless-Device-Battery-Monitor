@@ -1,5 +1,7 @@
 //! AJAZZ AJ139 V2 MC mouse on its 2.4 GHz receiver (VID A8A5, PID 2255) or USB cable (A8A4:2255). The
 //! product id is shared with other AJAZZ models on the same chip, so the mouse gets a generic name.
+//! The VGN Dragonfly 3 Pro's receiver (391D:1A03) answers the same battery read on the same
+//! collection, as tested on the mouse by PromiseTzZ (issue #272); it gets only that read.
 //!
 //! Protocol as documented by ajazz-aj139-macos (MIT, github.com/werquess/ajazz-aj139-macos,
 //! PROTOCOL.md, "checked against a real device") and as used by the original C++ BatteryHub (GPL-3.0,
@@ -21,6 +23,12 @@ use crate::util::{Deadline, hex4};
 const PID: u16 = 0x2255;
 const RECEIVER_VID: u16 = 0xA8A5;
 const CABLE_VID: u16 = 0xA8A4;
+/// (VID, PID, cable, name)
+const DEVICES: [(u16, u16, bool, &str); 3] = [
+    (RECEIVER_VID, PID, false, "AJAZZ wireless mouse"),
+    (CABLE_VID, PID, true, "AJAZZ wireless mouse"),
+    (0x391D, 0x1A03, false, "VGN Dragonfly 3 Pro"),
+];
 const CMD_BATTERY: u8 = 0x30;
 const WAIT_MS: u64 = 700;
 
@@ -62,8 +70,7 @@ fn decode_freq_reply(r: &[u8]) -> Option<(i32, bool)> {
 
 fn supported_collection(c: &HidColl) -> bool {
     let min_len = if c.vid == CABLE_VID { 65 } else { 64 };
-    (c.vid == RECEIVER_VID || c.vid == CABLE_VID)
-        && c.pid == PID
+    DEVICES.iter().any(|&(v, p, _, _)| c.vid == v && c.pid == p)
         && c.page() == 0xFF01
         && c.usage() == 0x0010
         && c.out_len() >= min_len
@@ -117,21 +124,20 @@ fn read(c: &HidColl, receiver: bool) -> Option<(i32, bool)> {
 }
 
 pub fn poll(ctx: &mut PollContext) {
-    for vid in [RECEIVER_VID, CABLE_VID] {
-        if ctx.is_claimed(vid, PID) {
+    for (vid, pid, cable, name) in DEVICES {
+        if ctx.is_claimed(vid, pid) {
             continue;
         }
-        let colls = ctx.find(vid, PID, supported_collection);
+        let colls = ctx.find(vid, pid, supported_collection);
         if colls.is_empty() {
             continue;
         }
-        let cable = vid == CABLE_VID;
         let base = DeviceStatus {
-            key: format!("ajazz139:{}:{}", hex4(vid), hex4(PID)),
-            name: "AJAZZ wireless mouse".into(),
+            key: format!("ajazz139:{}:{}", hex4(vid), hex4(pid)),
+            name: name.into(),
             kind: DeviceKind::Mouse,
             via: if cable { "USB cable" } else { "2.4 GHz receiver" }.into(),
-            hw: Some((vid, PID)),
+            hw: Some((vid, pid)),
             grace_sec: 1800,
             ..Default::default()
         };
@@ -140,7 +146,7 @@ pub fn poll(ctx: &mut PollContext) {
             _ if cable => continue, // the cable alone gives nothing to show
             _ => DeviceStatus { connected: false, ..base },
         };
-        ctx.add(s, vid, PID);
+        ctx.add(s, vid, pid);
     }
 }
 
