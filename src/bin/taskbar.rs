@@ -4016,12 +4016,25 @@ unsafe fn show_menu(from: Option<HWND>) {
             // the taskbar): the taskbar then stays the active window and stays shown while the menu
             // is open. Owned by our own window instead, the taskbar hid as soon as the mouse left it
             // for the menu, and took the menu with it.
-            let owner = menu_owner(main, from);
+            let mut owner = menu_owner(main, from);
+            // The window to activate: the taskbar itself for the strip inside it (a child window can't
+            // be the foreground window). With nothing active, StartAllBack's auto-hide hid the
+            // taskbar as soon as the mouse left it for the menu and activated its own edge window,
+            // which closed the menu.
+            let root = GetAncestor(owner, GA_ROOT);
+            let active = if root.0.is_null() { owner } else { root };
+            let _ = SetForegroundWindow(active);
+            if active != main && GetForegroundWindow() != active {
+                // Not allowed to activate the taskbar: our own window then, so the menu stays open
+                // even if the taskbar hides.
+                owner = main;
+                let _ = SetForegroundWindow(main);
+            }
+            dbg_log(&format!("menu: active {active:?} foreground {:?} owner {owner:?}", GetForegroundWindow()));
             // Menu colours follow the taskbar: dark on a dark taskbar, light on a light one.
             ui::set_menu_theme(owner, dark);
             // Drawn like Windows 11's own context menus (rows, icons, highlight, chevrons).
             let _modern = ui::ModernMenu::apply(menu, &icons, owner, dark);
-            let _ = SetForegroundWindow(owner);
             MENU_OPEN.store(true, std::sync::atomic::Ordering::Relaxed);
             let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, pt.x, pt.y, None, owner, None);
             MENU_OPEN.store(false, std::sync::atomic::Ordering::Relaxed);
