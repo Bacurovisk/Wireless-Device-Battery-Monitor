@@ -35,12 +35,16 @@ enum Proto {
     Alpha,
 }
 
-const MODELS: [(u16, u16, &str, Proto); 7] = [
+const MODELS: [(u16, u16, &str, Proto); 8] = [
     (0x03F0, 0x098D, "HyperX Cloud Alpha Wireless", Proto::Alpha),
     (0x0951, 0x16C4, "HyperX Cloud Flight", Proto::Flight),
     (0x0951, 0x1723, "HyperX Cloud Flight", Proto::Flight),
     (0x0951, 0x170B, "HyperX Cloud Stinger Core Wireless", Proto::Stinger { ps: false }),
     (0x0951, 0x1713, "HyperX Cloud Stinger Core Wireless", Proto::Stinger { ps: true }),
+    // Cloud Core Wireless DTS: the Stinger Core exchange, hardware-verified by TaskbarVitals (GPL-3.0,
+    // github.com/symNistaken/TaskbarVitals, src/drivers/hyperx.cpp); it can return a stale frame
+    // first, so it gets the retrying read.
+    (0x0951, 0x173F, "HyperX Cloud Core Wireless", Proto::Stinger { ps: true }),
     (0x03F0, 0x0A93, "HyperX Cloud Stinger Core Wireless", Proto::Stinger { ps: true }),
     // Same headset's PlayStation receiver (issue #94); same collection, untested.
     (0x03F0, 0x0B93, "HyperX Cloud Stinger Core Wireless", Proto::Stinger { ps: true }),
