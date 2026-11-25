@@ -398,6 +398,7 @@ pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
     drivers::niceboy::poll(&mut ctx);
     drivers::raigor::poll(&mut ctx);
     drivers::fractal::poll(&mut ctx);
+    drivers::audeze::poll(&mut ctx);
     drivers::incott::poll(&mut ctx);
     drivers::asus_mouse::poll(&mut ctx);
     drivers::machenike::poll(&mut ctx);
@@ -564,6 +565,7 @@ fn poll_with(colls: Vec<HidColl>) -> Vec<DeviceStatus> {
     drivers::niceboy::poll(&mut ctx);
     drivers::raigor::poll(&mut ctx);
     drivers::fractal::poll(&mut ctx);
+    drivers::audeze::poll(&mut ctx);
     drivers::incott::poll(&mut ctx);
     drivers::asus_mouse::poll(&mut ctx);
     drivers::machenike::poll(&mut ctx);

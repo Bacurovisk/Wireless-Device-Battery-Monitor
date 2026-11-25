@@ -11,6 +11,7 @@ pub mod atk;
 pub mod atk_mercury;
 pub mod atk_serial;
 pub mod attackshark;
+pub mod audeze;
 pub mod aula;
 pub mod aula_hub;
 pub mod aula_mouse;
