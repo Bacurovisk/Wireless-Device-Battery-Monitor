@@ -71,8 +71,13 @@ pub fn port_from_name(name: &str) -> Option<String> {
 
 /// COM ports of the given product, from the USB device nodes' friendly names.
 fn ports(pid: u16) -> Vec<String> {
+    com_ports(VID, pid)
+}
+
+/// COM ports of any USB product (`vid`, `pid`), from the device nodes' friendly names.
+pub(crate) fn com_ports(vid: u16, pid: u16) -> Vec<String> {
     let Some(set) = DevSet::present(Some("USB")) else { return Vec::new() };
-    let id = format!("VID_{}&PID_{}", hex4(VID), hex4(pid));
+    let id = format!("VID_{}&PID_{}", hex4(vid), hex4(pid));
     set.nodes()
         .iter()
         .filter(|n| n.instance_id.to_ascii_uppercase().contains(&id))
@@ -80,10 +85,11 @@ fn ports(pid: u16) -> Vec<String> {
         .collect()
 }
 
-struct Serial(HANDLE);
+pub(crate) struct Serial(HANDLE);
 
 impl Serial {
-    fn open(port: &str) -> Option<Self> {
+    /// Opens `port` exclusively at 9600 8N1, DTR and RTS on, no flow control, input purged.
+    pub(crate) fn open(port: &str) -> Option<Self> {
         let path = HSTRING::from(format!("\\\\.\\{port}"));
         // Exclusive open: fails while ATK's app (or anything else) uses the port.
         let h = unsafe { CreateFileW(&path, GENERIC_READ.0 | GENERIC_WRITE.0, FILE_SHARE_MODE(0), None, OPEN_EXISTING, FILE_FLAGS_AND_ATTRIBUTES(0), None) }
@@ -105,6 +111,19 @@ impl Serial {
             let _ = PurgeComm(h, PURGE_RXCLEAR | PURGE_TXCLEAR);
         }
         Some(s)
+    }
+
+    pub(crate) fn write_all(&self, data: &[u8]) -> bool {
+        let mut n = 0u32;
+        unsafe { WriteFile(self.0, Some(data), Some(&mut n), None) }.is_ok() && n as usize == data.len()
+    }
+
+    /// Whatever arrived (waits up to the read timeouts set in `open`).
+    pub(crate) fn read_some(&self) -> Option<Vec<u8>> {
+        let mut chunk = [0u8; 128];
+        let mut got = 0u32;
+        unsafe { ReadFile(self.0, Some(&mut chunk), Some(&mut got), None) }.ok()?;
+        Some(chunk[..got as usize].to_vec())
     }
 
     fn command(&self, cmd: (u8, u8)) -> Option<Vec<u8>> {

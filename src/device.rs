@@ -327,6 +327,7 @@ pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
     drivers::astro_a50_gen4::poll(&mut ctx);
     drivers::logitech::poll(&mut ctx);
     drivers::blackshark_v3x::poll(&mut ctx);
+    drivers::kraken_v3pro::poll(&mut ctx);
     drivers::razer::poll(&mut ctx);
     drivers::roccat::poll(&mut ctx);
     drivers::fnatic::poll(&mut ctx);
@@ -488,6 +489,7 @@ fn poll_with(colls: Vec<HidColl>) -> Vec<DeviceStatus> {
     drivers::astro_a50_gen4::poll(&mut ctx);
     drivers::logitech::poll(&mut ctx);
     drivers::blackshark_v3x::poll(&mut ctx);
+    drivers::kraken_v3pro::poll(&mut ctx);
     drivers::razer::poll(&mut ctx);
     drivers::roccat::poll(&mut ctx);
     drivers::fnatic::poll(&mut ctx);
