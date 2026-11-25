@@ -1,4 +1,7 @@
-//! Razer BlackShark V2 Pro (2023) headset over its 2.4 GHz HyperSpeed dongle (VID 1532, PID 0555).
+//! Razer BlackShark V2 Pro (2023) headset over its 2.4 GHz HyperSpeed dongle (VID 1532, PID 0555), and
+//! the BlackShark V2 Pro for Xbox over its own dongle (PID 0A49): the same exchange on the same
+//! collection, as BatteryTray (github.com/WilsonMerlo/BatteryTray, RazerHeadsetProtocol.cs) reads it
+//! on that receiver.
 //!
 //! Protocol as documented by OpenRazer PR #2862 (GPL-2.0-or-later, driver/razerblackshark_driver.c,
 //! from a capture of this dongle), blackshark-battery by Matej Basic (MIT,
@@ -28,7 +31,7 @@ use crate::hid::{HidColl, HidDev};
 use crate::util::{Deadline, hex4, sleep_ms};
 
 const VID: u16 = 0x1532;
-const DONGLE: u16 = 0x0555;
+const DONGLES: [(u16, &str); 2] = [(0x0555, "Razer BlackShark V2 Pro"), (0x0A49, "Razer BlackShark V2 Pro (Xbox)")];
 pub const CMD_BATTERY: u8 = 0x21;
 pub const CMD_CHARGING: u8 = 0x2A;
 const ATTEMPTS: usize = 3;
@@ -87,7 +90,7 @@ struct Last {
     reading: Option<(i32, bool)>,
 }
 
-static LAST: Mutex<Option<Last>> = Mutex::new(None);
+static LAST: Mutex<[Option<Last>; 2]> = Mutex::new([None, None]);
 
 fn read(c: &HidColl) -> Option<Option<(i32, bool)>> {
     let d = HidDev::open(c)?;
@@ -100,15 +103,21 @@ fn read(c: &HidColl) -> Option<Option<(i32, bool)>> {
 }
 
 pub fn poll(ctx: &mut PollContext) {
-    if ctx.is_claimed(VID, DONGLE) {
+    for (n, (pid, name)) in DONGLES.into_iter().enumerate() {
+        poll_dongle(ctx, n, pid, name);
+    }
+}
+
+fn poll_dongle(ctx: &mut PollContext, n: usize, pid: u16, name: &str) {
+    if ctx.is_claimed(VID, pid) {
         return;
     }
-    let colls = ctx.find(VID, DONGLE, |c| c.page() == 0xFF00 && c.in_len() >= 16 && c.out_len() >= 64);
+    let colls = ctx.find(VID, pid, |c| c.page() == 0xFF00 && c.in_len() >= 16 && c.out_len() >= 64);
     if colls.is_empty() {
-        *LAST.lock().unwrap_or_else(|e| e.into_inner()) = None; // unplugged: ask at once next time
+        LAST.lock().unwrap_or_else(|e| e.into_inner())[n] = None; // unplugged: ask at once next time
         return;
     }
-    let cached = *LAST.lock().unwrap_or_else(|e| e.into_inner());
+    let cached = LAST.lock().unwrap_or_else(|e| e.into_inner())[n];
     let fresh = cached.filter(|l| {
         let every = match l.reading {
             Some((_, true)) => QUERY_EVERY_CHARGING,
@@ -121,16 +130,16 @@ pub fn poll(ctx: &mut PollContext) {
         Some(l) => l.reading,
         None => {
             let Some(r) = colls.iter().find_map(read) else { return };
-            *LAST.lock().unwrap_or_else(|e| e.into_inner()) = Some(Last { at: Instant::now(), reading: r });
+            LAST.lock().unwrap_or_else(|e| e.into_inner())[n] = Some(Last { at: Instant::now(), reading: r });
             r
         }
     };
     let base = DeviceStatus {
-        key: format!("razer:{}", hex4(DONGLE)),
-        name: "Razer BlackShark V2 Pro".into(),
+        key: format!("razer:{}", hex4(pid)),
+        name: name.into(),
         kind: DeviceKind::Headset,
         via: "2.4 GHz dongle".into(),
-        hw: Some((VID, DONGLE)),
+        hw: Some((VID, pid)),
         grace_sec: 60,
         ..Default::default()
     };
@@ -138,7 +147,7 @@ pub fn poll(ctx: &mut PollContext) {
         Some((level, charging)) => DeviceStatus { percent: level, charging, ..base },
         None => DeviceStatus { connected: false, ..base },
     };
-    ctx.add(s, VID, DONGLE);
+    ctx.add(s, VID, pid);
 }
 
 #[cfg(test)]

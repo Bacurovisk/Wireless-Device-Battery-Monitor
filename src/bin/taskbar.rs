@@ -1028,6 +1028,9 @@ impl App {
             let buds_low = settings::buds_low(d, threshold);
             let red_icon = settings::red_icon(SETTINGS_KEY, &d.key);
             let tint = |on: bool| if on { red } else { fg };
+            // The icon in its own colour (menu: Icon colour), red over it when asked for.
+            let own = settings::icon_rgb(settings::icon_color(SETTINGS_KEY, &d.key), d.vid).map(|(r, g, b)| rgb(r, g, b)).unwrap_or(fg);
+            let icon_tint = |on: bool| if red_icon && on { red } else { own };
             // Lightning bolt on power: green while charging, blue once it reached 100%.
             let bolt_color = ui::bolt_color(d, light);
             let mark = bolt_color.is_some();
@@ -1036,9 +1039,9 @@ impl App {
                 // Each bud of the drawn earbuds in its own colour (left bud in the left half).
                 Some((l, r)) if d.kind == DeviceKind::Earbuds => {
                     let half = icon.w / 2;
-                    Piece::split(Some(i), icon, half, false, (tint(red_icon && l), tint(red_icon && r)), alpha, px(5.0))
+                    Piece::split(Some(i), icon, half, false, (icon_tint(l), icon_tint(r)), alpha, px(5.0))
                 }
-                _ => Piece::new(Some(i), icon, tint(red_icon && low), alpha, px(5.0)),
+                _ => Piece::new(Some(i), icon, icon_tint(low), alpha, px(5.0)),
             };
             pieces.push(icon_piece);
             let gap = if mark { px(2.0) } else { 0 };
@@ -3888,6 +3891,25 @@ unsafe fn menu_owner(main: HWND, from: Option<HWND>) -> HWND {
     }
 }
 
+/// Windows' colour dialog, starting at `current`; None when cancelled.
+unsafe fn choose_color(owner: HWND, current: Option<(u8, u8, u8)>) -> Option<(u8, u8, u8)> {
+    use windows::Win32::UI::Controls::Dialogs::{CC_FULLOPEN, CC_RGBINIT, CHOOSECOLORW, ChooseColorW};
+    static CUSTOM: std::sync::Mutex<[u32; 16]> = std::sync::Mutex::new([0x00FF_FFFF; 16]);
+    let mut custom = CUSTOM.lock().unwrap_or_else(|e| e.into_inner()).map(COLORREF);
+    let mut cc = CHOOSECOLORW {
+        lStructSize: size_of::<CHOOSECOLORW>() as u32,
+        hwndOwner: owner,
+        rgbResult: current.map(|(r, g, b)| rgb(r, g, b)).unwrap_or(COLORREF(0x00FF_FFFF)),
+        lpCustColors: custom.as_mut_ptr(),
+        Flags: CC_FULLOPEN | CC_RGBINIT,
+        ..Default::default()
+    };
+    let ok = unsafe { ChooseColorW(&mut cc) }.as_bool();
+    *CUSTOM.lock().unwrap_or_else(|e| e.into_inner()) = custom.map(|c| c.0);
+    let c = cc.rgbResult.0;
+    ok.then_some(((c & 0xFF) as u8, (c >> 8 & 0xFF) as u8, (c >> 16 & 0xFF) as u8))
+}
+
 unsafe fn show_menu(from: Option<HWND>) {
     unsafe {
         let (main, devices, renamed, hidden, vertical) = with_app(|a| {
@@ -4332,6 +4354,24 @@ fn device_action(d: &DeviceStatus, action: settings::DeviceAction, devices: &[De
         }
         DeviceAction::ToggleWarn5 => {
             settings::set_warn_critical(SETTINGS_KEY, &d.key, !settings::warn_critical(SETTINGS_KEY, &d.key));
+        }
+        DeviceAction::IconColor(c) => {
+            settings::set_icon_color(SETTINGS_KEY, &d.key, c);
+            with_app(|a| {
+                a.card_cache.clear();
+                a.paint();
+            });
+        }
+        DeviceAction::CustomColor => {
+            let Some(main) = with_app(|a| a.main) else { return };
+            let current = settings::icon_rgb(settings::icon_color(SETTINGS_KEY, &d.key), d.vid);
+            if let Some((r, g, b)) = unsafe { choose_color(main, current) } {
+                settings::set_icon_color(SETTINGS_KEY, &d.key, settings::IconColor::Rgb(r, g, b));
+                with_app(|a| {
+                    a.card_cache.clear();
+                    a.paint();
+                });
+            }
         }
         DeviceAction::ToggleRedIcon => {
             settings::set_red_icon(SETTINGS_KEY, &d.key, !settings::red_icon(SETTINGS_KEY, &d.key));

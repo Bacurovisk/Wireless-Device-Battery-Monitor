@@ -47,6 +47,7 @@ pub mod keychron_nape;
 pub mod kraken_v3pro;
 pub mod logitech;
 pub mod logitech_g321;
+pub mod logitech_g435;
 pub mod logitech_g533;
 pub mod logitech_g735;
 pub mod logitech_prox2;

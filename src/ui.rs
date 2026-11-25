@@ -372,6 +372,7 @@ pub mod glyph {
     pub const DOWN: char = '\u{E70D}';
     pub const DELETE: char = '\u{E74D}';
     pub const CHECK: char = '\u{E73E}';
+    pub const COLOR: char = '\u{E790}';
 }
 
 /// Whether Segoe Fluent Icons is installed (Windows 11); otherwise Segoe MDL2 Assets is used.

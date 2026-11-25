@@ -107,6 +107,80 @@ pub fn set_red_icon(settings_key: &str, device_key: &str, on: bool) -> bool {
     inst::create(HKCU, &sub(settings_key, "RedIcon")).is_some_and(|k| k.set_dword(device_key, on as u32))
 }
 
+// ---- "Icon colour" ---------------------------------------------------------------------------
+
+/// Colour of a device's icon on the taskbar.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum IconColor {
+    /// The taskbar's text colour (default).
+    Taskbar,
+    /// The colour of the device's brand (e.g. Razer green), when BatteryHub knows it.
+    Brand,
+    Rgb(u8, u8, u8),
+}
+
+/// Ready-made colours of the "Icon colour" menu.
+pub const PRESETS: [(&str, (u8, u8, u8)); 6] = [
+    (n_("Green"), (46, 204, 64)),
+    (n_("Blue"), (0, 120, 215)),
+    (n_("Cyan"), (0, 183, 195)),
+    (n_("Purple"), (155, 89, 182)),
+    (n_("Pink"), (232, 17, 123)),
+    (n_("Orange"), (247, 99, 12)),
+];
+
+/// The brand colour of a vendor id, when known.
+pub fn brand_rgb(vid: u16) -> Option<(u8, u8, u8)> {
+    Some(match vid {
+        0x1532 => (68, 214, 44),           // Razer green
+        0x046D => (0, 184, 252),           // Logitech G blue
+        0x1038 => (255, 82, 0),            // SteelSeries orange
+        0x03F0 | 0x0951 => (227, 24, 55),  // HyperX red
+        0x1B1C => (236, 232, 26),          // Corsair yellow
+        0x0B05 => (255, 0, 41),            // ASUS ROG red
+        0x054C => (0, 112, 209),           // PlayStation blue
+        0x045E => (16, 124, 16),           // Xbox green
+        _ => return None,
+    })
+}
+
+/// The colour to draw the icon in; None = the taskbar's text colour.
+pub fn icon_rgb(c: IconColor, vid: u16) -> Option<(u8, u8, u8)> {
+    match c {
+        IconColor::Taskbar => None,
+        IconColor::Brand => brand_rgb(vid),
+        IconColor::Rgb(r, g, b) => Some((r, g, b)),
+    }
+}
+
+fn encode_color(c: IconColor) -> u32 {
+    match c {
+        IconColor::Taskbar => 0,
+        IconColor::Brand => 1,
+        IconColor::Rgb(r, g, b) => 0x0100_0000 | (r as u32) << 16 | (g as u32) << 8 | b as u32,
+    }
+}
+
+fn decode_color(v: u32) -> IconColor {
+    match v {
+        1 => IconColor::Brand,
+        v if v & 0x0100_0000 != 0 => IconColor::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8),
+        _ => IconColor::Taskbar,
+    }
+}
+
+pub fn icon_color(settings_key: &str, device_key: &str) -> IconColor {
+    inst::open(HKCU, &sub(settings_key, "IconColor"), false)
+        .and_then(|k| k.get(device_key))
+        .and_then(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).ok())
+        .map(decode_color)
+        .unwrap_or(IconColor::Taskbar)
+}
+
+pub fn set_icon_color(settings_key: &str, device_key: &str, c: IconColor) -> bool {
+    inst::create(HKCU, &sub(settings_key, "IconColor")).is_some_and(|k| k.set_dword(device_key, encode_color(c)))
+}
+
 // ---- "Show on the taskbar" --------------------------------------------------------------------
 
 /// Keys of the devices hidden from the taskbar.
@@ -191,7 +265,7 @@ pub fn with_new_first(saved: &[String], new: &[String]) -> Vec<String> {
 pub const FORGET_SECS: u64 = crate::history::KEEP_SECS;
 
 /// Per-device settings, by subkey (a value per device key).
-const DEVICE_SUBKEYS: [&str; 6] = ["Order", "Names", "Hidden", "Thresholds", "Warn5", "RedIcon"];
+const DEVICE_SUBKEYS: [&str; 7] = ["Order", "Names", "Hidden", "Thresholds", "Warn5", "RedIcon", "IconColor"];
 
 fn seen_times(settings_key: &str) -> HashMap<String, u64> {
     inst::open(HKCU, &sub(settings_key, "Seen"), false)
@@ -283,6 +357,11 @@ const ITEM_THRESHOLD: usize = 8; // + index into THRESHOLDS
 const ITEM_MOVE_BACK: usize = 20;
 const ITEM_MOVE_ON: usize = 21;
 const ITEM_RESET_HISTORY: usize = 22;
+const ITEM_COLOR_TASKBAR: usize = 23;
+const ITEM_COLOR_BRAND: usize = 24;
+const ITEM_COLOR_CUSTOM: usize = 25;
+const ITEM_COLOR_PRESET: usize = 26; // + index into PRESETS
+const _: () = assert!(ITEM_COLOR_PRESET + PRESETS.len() <= STRIDE);
 const _: () = assert!(ITEM_THRESHOLD + THRESHOLDS.len() <= ITEM_MOVE_BACK && ITEM_RESET_HISTORY < STRIDE);
 
 /// What a device menu item asks for.
@@ -294,6 +373,9 @@ pub enum DeviceAction {
     ResetName,
     ToggleWarn5,
     ToggleRedIcon,
+    /// Icon colour; CustomColor asks for one first.
+    IconColor(IconColor),
+    CustomColor,
     ToggleShown,
     Threshold(i32),
     /// One place to the left (up on a vertical taskbar), or to the right (down).
@@ -360,6 +442,27 @@ pub fn append_device_menus(
             let check = if red_icon(settings_key, &d.key) { MF_CHECKED } else { MF_UNCHECKED };
             let _ = AppendMenuW(sub, MF_STRING | check, id(ITEM_RED_ICON), &hs(&tr("Red icon at the warning level")));
             icons.set(sub, id(ITEM_RED_ICON) as u32, false, glyph::WARNING);
+            // Icon colour: the taskbar's, the brand's, a ready-made one or the user's own.
+            if let Ok(colors) = CreatePopupMenu() {
+                let current = icon_color(settings_key, &d.key);
+                let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
+                let brand = if brand_rgb(d.vid).is_some() { MF_ENABLED } else { MF_GRAYED };
+                let _ = AppendMenuW(colors, MF_STRING | check(current == IconColor::Taskbar), id(ITEM_COLOR_TASKBAR), &hs(&tr("Taskbar colour")));
+                let _ = AppendMenuW(colors, MF_STRING | brand | check(current == IconColor::Brand), id(ITEM_COLOR_BRAND), &hs(&tr("Brand colour")));
+                let _ = AppendMenuW(colors, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+                let mut preset = false;
+                for (j, (name, (r, g, b))) in PRESETS.iter().enumerate() {
+                    let on = current == IconColor::Rgb(*r, *g, *b);
+                    preset |= on;
+                    let _ = AppendMenuW(colors, MF_STRING | check(on), id(ITEM_COLOR_PRESET + j), &hs(&tr(name)));
+                }
+                let _ = AppendMenuW(colors, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+                let own = matches!(current, IconColor::Rgb(..)) && !preset;
+                let _ = AppendMenuW(colors, MF_STRING | check(own), id(ITEM_COLOR_CUSTOM), &hs(&tr("Custom colour...")));
+                let n = windows::Win32::UI::WindowsAndMessaging::GetMenuItemCount(Some(sub));
+                let _ = AppendMenuW(sub, MF_STRING | MF_POPUP, colors.0 as usize, &hs(&tr("Icon colour")));
+                icons.set(sub, n as u32, true, glyph::COLOR);
+            }
             let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             let shown = !hidden.contains(&d.key);
             let check = if shown { MF_CHECKED } else { MF_UNCHECKED };
@@ -403,6 +506,13 @@ pub fn decode_menu_id(id: usize) -> Option<(usize, DeviceAction)> {
         ITEM_RESET_NAME => DeviceAction::ResetName,
         ITEM_WARN5 => DeviceAction::ToggleWarn5,
         ITEM_RED_ICON => DeviceAction::ToggleRedIcon,
+        ITEM_COLOR_TASKBAR => DeviceAction::IconColor(IconColor::Taskbar),
+        ITEM_COLOR_BRAND => DeviceAction::IconColor(IconColor::Brand),
+        ITEM_COLOR_CUSTOM => DeviceAction::CustomColor,
+        i if (ITEM_COLOR_PRESET..ITEM_COLOR_PRESET + PRESETS.len()).contains(&i) => {
+            let (r, g, b) = PRESETS[i - ITEM_COLOR_PRESET].1;
+            DeviceAction::IconColor(IconColor::Rgb(r, g, b))
+        }
         ITEM_SHOW => DeviceAction::ToggleShown,
         ITEM_MOVE_BACK => DeviceAction::Move(false),
         ITEM_MOVE_ON => DeviceAction::Move(true),
@@ -433,7 +543,18 @@ mod tests {
         }
         assert_eq!(decode_menu_id(3), None);
         assert_eq!(decode_menu_id(MENU_BASE + ITEM_RED_ICON), Some((0, DeviceAction::ToggleRedIcon)));
-        assert_eq!(decode_menu_id(MENU_BASE + ITEM_MOVE_ON + 3), None);
+        assert_eq!(decode_menu_id(MENU_BASE + ITEM_THRESHOLD + THRESHOLDS.len()), None);
+    }
+
+    #[test]
+    fn icon_colors() {
+        for c in [IconColor::Taskbar, IconColor::Brand, IconColor::Rgb(0, 0, 0), IconColor::Rgb(12, 34, 56)] {
+            assert_eq!(decode_color(encode_color(c)), c);
+        }
+        assert_eq!(icon_rgb(IconColor::Brand, 0x1532), Some((68, 214, 44)));
+        assert_eq!(icon_rgb(IconColor::Brand, 0x3554), None);
+        assert_eq!(decode_menu_id(MENU_BASE + ITEM_COLOR_PRESET + 1), Some((0, DeviceAction::IconColor(IconColor::Rgb(0, 120, 215)))));
+        assert_eq!(decode_menu_id(MENU_BASE + STRIDE + ITEM_COLOR_CUSTOM), Some((1, DeviceAction::CustomColor)));
     }
 
     #[test]

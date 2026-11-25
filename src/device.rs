@@ -332,6 +332,7 @@ pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
     drivers::steelseries::poll(&mut ctx);
     drivers::logitech_g321::poll(&mut ctx);
     drivers::logitech_prox2::poll(&mut ctx);
+    drivers::logitech_g435::poll(&mut ctx);
     drivers::logitech_g735::poll(&mut ctx);
     drivers::logitech_g533::poll(&mut ctx);
     drivers::astro::poll(&mut ctx);
@@ -497,6 +498,7 @@ fn poll_with(colls: Vec<HidColl>) -> Vec<DeviceStatus> {
     drivers::steelseries::poll(&mut ctx);
     drivers::logitech_g321::poll(&mut ctx);
     drivers::logitech_prox2::poll(&mut ctx);
+    drivers::logitech_g435::poll(&mut ctx);
     drivers::logitech_g735::poll(&mut ctx);
     drivers::logitech_g533::poll(&mut ctx);
     drivers::astro::poll(&mut ctx);
