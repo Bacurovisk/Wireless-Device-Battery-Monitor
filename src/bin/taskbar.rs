@@ -65,6 +65,14 @@ const TIMER_AWAY: usize = 22;
 const TIMER_SLIDE: usize = 23;
 /// Frames of a strip popping in as it appears on a monitor, or out as it leaves one.
 const TIMER_MIRROR_IN: usize = 24;
+/// Frames of the widget gliding to a new place or height (GLIDE_MS).
+const TIMER_GLIDE: usize = 25;
+/// "Widget position: left": the taskbar's left end checked again soon after a window opens or
+/// closes (its task button comes or goes), LEFT_PROBES times.
+const TIMER_LEFT_PROBE: usize = 26;
+const LEFT_PROBES: u8 = 4;
+/// Length of that glide.
+const GLIDE_MS: f32 = 260.0;
 /// Length of that pop-in.
 const MIRROR_IN_MS: f32 = 320.0;
 /// How long a device takes to slide to its new place (ms).
@@ -196,6 +204,9 @@ const ID_SIDE_LEFT: usize = 99;
 const ID_HELP_GITHUB: usize = 200;
 const ID_HELP_RELEASE_FIRST: usize = 201;
 const HELP_RELEASES: usize = 5;
+const ID_HELP_DISCORD: usize = 207;
+/// The project's Discord server (a permanent invite).
+const DISCORD_URL: &str = "https://discord.gg/aVp2E7a9tb";
 /// "Show the icon when no device is connected".
 const ID_SHOW_EMPTY: usize = 210;
 const POSITION_MAX: u32 = 1000;
@@ -378,6 +389,14 @@ struct App {
     offset: u32,
     /// Up / down shift of the widget in px (TaskbarOffsetY, + = down).
     offset_y: i32,
+    /// The height shift gliding to offset_y: (shift it started from, when).
+    y_glide: Option<(f32, Instant)>,
+    /// The strip gliding to a new place (taskbar client coordinates): (from, to, when).
+    glide: Option<(POINT, POINT, Instant)>,
+    /// Checks of the taskbar's left end left after a window opened or closed.
+    left_probes: u8,
+    /// "SHELLHOOK" message: windows opening and closing.
+    shell_msg: u32,
     /// Copies of the strip on the taskbars of other monitors ("Show widget on"): (taskbar, strip).
     mirrors: Vec<(HWND, HWND)>,
     /// Pixels of the last render, pushed to every mirror as well.
@@ -1157,6 +1176,7 @@ impl App {
         }
         let keys: Vec<String> = items.iter().map(|it| it.key.clone()).collect();
         let moves = self.motion(&keys, &ranges, w, s);
+        let shift_y = self.shown_offset_y();
         // The dragged device last, over the others.
         let held = |p: &Piece| p.dev.is_some_and(|i| moves[i].2 < 255);
         for pass in [false, true] {
@@ -1165,7 +1185,7 @@ impl App {
                     continue;
                 }
                 let (off, blur, alpha) = p.dev.map(|i| moves[i]).unwrap_or((0, 0, 255));
-                let y0 = ((h - p.m.h) / 2 + px(self.offset_y as f32)).clamp(0, (h - p.m.h).max(0));
+                let y0 = ((h - p.m.h) / 2 + px(shift_y)).clamp(0, (h - p.m.h).max(0));
                 for (m, color) in p.layers() {
                     if let Some(i) = p.dev
                         && items[i].p < 1.0
@@ -1207,7 +1227,7 @@ impl App {
                 self.push(m);
             }
         }
-        if !resized && (self.drag.is_some() || !self.slides.is_empty() || !self.presence.is_empty()) {
+        if !resized && (self.drag.is_some() || !self.slides.is_empty() || !self.presence.is_empty() || self.y_glide.is_some()) {
             return; // an animation frame: same size, same place
         }
         self.last_place.2 = -1; // force a reposition with the new width
@@ -1311,7 +1331,7 @@ impl App {
                 self.push(m);
             }
         }
-        if !resized && (self.drag.is_some() || !self.slides.is_empty() || !self.presence.is_empty()) {
+        if !resized && (self.drag.is_some() || !self.slides.is_empty() || !self.presence.is_empty() || self.y_glide.is_some()) {
             return; // an animation frame: same size, same place
         }
         self.last_place.2 = -1;
@@ -2096,7 +2116,7 @@ impl App {
                     return;
                 }
                 self.last_place = key;
-                let _ = SetWindowPos(self.strip, Some(HWND_TOP), left, top, self.size.cx, self.size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                self.move_strip(left, top);
                 return;
             }
             let left = if self.align_left {
@@ -2137,7 +2157,69 @@ impl App {
                 return;
             }
             self.last_place = key;
+            self.move_strip(left, top);
+        }
+    }
+
+    /// Puts the strip at `left`, `top` (taskbar client coordinates), on top of the taskbar's own
+    /// windows. A visible strip of the same size glides there (from where it is, also part-way
+    /// through a glide) instead of jumping; a new size or a hidden strip is placed right away.
+    fn move_strip(&mut self, left: i32, top: i32) {
+        let to = POINT { x: left, y: top };
+        unsafe {
+            let mut cur = RECT::default();
+            let _ = GetWindowRect(self.strip, &mut cur);
+            let mut from = POINT { x: cur.left, y: cur.top };
+            let _ = ScreenToClient(self.taskbar, &mut from);
+            let same_size = cur.right - cur.left == self.size.cx && cur.bottom - cur.top == self.size.cy;
+            let visible = IsWindowVisible(self.strip).as_bool();
+            let raise = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW;
+            if visible && same_size && self.glide.is_some_and(|g| g.1 == to) {
+                let _ = SetWindowPos(self.strip, Some(HWND_TOP), 0, 0, 0, 0, raise);
+                return;
+            }
+            if visible && same_size && from != to {
+                self.glide = Some((from, to, Instant::now()));
+                let _ = SetWindowPos(self.strip, Some(HWND_TOP), 0, 0, 0, 0, raise);
+                SetTimer(Some(self.main), TIMER_GLIDE, 15, None);
+                return;
+            }
+            self.glide = None;
             let _ = SetWindowPos(self.strip, Some(HWND_TOP), left, top, self.size.cx, self.size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
+    }
+
+    /// The height shift drawn now (px before scaling): offset_y, or on its way there.
+    fn shown_offset_y(&self) -> f32 {
+        match self.y_glide {
+            Some((from, t0)) => from + (self.offset_y as f32 - from) * glide_ease(t0),
+            None => self.offset_y as f32,
+        }
+    }
+
+    /// TIMER_GLIDE: one frame of the strip moving and / or its height shift changing.
+    fn glide_step(&mut self) {
+        if let Some((from, to, t0)) = self.glide {
+            let e = glide_ease(t0);
+            let x = from.x + ((to.x - from.x) as f32 * e).round() as i32;
+            let y = from.y + ((to.y - from.y) as f32 * e).round() as i32;
+            unsafe {
+                let _ = SetWindowPos(self.strip, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            if e >= 1.0 {
+                self.glide = None;
+            }
+        }
+        if let Some((_, t0)) = self.y_glide {
+            if glide_ease(t0) >= 1.0 {
+                self.y_glide = None;
+            }
+            self.paint();
+        }
+        if self.glide.is_none() && self.y_glide.is_none() {
+            unsafe {
+                let _ = KillTimer(Some(self.main), TIMER_GLIDE);
+            }
         }
     }
 
@@ -3604,7 +3686,7 @@ fn on_update_downloaded(main: HWND, result: Result<batteryhub::update::Verified,
 /// (any release, also an older one; verified like an update).
 /// Opens a GitHub page in the default browser.
 fn open_url(url: &str) {
-    if !url.starts_with("https://github.com/") {
+    if !url.starts_with("https://github.com/") && url != DISCORD_URL {
         return;
     }
     unsafe {
@@ -4074,9 +4156,9 @@ unsafe fn show_menu(from: Option<HWND>) {
             );
             // Widget position: next to the clock or next to the taskbar icons (horizontal taskbars).
             if let Ok(sub) = CreatePopupMenu() {
-                let _ = AppendMenuW(sub, MF_STRING, ID_SIDE_RIGHT, &windows::core::HSTRING::from(tr("Right, next to the clock")));
+                let _ = AppendMenuW(sub, MF_STRING, ID_SIDE_RIGHT, &windows::core::HSTRING::from(tr("Right")));
                 let left_ok = if vertical_bar { MF_GRAYED } else { MF_ENABLED };
-                let _ = AppendMenuW(sub, MF_STRING | left_ok, ID_SIDE_LEFT, &windows::core::HSTRING::from(tr("Left, next to the taskbar icons")));
+                let _ = AppendMenuW(sub, MF_STRING | left_ok, ID_SIDE_LEFT, &windows::core::HSTRING::from(tr("Left")));
                 let on = if align_left && !vertical_bar { ID_SIDE_LEFT } else { ID_SIDE_RIGHT };
                 let _ = CheckMenuRadioItem(sub, ID_SIDE_RIGHT as u32, ID_SIDE_LEFT as u32, on as u32, MF_BYCOMMAND.0);
                 let n = GetMenuItemCount(Some(menu));
@@ -4213,6 +4295,7 @@ unsafe fn show_menu(from: Option<HWND>) {
             if let Ok(sub) = CreatePopupMenu() {
                 let _ = AppendMenuW(sub, MF_STRING, ID_HELP_GITHUB, &windows::core::HSTRING::from(tr("Go to the GitHub page")));
                 icons.set(sub, ID_HELP_GITHUB as u32, false, ui::glyph::INFO);
+                let _ = AppendMenuW(sub, MF_STRING, ID_HELP_DISCORD, &windows::core::HSTRING::from(tr("Join the Discord server")));
                 let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
                 let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, 0, &windows::core::HSTRING::from(tr("Recent updates")));
                 let releases = recent_releases();
@@ -4328,6 +4411,7 @@ unsafe fn show_menu(from: Option<HWND>) {
                     });
                 }
                 ID_HELP_GITHUB => open_url(&format!("https://github.com/{}", batteryhub::update::REPO)),
+                ID_HELP_DISCORD => open_url(DISCORD_URL),
                 id if (ID_HELP_RELEASE_FIRST..ID_HELP_RELEASE_FIRST + HELP_RELEASES).contains(&id) => {
                     if let Some((_, url)) = recent_releases().get(id - ID_HELP_RELEASE_FIRST) {
                         open_url(url);
@@ -4458,6 +4542,12 @@ fn set_offset(px: u32) {
 }
 
 /// Up / down shift of the widget (TaskbarOffsetY, px, + = down).
+/// Progress of a glide that started at `t0`, eased out (0 to 1).
+fn glide_ease(t0: Instant) -> f32 {
+    let p = (t0.elapsed().as_secs_f32() * 1000.0 / GLIDE_MS).min(1.0);
+    1.0 - (1.0 - p).powi(3)
+}
+
 fn set_offset_y(px: i32) {
     if px == 0 {
         batteryhub::util::reg_delete_value(SETTINGS_KEY, "TaskbarOffsetY");
@@ -4465,6 +4555,12 @@ fn set_offset_y(px: i32) {
         save_dword("TaskbarOffsetY", px as u32);
     }
     with_app(|a| {
+        if a.offset_y != px {
+            a.y_glide = Some((a.shown_offset_y(), Instant::now()));
+            unsafe {
+                SetTimer(Some(a.main), TIMER_GLIDE, 15, None);
+            }
+        }
         a.offset_y = px;
         a.paint();
         a.sync_mirrors();
@@ -4923,6 +5019,15 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                     TIMER_AWAY => a.away_step(),
                     TIMER_SLIDE => a.paint(),
                     TIMER_MIRROR_IN => a.mirror_in_step(),
+                    TIMER_GLIDE => a.glide_step(),
+                    TIMER_LEFT_PROBE => {
+                        a.left_probes = a.left_probes.saturating_sub(1);
+                        if a.left_probes == 0 {
+                            let _ = KillTimer(Some(hwnd), TIMER_LEFT_PROBE);
+                        }
+                        batteryhub::tray_probe::left_refresh_soon();
+                        a.place();
+                    }
                     TIMER_UPDATED => {
                         let _ = KillTimer(Some(hwnd), TIMER_UPDATED);
                         if let Some(old) = a.updated_from.take() {
@@ -5088,7 +5193,21 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                 LRESULT(0)
             }
             _ => {
-                let (tc, nm) = with_app(|a| (a.taskbar_created, a.names_msg)).unwrap_or((0, 0));
+                let (tc, nm, sh) = with_app(|a| (a.taskbar_created, a.names_msg, a.shell_msg)).unwrap_or((0, 0, 0));
+                if sh != 0 && msg == sh {
+                    // A window opened or closed: its task button comes or goes, so with the widget
+                    // next to the taskbar icons, look again soon (the button animates in).
+                    let code = (wp.0 & 0x7FFF) as u32;
+                    if code == HSHELL_WINDOWCREATED || code == HSHELL_WINDOWDESTROYED {
+                        with_app(|a| {
+                            if a.align_left && !a.vertical {
+                                a.left_probes = LEFT_PROBES;
+                                SetTimer(Some(hwnd), TIMER_LEFT_PROBE, 200, None);
+                            }
+                        });
+                    }
+                    return LRESULT(0);
+                }
                 if nm != 0 && msg == nm {
                     with_app(|a| a.reload_names());
                     return LRESULT(0);
@@ -5187,6 +5306,9 @@ fn main() {
         with_app(|a| {
             a.main = main;
             a.taskbar_created = taskbar_created;
+            if RegisterShellHookWindow(main).as_bool() {
+                a.shell_msg = RegisterWindowMessageW(w!("SHELLHOOK"));
+            }
             a.refresh_settings();
             a.create_tooltip();
             a.history = batteryhub::history::History::load(EDITION, SETTINGS_KEY);

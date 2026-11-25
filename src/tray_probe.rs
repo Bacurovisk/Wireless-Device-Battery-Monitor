@@ -149,6 +149,13 @@ struct LeftEntry {
 
 static LEFT: Mutex<Option<HashMap<isize, LeftEntry>>> = Mutex::new(None);
 static LEFT_BUSY: AtomicBool = AtomicBool::new(false);
+/// Set by left_refresh_soon: the next call checks again whatever the age of the answer.
+static LEFT_FORCE: AtomicBool = AtomicBool::new(false);
+
+/// Makes the next left_content_end check the taskbar again (a window opened or closed).
+pub fn left_refresh_soon() {
+    LEFT_FORCE.store(true, Ordering::SeqCst);
+}
 
 /// Screen x right after the items that start at the taskbar's left end: Start, search, task view
 /// and the task buttons when they are aligned left, or the widgets (weather) button when the task
@@ -165,7 +172,8 @@ pub fn left_content_end(bar: HWND, bar_rect: RECT, notify: HWND, msg: u32) -> Op
             _ => (None, true),
         }
     };
-    if stale && !LEFT_BUSY.swap(true, Ordering::SeqCst) {
+    if (stale || LEFT_FORCE.load(Ordering::SeqCst)) && !LEFT_BUSY.swap(true, Ordering::SeqCst) {
+        LEFT_FORCE.store(false, Ordering::SeqCst);
         let notify = notify.0 as isize;
         std::thread::spawn(move || {
             let items = probe_items(key).unwrap_or_default();

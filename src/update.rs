@@ -21,10 +21,7 @@ use windows::Win32::Security::Cryptography::*;
 use windows::core::{HSTRING, PCWSTR};
 
 /// GitHub repository the updates come from (owner/name).
-pub const REPO: &str = "ferloom/battery-hub";
-/// The repository's earlier name: GitHub redirects it to REPO, and release URLs under it are
-/// still accepted (answers given before the rename, or by a cache).
-pub const OLD_REPO: &str = "ferloom/Wireless-Device-Battery-Monitor";
+pub const REPO: &str = "ferloom/Wireless-Device-Battery-Monitor";
 /// Prefix of the setup file in a release ("BatteryHub-Taskbar-Setup-v1.1.exe").
 const SETUP_PREFIX: &str = "BatteryHub-Taskbar-Setup-";
 /// Largest download accepted (the setup is about 1 MB).
@@ -122,7 +119,7 @@ fn parse_release(json: &str) -> Option<Release> {
         return None;
     }
     let page_url = json_string(json, "html_url")
-        .filter(|u| [REPO, OLD_REPO].iter().any(|r| u.starts_with(&format!("https://github.com/{r}/releases/"))))
+        .filter(|u| u.starts_with(&format!("https://github.com/{REPO}/releases/")))
         .unwrap_or_else(|| format!("https://github.com/{REPO}/releases/latest"));
     let urls: Vec<String> = json_strings(json, "browser_download_url").into_iter().filter(|u| is_release_asset(u)).collect();
     let setup_url = urls.iter().find(|u| file_name(u).starts_with(SETUP_PREFIX) && u.ends_with(".exe"))?.clone();
@@ -134,8 +131,8 @@ fn parse_release(json: &str) -> Option<Release> {
 
 /// A download URL of one of this repository's releases (no other host, path or scheme).
 pub fn is_release_asset(url: &str) -> bool {
-    let rest = [REPO, OLD_REPO].iter().find_map(|r| url.strip_prefix(&format!("https://github.com/{r}/releases/download/")));
-    rest.is_some_and(|rest| {
+    let prefix = format!("https://github.com/{REPO}/releases/download/");
+    url.strip_prefix(&prefix).is_some_and(|rest| {
         let parts: Vec<&str> = rest.split('/').collect();
         parts.len() == 2
             && parts.iter().all(|p| !p.is_empty() && *p != "." && *p != "..")
@@ -447,8 +444,6 @@ mod tests {
             assert!(parse_release(&json).is_none(), "{bad}");
         }
         assert!(is_release_asset("https://github.com/ferloom/Wireless-Device-Battery-Monitor/releases/download/v1.5/SHA256SUMS.txt"));
-        assert!(is_release_asset("https://github.com/ferloom/battery-hub/releases/download/v1.7.7/SHA256SUMS.txt"));
-        assert!(!is_release_asset("https://github.com/someone/battery-hub/releases/download/v1.7.7/SHA256SUMS.txt"));
         assert!(parse_release(r#"{"tag_name": "v1.5; rm", "assets": []}"#).is_none());
     }
 
