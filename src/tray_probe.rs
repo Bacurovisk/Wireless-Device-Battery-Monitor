@@ -134,3 +134,128 @@ fn probe(bar: isize, vertical: bool) -> Option<i32> {
         found.ok().flatten()
     }
 }
+
+// ---- the taskbar's left end ("Widget position: left") ------------------------------------------
+
+/// How often the items at the taskbar's left end are checked again (task buttons come and go).
+const LEFT_REFRESH: Duration = Duration::from_secs(2);
+
+struct LeftEntry {
+    bar: (i32, i32, i32, i32),
+    /// Screen x right after the items at the taskbar's left end.
+    end: i32,
+    at: Instant,
+}
+
+static LEFT: Mutex<Option<HashMap<isize, LeftEntry>>> = Mutex::new(None);
+static LEFT_BUSY: AtomicBool = AtomicBool::new(false);
+
+/// Screen x right after the items that start at the taskbar's left end: Start, search, task view
+/// and the task buttons when they are aligned left, or the widgets (weather) button when the task
+/// buttons are centred; the taskbar's own left edge when nothing starts there. None until the
+/// first answer (then `notify` gets `msg`). Horizontal taskbars only.
+pub fn left_content_end(bar: HWND, bar_rect: RECT, notify: HWND, msg: u32) -> Option<i32> {
+    let key = bar.0 as isize;
+    let r = (bar_rect.left, bar_rect.top, bar_rect.right, bar_rect.bottom);
+    let (known, stale) = {
+        let mut g = LEFT.lock().unwrap_or_else(|e| e.into_inner());
+        let m = g.get_or_insert_with(HashMap::new);
+        match m.get(&key) {
+            Some(e) if e.bar == r => (Some(e.end), e.at.elapsed() >= LEFT_REFRESH),
+            _ => (None, true),
+        }
+    };
+    if stale && !LEFT_BUSY.swap(true, Ordering::SeqCst) {
+        let notify = notify.0 as isize;
+        std::thread::spawn(move || {
+            let items = probe_items(key).unwrap_or_default();
+            let end = left_chain_end(&items, r.0, r.3 - r.1);
+            let changed = {
+                let mut g = LEFT.lock().unwrap_or_else(|e| e.into_inner());
+                let m = g.get_or_insert_with(HashMap::new);
+                let old = m.insert(key, LeftEntry { bar: r, end, at: Instant::now() });
+                m.retain(|_, e| e.at.elapsed() < LEFT_REFRESH * 30);
+                old.is_none_or(|o| o.end != end || o.bar != r)
+            };
+            LEFT_BUSY.store(false, Ordering::SeqCst);
+            if changed {
+                unsafe {
+                    let _ = PostMessageW(Some(HWND(notify as *mut _)), msg, WPARAM(0), LPARAM(0));
+                }
+            }
+        });
+    }
+    known
+}
+
+/// From the taskbar's items (left, right), sorted or not: the end of the run of items that starts
+/// at the taskbar's left edge (within one taskbar height of it), gaps up to a quarter of the height
+/// allowed; `bar_left` when no item starts there.
+pub fn left_chain_end(items: &[(i32, i32)], bar_left: i32, bar_h: i32) -> i32 {
+    let mut v: Vec<(i32, i32)> = items.to_vec();
+    v.sort();
+    let Some(&(first, mut end)) = v.first() else { return bar_left };
+    if first - bar_left > bar_h {
+        return bar_left;
+    }
+    for &(l, r) in &v[1..] {
+        if l > end + bar_h / 4 {
+            break;
+        }
+        end = end.max(r);
+    }
+    end
+}
+
+/// The taskbar's own items (buttons), as (left, right) in screen x: not the notification area,
+/// not containers spanning a large part of the taskbar, and not BatteryHub's own windows.
+fn probe_items(bar: isize) -> Option<Vec<(i32, i32)>> {
+    unsafe {
+        let init = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
+        let found = (|| -> windows::core::Result<Vec<(i32, i32)>> {
+            let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
+            let root = uia.ElementFromHandle(HWND(bar as *mut _))?;
+            let rb = root.CurrentBoundingRectangle()?;
+            let width = rb.right - rb.left;
+            let all = root.FindAll(TreeScope_Descendants, &uia.CreateTrueCondition()?)?;
+            let mut out = Vec::new();
+            for i in 0..all.Length()? {
+                let e = all.GetElement(i)?;
+                let b = e.CurrentBoundingRectangle()?;
+                if b.right <= b.left || b.bottom <= b.top || (b.right - b.left) * 3 > width {
+                    continue;
+                }
+                let id = e.CurrentAutomationId().map(|s| s.to_string()).unwrap_or_default();
+                let class = e.CurrentClassName().map(|s| s.to_string()).unwrap_or_default();
+                if id == TRAY_ID || class.starts_with("BatteryHub") || matches!(class.as_str(), "TrayNotifyWnd" | "ReBarWindow32" | "MSTaskSwWClass" | "MSTaskListWClass") {
+                    continue;
+                }
+                out.push((b.left, b.right));
+            }
+            Ok(out)
+        })();
+        if init {
+            CoUninitialize();
+        }
+        found.ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn left_chain() {
+        // Icons aligned left: Start, task view, task buttons; the tray far right is not reached.
+        let left = [(0, 55), (55, 99), (99, 143), (143, 187), (1699, 1731)];
+        assert_eq!(left_chain_end(&left, 0, 48), 187);
+        // Centred icons, nothing at the left end.
+        assert_eq!(left_chain_end(&[(700, 744), (744, 788)], 0, 48), 0);
+        // Centred icons with the widgets (weather) button at the left end.
+        assert_eq!(left_chain_end(&[(700, 744), (12, 160)], 0, 48), 160);
+        // A second monitor's taskbar to the left of the main one.
+        assert_eq!(left_chain_end(&[(-1920, -1876), (-1876, -1832)], -1920, 48), -1832);
+        assert_eq!(left_chain_end(&[], 5, 48), 5);
+    }
+}

@@ -131,6 +131,8 @@ struct Item {
 }
 /// Notification-area id of the low-battery notification (device icons use hashes of their keys).
 const NOTIFY_UID: u32 = 0x5BA7;
+/// The app's own notification-area icon, shown while no device is and the empty-strip icon is off.
+const APP_UID: u32 = 0x5BA8;
 const CARD_SHOW_MS: f32 = 160.0;
 const CARD_HIDE_MS: f32 = 110.0;
 /// How long the mouse may be off both the strip and the card before the card closes.
@@ -187,6 +189,15 @@ const ID_POSITION_CUSTOM: usize = 95;
 /// 10 px further left / right (any value, not only the listed ones).
 const ID_POSITION_LEFT: usize = 96;
 const ID_POSITION_RIGHT: usize = 97;
+/// "Widget position": next to the clock (right) or next to the taskbar icons (left).
+const ID_SIDE_RIGHT: usize = 98;
+const ID_SIDE_LEFT: usize = 99;
+/// "Help": the GitHub page and ID_HELP_RELEASE_FIRST + i for the latest releases.
+const ID_HELP_GITHUB: usize = 200;
+const ID_HELP_RELEASE_FIRST: usize = 201;
+const HELP_RELEASES: usize = 5;
+/// "Show the icon when no device is connected".
+const ID_SHOW_EMPTY: usize = 210;
 const POSITION_MAX: u32 = 1000;
 const POSITION_OFFSETS: [u32; 11] = [0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200];
 /// "Height on the taskbar": ID_HEIGHT_FIRST + i for HEIGHT_OFFSETS[i] (px, + = down).
@@ -385,6 +396,12 @@ struct App {
     background: bool,
     /// "Show as notification-area icons": Windows places and orders the icons (no strip).
     icons_mode: bool,
+    /// "Widget position: left": next to the taskbar icons instead of the clock (horizontal taskbars).
+    align_left: bool,
+    /// "Show the icon when no device is connected" turned off: nothing on the strip then, and the
+    /// app's own notification-area icon (APP_UID) holds the menu.
+    hide_empty: bool,
+    app_icon: Option<HICON>,
     /// Version the setup just updated from (shown once in "Update finished").
     updated_from: Option<String>,
     /// Names chosen with "Rename device" (device key -> name).
@@ -1525,6 +1542,7 @@ impl App {
                 self.place();
             }
             self.sync_mirrors();
+            self.sync_app_icon();
         } else {
             self.fail_ticks += 1;
             if self.fail_ticks >= FALLBACK_AFTER_TICKS {
@@ -1882,13 +1900,20 @@ impl App {
                     batteryhub::tray_probe::TrayEdge::Unknown => br.right - (130.0 * s) as i32,
                 },
             };
-            let mut p = POINT { x: right, y: br.top };
-            let _ = ScreenToClient(bar, &mut p);
-            let mut left = p.x - self.size.cx - (2.0 * s) as i32;
-            if self.offset > 0 {
-                left -= (self.offset as f32 * s) as i32;
-            }
-            left = avoid_widgets(bar, left, self.size.cx, (4.0 * s) as i32);
+            let left = if self.align_left {
+                let Some(x) = batteryhub::tray_probe::left_content_end(bar, br, self.main, WM_TRAY_PROBED) else { return true };
+                let mut p = POINT { x, y: br.top };
+                let _ = ScreenToClient(bar, &mut p);
+                p.x + (6.0 * s) as i32
+            } else {
+                let mut p = POINT { x: right, y: br.top };
+                let _ = ScreenToClient(bar, &mut p);
+                let mut left = p.x - self.size.cx - (2.0 * s) as i32;
+                if self.offset > 0 {
+                    left -= (self.offset as f32 * s) as i32;
+                }
+                avoid_widgets(bar, left, self.size.cx, (4.0 * s) as i32)
+            };
             let mut client = RECT::default();
             let _ = GetClientRect(bar, &mut client);
             let top = ((client.bottom - self.size.cy) / 2).max(0);
@@ -2003,6 +2028,37 @@ impl App {
         }
     }
 
+    /// The app's own notification-area icon: shown while the strip has nothing to show because the
+    /// empty-strip icon is turned off, so the menu stays a right-click away.
+    fn sync_app_icon(&mut self) {
+        let want = self.hide_empty && self.loaded && !self.fallback && self.visible().is_empty();
+        unsafe {
+            match (want, self.app_icon) {
+                (true, None) => {
+                    let size = windows::Win32::UI::HiDpi::GetSystemMetricsForDpi(SM_CXSMICON, windows::Win32::UI::HiDpi::GetDpiForSystem());
+                    let hinst = GetModuleHandleW(None).unwrap_or_default();
+                    let Ok(h) = LoadImageW(Some(hinst.into()), windows::core::PCWSTR(1 as _), IMAGE_ICON, size, size, LR_DEFAULTCOLOR) else { return };
+                    let icon = HICON(h.0);
+                    let mut d = self.tray_data(APP_UID);
+                    d.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE | NIF_SHOWTIP;
+                    d.uCallbackMessage = WM_TRAY;
+                    d.hIcon = icon;
+                    ui::fill_wide(&mut d.szTip, &tr("BatteryHub: no devices found"));
+                    if !Shell_NotifyIconW(NIM_MODIFY, &d).as_bool() {
+                        let _ = Shell_NotifyIconW(NIM_ADD, &d);
+                    }
+                    self.app_icon = Some(icon);
+                }
+                (false, Some(icon)) => {
+                    let _ = Shell_NotifyIconW(NIM_DELETE, &self.tray_data(APP_UID));
+                    let _ = DestroyIcon(icon);
+                    self.app_icon = None;
+                }
+                _ => {}
+            }
+        }
+    }
+
     fn remove_tray(&mut self) {
         let keys: Vec<String> = self.tray.keys().cloned().collect();
         for k in keys {
@@ -2043,21 +2099,30 @@ impl App {
                 let _ = SetWindowPos(self.strip, Some(HWND_TOP), left, top, self.size.cx, self.size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
                 return;
             }
-            let mut p = POINT { x: tr.left, y: bar.top };
-            let _ = ScreenToClient(self.taskbar, &mut p);
-            let mut left = p.x - self.size.cx - (2.0 * self.scale()) as i32;
-            // Optional extra gap (DPI-independent px), e.g. to sit next to another taskbar widget.
-            if self.offset > 0 {
-                left -= (self.offset as f32 * self.scale()) as i32;
-            }
-            // Other programs' widgets in the taskbar: sit left of them instead of on top.
-            left = avoid_widgets(self.taskbar, left, self.size.cx, (4.0 * self.scale()) as i32);
+            let left = if self.align_left {
+                // Next to the taskbar icons (or the left end, after the widgets button, when they are
+                // centred); placed as soon as UI Automation has told where they end.
+                let Some(x) = batteryhub::tray_probe::left_content_end(self.taskbar, bar, self.main, WM_TRAY_PROBED) else { return };
+                let mut p = POINT { x, y: bar.top };
+                let _ = ScreenToClient(self.taskbar, &mut p);
+                p.x + (6.0 * self.scale()) as i32
+            } else {
+                let mut p = POINT { x: tr.left, y: bar.top };
+                let _ = ScreenToClient(self.taskbar, &mut p);
+                let mut left = p.x - self.size.cx - (2.0 * self.scale()) as i32;
+                // Optional extra gap (DPI-independent px), e.g. to sit next to another taskbar widget.
+                if self.offset > 0 {
+                    left -= (self.offset as f32 * self.scale()) as i32;
+                }
+                // Other programs' widgets in the taskbar: sit left of them instead of on top.
+                avoid_widgets(self.taskbar, left, self.size.cx, (4.0 * self.scale()) as i32)
+            };
             let mut client = RECT::default();
             let _ = GetClientRect(self.taskbar, &mut client);
             let top = ((client.bottom - self.size.cy) / 2).max(0);
 
             // Windows 10 / ExplorerPatcher taskbar: narrow the task buttons so they never slide under us.
-            if let Ok(rebar) = FindWindowExW(Some(self.taskbar), None, w!("ReBarWindow32"), None) {
+            if let Ok(rebar) = FindWindowExW(Some(self.taskbar), None, w!("ReBarWindow32"), None).map_err(|_| ()).and_then(|r| if self.align_left { Err(()) } else { Ok(r) }) {
                 let mut rr = RECT::default();
                 let _ = GetWindowRect(rebar, &mut rr);
                 let mut tl = POINT { x: rr.left, y: rr.top };
@@ -3071,7 +3136,7 @@ impl App {
     /// are leaving, at their old place. Starts the appear / leave animations.
     fn strip_items(&mut self, devices: &[DeviceStatus]) -> Vec<Item> {
         let mut want: Vec<(String, Option<DeviceStatus>)> = devices.iter().map(|d| (d.key.clone(), Some(d.clone()))).collect();
-        if self.loaded && devices.is_empty() {
+        if self.loaded && devices.is_empty() && !self.hide_empty {
             want.push((NONE_KEY.into(), None));
         }
         let old = std::mem::take(&mut self.shown);
@@ -3395,6 +3460,8 @@ impl App {
     fn refresh_settings(&mut self) {
         self.light = ui::taskbar_is_light();
         self.offset = batteryhub::util::reg_get_dword(SETTINGS_KEY, "TaskbarOffset").unwrap_or(0);
+        self.align_left = batteryhub::util::reg_get_dword(SETTINGS_KEY, "WidgetLeft").unwrap_or(0) != 0;
+        self.hide_empty = batteryhub::util::reg_get_dword(SETTINGS_KEY, "HideWhenEmpty").unwrap_or(0) != 0;
         self.offset_y = batteryhub::util::reg_get_dword(SETTINGS_KEY, "TaskbarOffsetY").unwrap_or(0) as i32;
         self.background = batteryhub::util::reg_get_dword(SETTINGS_KEY, "WidgetBackground").unwrap_or(0) != 0;
         self.icons_mode = batteryhub::util::reg_get_dword(SETTINGS_KEY, "NotificationIcons").unwrap_or(0) != 0;
@@ -3535,6 +3602,38 @@ fn on_update_downloaded(main: HWND, result: Result<batteryhub::update::Verified,
 
 /// "Install another version...": the setup kept next to the program opens on its version list
 /// (any release, also an older one; verified like an update).
+/// Opens a GitHub page in the default browser.
+fn open_url(url: &str) {
+    if !url.starts_with("https://github.com/") {
+        return;
+    }
+    unsafe {
+        let _ = windows::Win32::UI::Shell::ShellExecuteW(None, w!("open"), &windows::core::HSTRING::from(url), None, None, SW_SHOWNORMAL);
+    }
+}
+
+/// The latest releases (version, page), newest first, for the Help menu. Fetched in the
+/// background at most once an hour (when the menu opens); empty until the first answer.
+fn recent_releases() -> Vec<(String, String)> {
+    type Releases = Option<(Instant, Vec<(String, String)>)>;
+    static CACHE: std::sync::Mutex<Releases> = std::sync::Mutex::new(None);
+    static BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let (list, stale) = match &*CACHE.lock().unwrap_or_else(|e| e.into_inner()) {
+        Some((at, list)) => (list.clone(), at.elapsed() > std::time::Duration::from_secs(3600) || list.is_empty() && at.elapsed() > std::time::Duration::from_secs(60)),
+        None => (Vec::new(), true),
+    };
+    if stale && !BUSY.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        std::thread::spawn(|| {
+            let list: Vec<(String, String)> = batteryhub::update::list_releases()
+                .map(|v| v.into_iter().filter(|r| !r.prerelease).take(HELP_RELEASES).map(|r| (r.version, r.page_url)).collect())
+                .unwrap_or_default();
+            *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), list));
+            BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
+        });
+    }
+    list
+}
+
 fn open_version_list(main: HWND) {
     let setup = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("BatteryHub-Setup.exe")));
     match setup {
@@ -3953,8 +4052,14 @@ unsafe fn show_menu(from: Option<HWND>) {
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
             // Look of the widget: plate behind it, position, and which monitors show it.
-            let (choice, offset, background, offset_y, icons_mode) =
-                with_app(|a| (a.choice.clone(), a.offset, a.background, a.offset_y, a.icons_mode)).unwrap_or_default();
+            let (choice, offset, background, offset_y, icons_mode, align_left, hide_empty, vertical_bar) =
+                with_app(|a| (a.choice.clone(), a.offset, a.background, a.offset_y, a.icons_mode, a.align_left, a.hide_empty, a.vertical)).unwrap_or_default();
+            let _ = AppendMenuW(
+                menu,
+                MF_STRING | check(!hide_empty),
+                ID_SHOW_EMPTY,
+                &windows::core::HSTRING::from(tr("Show the icon when no device is connected")),
+            );
             let _ = AppendMenuW(
                 menu,
                 MF_STRING | check(icons_mode),
@@ -3967,6 +4072,17 @@ unsafe fn show_menu(from: Option<HWND>) {
                 ID_BACKGROUND,
                 &windows::core::HSTRING::from(tr("Background behind taskbar text (for translucent taskbars)")),
             );
+            // Widget position: next to the clock or next to the taskbar icons (horizontal taskbars).
+            if let Ok(sub) = CreatePopupMenu() {
+                let _ = AppendMenuW(sub, MF_STRING, ID_SIDE_RIGHT, &windows::core::HSTRING::from(tr("Right, next to the clock")));
+                let left_ok = if vertical_bar { MF_GRAYED } else { MF_ENABLED };
+                let _ = AppendMenuW(sub, MF_STRING | left_ok, ID_SIDE_LEFT, &windows::core::HSTRING::from(tr("Left, next to the taskbar icons")));
+                let on = if align_left && !vertical_bar { ID_SIDE_LEFT } else { ID_SIDE_RIGHT };
+                let _ = CheckMenuRadioItem(sub, ID_SIDE_RIGHT as u32, ID_SIDE_LEFT as u32, on as u32, MF_BYCOMMAND.0);
+                let n = GetMenuItemCount(Some(menu));
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Widget position")));
+                icons.set(menu, n as u32, true, ui::glyph::SETTINGS);
+            }
             if let Ok(sub) = CreatePopupMenu() {
                 let mut checked = ID_POSITION_CUSTOM;
                 for (i, px) in POSITION_OFFSETS.iter().enumerate() {
@@ -3989,7 +4105,9 @@ unsafe fn show_menu(from: Option<HWND>) {
                 let _ = AppendMenuW(sub, step(offset > 0), ID_POSITION_RIGHT, &windows::core::HSTRING::from(tr("Move 10 px right")));
                 icons.set(sub, ID_POSITION_RIGHT as u32, false, ui::glyph::RIGHT);
                 let n = GetMenuItemCount(Some(menu));
-                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Position on the taskbar")));
+                // The px steps count from the clock: not used next to the taskbar icons.
+                let grey = if align_left && !vertical_bar { MF_GRAYED } else { MF_ENABLED };
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP | grey, sub.0 as usize, &windows::core::HSTRING::from(tr("Position on the taskbar")));
                 icons.set(menu, n as u32, true, ui::glyph::SETTINGS);
             }
             if let Ok(sub) = CreatePopupMenu() {
@@ -4091,6 +4209,24 @@ unsafe fn show_menu(from: Option<HWND>) {
                 &windows::core::HSTRING::from(tr("Install updates silently")),
             );
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+            // Help: the GitHub page and the latest releases (their pages; loaded in the background).
+            if let Ok(sub) = CreatePopupMenu() {
+                let _ = AppendMenuW(sub, MF_STRING, ID_HELP_GITHUB, &windows::core::HSTRING::from(tr("Go to the GitHub page")));
+                icons.set(sub, ID_HELP_GITHUB as u32, false, ui::glyph::INFO);
+                let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+                let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, 0, &windows::core::HSTRING::from(tr("Recent updates")));
+                let releases = recent_releases();
+                if releases.is_empty() {
+                    let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, 0, &windows::core::HSTRING::from(tr("Loading...")));
+                }
+                for (i, (version, _)) in releases.iter().enumerate().take(HELP_RELEASES) {
+                    let label = if *version == batteryhub::install::VERSION { format!("v{version}  ✓") } else { format!("v{version}") };
+                    let _ = AppendMenuW(sub, MF_STRING, ID_HELP_RELEASE_FIRST + i, &windows::core::HSTRING::from(label));
+                }
+                let n = GetMenuItemCount(Some(menu));
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Help")));
+                icons.set(menu, n as u32, true, ui::glyph::INFO);
+            }
             let _ = AppendMenuW(menu, MF_STRING, ID_REQUEST, &windows::core::HSTRING::from(tr("Request support for a device...")));
             icons.set(menu, ID_REQUEST as u32, false, ui::glyph::MAIL);
             let busy = UPDATE_BUSY.load(std::sync::atomic::Ordering::Relaxed);
@@ -4171,6 +4307,30 @@ unsafe fn show_menu(from: Option<HWND>) {
                             ),
                             MB_OK | MB_ICONINFORMATION,
                         );
+                    }
+                }
+                ID_SIDE_RIGHT | ID_SIDE_LEFT => {
+                    let left = cmd.0 as usize == ID_SIDE_LEFT;
+                    save_dword("WidgetLeft", left as u32);
+                    with_app(|a| {
+                        a.align_left = left;
+                        a.last_place = Default::default();
+                        a.place();
+                        a.sync_mirrors();
+                    });
+                }
+                ID_SHOW_EMPTY => {
+                    with_app(|a| {
+                        a.hide_empty = !a.hide_empty;
+                        save_dword("HideWhenEmpty", a.hide_empty as u32);
+                        a.paint();
+                        a.sync_app_icon();
+                    });
+                }
+                ID_HELP_GITHUB => open_url(&format!("https://github.com/{}", batteryhub::update::REPO)),
+                id if (ID_HELP_RELEASE_FIRST..ID_HELP_RELEASE_FIRST + HELP_RELEASES).contains(&id) => {
+                    if let Some((_, url)) = recent_releases().get(id - ID_HELP_RELEASE_FIRST) {
+                        open_url(url);
                     }
                 }
                 ID_BACKGROUND => {
@@ -4823,7 +4983,12 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                 LRESULT(0)
             }
             WM_TRAY_PROBED => {
-                with_app(|a| a.sync_mirrors());
+                with_app(|a| {
+                    if a.align_left {
+                        a.place();
+                    }
+                    a.sync_mirrors();
+                });
                 trim_memory();
                 LRESULT(0)
             }
