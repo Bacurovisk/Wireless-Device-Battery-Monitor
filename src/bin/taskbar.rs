@@ -1767,6 +1767,7 @@ impl App {
                     let _ = ShowWindow(strip, SW_HIDE);
                     return false;
                 }
+                dbg_log(&format!("mirror: vertical bar {bar:?} rect {},{},{},{} main vertical {}", br.left, br.top, br.right, br.bottom, self.vertical));
                 let bottom = match FindWindowExW(Some(bar), None, w!("ClockButton"), None) {
                     Ok(clock) if !clock.0.is_null() && IsWindowVisible(clock).as_bool() => {
                         let mut cr = RECT::default();
@@ -3796,22 +3797,29 @@ fn taskbar_autohides() -> bool {
     unsafe { SHAppBarMessage(ABM_GETSTATE, &mut abd) & 0x1 != 0 } // ABS_AUTOHIDE
 }
 
-/// Window that owns the context menu: the strip under the cursor while the taskbar hides itself
-/// automatically, otherwise our own (hidden) main window.
-unsafe fn menu_owner(main: HWND, pt: POINT) -> HWND {
+/// Window that owns the context menu. A right-click on the widget inside a taskbar gives the menu to
+/// that widget (a child of the taskbar): the taskbar then is the active window and stays shown while
+/// the menu is open, also when it hides itself automatically (it hid and took the menu along when our
+/// own window owned it). A copy on another monitor (a window of its own) owns its menu only while the
+/// taskbars hide automatically; everything else (tray icon, card) uses our hidden main window.
+/// `from` is the window that was right-clicked; the cursor position alone missed the widget where its
+/// pixels are transparent.
+unsafe fn menu_owner(main: HWND, from: Option<HWND>) -> HWND {
     unsafe {
-        let under = WindowFromPoint(pt);
-        if under.0.is_null() || !taskbar_autohides() {
-            return main;
-        }
-        let mut class = [0u16; 64];
-        let n = GetClassNameW(under, &mut class) as usize;
-        let strip: Vec<u16> = STRIP_CLASS.as_wide().to_vec();
-        if class[..n] == strip[..] { under } else { main }
+        let hides = taskbar_autohides();
+        let owner = match from {
+            Some(h) if !h.0.is_null() && IsWindow(Some(h)).as_bool() => {
+                let child = GetWindowLongW(h, GWL_STYLE) as u32 & WS_CHILD.0 != 0;
+                if child || hides { h } else { main }
+            }
+            _ => main,
+        };
+        dbg_log(&format!("menu: from {from:?} autohide {hides} owner {owner:?} main {main:?}"));
+        owner
     }
 }
 
-unsafe fn show_menu() {
+unsafe fn show_menu(from: Option<HWND>) {
     unsafe {
         let (main, devices, renamed, hidden, vertical) = with_app(|a| {
             a.hide_tip();
@@ -4008,7 +4016,7 @@ unsafe fn show_menu() {
             // the taskbar): the taskbar then stays the active window and stays shown while the menu
             // is open. Owned by our own window instead, the taskbar hid as soon as the mouse left it
             // for the menu, and took the menu with it.
-            let owner = menu_owner(main, pt);
+            let owner = menu_owner(main, from);
             // Menu colours follow the taskbar: dark on a dark taskbar, light on a light one.
             ui::set_menu_theme(owner, dark);
             // Drawn like Windows 11's own context menus (rows, icons, highlight, chevrons).
@@ -4536,7 +4544,7 @@ extern "system" fn card_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                 LRESULT(0)
             }
             WM_RBUTTONUP => {
-                show_menu();
+                show_menu(None);
                 LRESULT(0)
             }
             WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
@@ -4576,7 +4584,7 @@ extern "system" fn strip_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> L
             }
             WM_RBUTTONUP => {
                 with_app(|a| a.end_drag());
-                show_menu();
+                show_menu(Some(hwnd));
                 LRESULT(0)
             }
             WM_LBUTTONDOWN => {
@@ -4718,7 +4726,7 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
             }
             WM_TRAY => {
                 if matches!((lp.0 & 0xFFFF) as u32, WM_RBUTTONUP | WM_CONTEXTMENU) {
-                    show_menu();
+                    show_menu(None);
                 }
                 LRESULT(0)
             }
