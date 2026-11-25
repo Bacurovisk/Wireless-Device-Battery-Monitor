@@ -322,6 +322,7 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Mice on the Niceboy MW400 receiver | `248A:FA02`, e.g. Niceboy MW400, Empire Gaming RF908 (protocol from [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0, read on an MW400 there) |
 | Fantech Raigor III / II | On the `1EA7:0066` / `0064` dongle (protocol from [t20-battery](https://github.com/tuttizpro218/t20-battery) and [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0, verified on a Raigor III) |
 | Zaopin and ATK mice (CompX) | Zaopin 8K receiver `3554:F527` (confirmed on a ZPW MAX by [Joule](https://github.com/DillanCidral/Joule), MIT) and the ATK NK receiver `373B:10C9` (measured on an ATK A9 SE by [HaloBattery](https://github.com/HeyOkay/HaloBattery)); CompX report 8 |
+| Razer Kraken V3 Pro | Over its HyperSpeed dongle `1532:052C`, through the dongle's USB serial port (protocol from [razer-peripherals-protocol](https://github.com/immortalbob/razer-peripherals-protocol), observed on the headset, and [OmaKraken](https://github.com/Dankestrick/OmaKraken), MIT); not read while Razer Synapse runs, which owns that port |
 
 Device not shown? Use *Request support for a device...* in the right-click menu (see above). More brands from the original project can be added as one file each in `src/drivers/`; pull requests are welcome (the ROCCAT, FNATIC BOLT and HyperX Cloud Flight drivers came from them). Devices can be excluded with `HKCU\Software\WirelessBattery\IgnoreDevices` (`VID:PID` list, the same setting as the original).
 
@@ -349,7 +350,7 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | Maono DM40 / DM40 Pro wireless microphone (receiver) | `352F:0405` | The receiver only has a consumer-control collection with 65-byte reports; the battery level is read by Maono's own app over an undocumented protocol, so commands are not guessed. | [#140](../../issues/140) |
 | Royal Kludge RK96 (2.4G Wireless Receiver) | `25A7:FA70` | No documented protocol for this receiver (the RK MG6 Pro driver is for `2E3C` ids). Over Bluetooth it works when Windows shows the level. | [#137](../../issues/137) |
 | Unbranded "2.4G Wireless Receiver" mice | `260D:1026`, `3151:3020` | No documented protocol | [#14](../../issues/14), [#16](../../issues/16) |
-| Mice on the AULA "BY" receiver | `3554:FA09` | Only AULA / MCHOSE keyboards answer on this receiver (those are supported) | [#17](../../issues/17) |
+| Mice on the AULA "BY" receiver | `3554:FA09` | Only AULA / MCHOSE keyboards answer on this receiver (those are supported) | [#17](../../issues/17), [#357](../../issues/357) |
 | Sinowealth "Gaming Keyboard" | `258A:010C` | No documented protocol | [#19](../../issues/19) |
 | Dark Project ALU87A Onionite Wireless ("ONIONITE87_2.4G") | `342D:E411` | No documented protocol for this dongle; its raw HID channel is not known to answer a battery query, so commands are not guessed | [#122](../../issues/122) |
 | Bloody R36 Ultra | `1956:3001` | The documented Bloody protocol does not answer on this mouse | [#24](../../issues/24) |
@@ -396,7 +397,6 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | Keychron K8 Pro (Bluetooth) | Bluetooth | Works whenever Windows shows its level in *Settings → Bluetooth & devices*; Keychron keyboards send no level otherwise | [#145](../../issues/145) |
 | IO Airox | `249A:5C2F` | Uses the same receiver id as the AJAZZ AJ159P, which is read now; whether that read works with the Airox is not confirmed. Please comment if it shows. | [#236](../../issues/236) |
 | Keychron Q1 Max | `320F:5088` | Keychron's stock firmware reports the battery only over Bluetooth (works there) | [#235](../../issues/235) |
-| Razer Kraken V3 Pro | `1532:052C` | Its dongle shows Windows only a media-keys collection, no vendor channel to ask | [#234](../../issues/234) |
 | Lenovo Legion M410 Wireless | `17EF:6197` | No documented battery protocol for this receiver; commands are not guessed | [#231](../../issues/231) |
 | Apple Watch Magnetic Charging Cable | `05AC:1392` | A charger: the watch does not report its battery to Windows through it | [#230](../../issues/230) |
 | KRUX Plasma Wireless | not reported | The receiver's id was not in the request; please comment with its VID:PID | [#239](../../issues/239) |
@@ -404,6 +404,7 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | ASUS ROG Delta II (2.4 GHz) | `0B05:1AFA` | No documented battery read for its dongle; commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#252](../../issues/252) |
 | Rapoo gaming receiver | `24AE:1416` | No documented protocol for this receiver (like the VT9PRO on `24AE:1211`); commands are not guessed | [#249](../../issues/249) |
 | H2015 Pro headset | `3206:0871` | No documented battery query for its dongle; commands are not guessed | [#242](../../issues/242) |
+| ATK Phantom ("Wireless mouse 8k dongle-M1") | `373B:12F5` | Its read (the BITMOUSE one of the `373B:1216` NANO dongle) is listed for it elsewhere but not confirmed on hardware; commands are not guessed | [#358](../../issues/358) |
 | RAINY 75 PRO keyboard | `320F:5088` | Same receiver as the Evision keyboards BatteryHub reads, but the RAINY 75 PRO is not among the models whose read is documented; commands are not guessed | [#253](../../issues/253) |
 | HyeKu mouse receiver | `276D:1101` | No documented protocol | [#256](../../issues/256) |
 | HyperX Cloud Flight S | `0951:16EA` | No documented battery read for the Flight S (the Cloud Flight's read is not confirmed on it); commands are not guessed | [#257](../../issues/257), [#282](../../issues/282) |
