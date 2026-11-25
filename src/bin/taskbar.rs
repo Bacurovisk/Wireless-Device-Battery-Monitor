@@ -393,6 +393,8 @@ struct App {
     y_glide: Option<(f32, Instant)>,
     /// The strip gliding to a new place (taskbar client coordinates): (from, to, when).
     glide: Option<(POINT, POINT, Instant)>,
+    /// Copies on other monitors gliding to a new place (screen coordinates): (copy, from, to, when).
+    mirror_glides: RefCell<Vec<(HWND, POINT, POINT, Instant)>>,
     /// Checks of the taskbar's left end left after a window opened or closed.
     left_probes: u8,
     /// "SHELLHOOK" message: windows opening and closing.
@@ -1967,6 +1969,21 @@ impl App {
                 // A popup: screen coordinates, above the (topmost) taskbar.
                 let mut sp = POINT { x: left, y: top };
                 let _ = ClientToScreen(bar, &mut sp);
+                // Shown, same size, only a new place: it glides there (glide_step), like the main strip.
+                let same_size = cur.right - cur.left == size.cx && cur.bottom - cur.top == size.cy;
+                let mut glides = self.mirror_glides.borrow_mut();
+                if !hidden && same_size && !self.popping(strip) {
+                    let from = POINT { x: cur.left, y: cur.top };
+                    match glides.iter_mut().find(|g| g.0 == strip) {
+                        Some(g) if g.2 == sp => {}
+                        Some(g) => *g = (strip, from, sp, Instant::now()),
+                        None => glides.push((strip, from, sp, Instant::now())),
+                    }
+                    SetTimer(Some(self.main), TIMER_GLIDE, 15, None);
+                    return;
+                }
+                glides.retain(|g| g.0 != strip);
+                drop(glides);
                 if self.popping(strip) {
                     let _ = SetWindowPos(strip, Some(HWND_TOPMOST), sp.x, sp.y, size.cx, size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
                 } else {
@@ -2210,13 +2227,28 @@ impl App {
                 self.glide = None;
             }
         }
+        let glides = std::mem::take(&mut *self.mirror_glides.borrow_mut());
+        let mut going = Vec::new();
+        for (strip, from, to, t0) in glides {
+            if !self.mirrors.iter().any(|m| m.1 == strip) || unsafe { !IsWindowVisible(strip).as_bool() } {
+                continue;
+            }
+            let e = glide_ease(t0);
+            let at = POINT { x: from.x + ((to.x - from.x) as f32 * e).round() as i32, y: from.y + ((to.y - from.y) as f32 * e).round() as i32 };
+            let px = if strip == self.hovered && self.lit.len() == self.pixels.len() { &self.lit } else { &self.pixels };
+            self.push_px_at(strip, px, Some(at));
+            if e < 1.0 {
+                going.push((strip, from, to, t0));
+            }
+        }
+        self.mirror_glides.borrow_mut().extend(going);
         if let Some((_, t0)) = self.y_glide {
             if glide_ease(t0) >= 1.0 {
                 self.y_glide = None;
             }
             self.paint();
         }
-        if self.glide.is_none() && self.y_glide.is_none() {
+        if self.glide.is_none() && self.y_glide.is_none() && self.mirror_glides.borrow().is_empty() {
             unsafe {
                 let _ = KillTimer(Some(self.main), TIMER_GLIDE);
             }
@@ -5027,6 +5059,9 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                         }
                         batteryhub::tray_probe::left_refresh_soon();
                         a.place();
+                        for i in 0..a.mirrors.len() {
+                            a.place_mirror_at(i);
+                        }
                     }
                     TIMER_UPDATED => {
                         let _ = KillTimer(Some(hwnd), TIMER_UPDATED);

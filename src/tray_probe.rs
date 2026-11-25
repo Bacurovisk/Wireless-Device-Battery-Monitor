@@ -145,16 +145,19 @@ struct LeftEntry {
     /// Screen x right after the items at the taskbar's left end.
     end: i32,
     at: Instant,
+    /// LEFT_GEN when it was checked.
+    generation: u32,
 }
 
 static LEFT: Mutex<Option<HashMap<isize, LeftEntry>>> = Mutex::new(None);
-static LEFT_BUSY: AtomicBool = AtomicBool::new(false);
-/// Set by left_refresh_soon: the next call checks again whatever the age of the answer.
-static LEFT_FORCE: AtomicBool = AtomicBool::new(false);
+/// Taskbars being checked right now (one worker per taskbar).
+static LEFT_BUSY: Mutex<Option<std::collections::HashSet<isize>>> = Mutex::new(None);
+/// Raised by left_refresh_soon: answers from an earlier generation are checked again at once.
+static LEFT_GEN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
-/// Makes the next left_content_end check the taskbar again (a window opened or closed).
+/// Makes the next left_content_end of every taskbar check it again (a window opened or closed).
 pub fn left_refresh_soon() {
-    LEFT_FORCE.store(true, Ordering::SeqCst);
+    LEFT_GEN.fetch_add(1, Ordering::SeqCst);
 }
 
 /// Screen x right after the items that start at the taskbar's left end: Start, search, task view
@@ -164,16 +167,17 @@ pub fn left_refresh_soon() {
 pub fn left_content_end(bar: HWND, bar_rect: RECT, notify: HWND, msg: u32) -> Option<i32> {
     let key = bar.0 as isize;
     let r = (bar_rect.left, bar_rect.top, bar_rect.right, bar_rect.bottom);
+    let generation = LEFT_GEN.load(Ordering::SeqCst);
     let (known, stale) = {
         let mut g = LEFT.lock().unwrap_or_else(|e| e.into_inner());
         let m = g.get_or_insert_with(HashMap::new);
         match m.get(&key) {
-            Some(e) if e.bar == r => (Some(e.end), e.at.elapsed() >= LEFT_REFRESH),
+            Some(e) if e.bar == r => (Some(e.end), e.at.elapsed() >= LEFT_REFRESH || e.generation != generation),
             _ => (None, true),
         }
     };
-    if (stale || LEFT_FORCE.load(Ordering::SeqCst)) && !LEFT_BUSY.swap(true, Ordering::SeqCst) {
-        LEFT_FORCE.store(false, Ordering::SeqCst);
+    let start = stale && LEFT_BUSY.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).insert(key);
+    if start {
         let notify = notify.0 as isize;
         std::thread::spawn(move || {
             let items = probe_items(key).unwrap_or_default();
@@ -181,11 +185,13 @@ pub fn left_content_end(bar: HWND, bar_rect: RECT, notify: HWND, msg: u32) -> Op
             let changed = {
                 let mut g = LEFT.lock().unwrap_or_else(|e| e.into_inner());
                 let m = g.get_or_insert_with(HashMap::new);
-                let old = m.insert(key, LeftEntry { bar: r, end, at: Instant::now() });
+                let old = m.insert(key, LeftEntry { bar: r, end, at: Instant::now(), generation });
                 m.retain(|_, e| e.at.elapsed() < LEFT_REFRESH * 30);
                 old.is_none_or(|o| o.end != end || o.bar != r)
             };
-            LEFT_BUSY.store(false, Ordering::SeqCst);
+            if let Some(b) = LEFT_BUSY.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                b.remove(&key);
+            }
             if changed {
                 unsafe {
                     let _ = PostMessageW(Some(HWND(notify as *mut _)), msg, WPARAM(0), LPARAM(0));
