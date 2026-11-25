@@ -43,6 +43,7 @@ pub mod hyperx_flight;
 pub mod hyperx_legacy;
 pub mod incott;
 pub mod jabra;
+pub mod jbl_quantum800;
 pub mod keychron;
 pub mod keychron_nape;
 pub mod kraken_v3pro;
