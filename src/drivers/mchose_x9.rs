@@ -1,4 +1,6 @@
-//! MCHOSE X9 headset on its 2.4 GHz dongle (3837:6045).
+//! MCHOSE X9 headset on its 2.4 GHz dongle (3837:6045), and the V9 Turbo+ (3837:600A), which answers
+//! the same read: `55 65 64 02` (100 %), matching M HUB, on its owner's hardware in HaloBattery
+//! (MIT, github.com/HeyOkay/HaloBattery) issue #193 / pull request #215.
 //!
 //! Protocol as documented by HeadsetControl (GPL-3.0, github.com/Sapd/HeadsetControl,
 //! lib/devices/mchose_x9.hpp: from a USB capture of M HUB, checked against its percentage); implemented
@@ -12,7 +14,7 @@ use crate::device::{DeviceKind, DeviceStatus, PollContext};
 use crate::hid::HidDev;
 
 const VID: u16 = 0x3837;
-const PID: u16 = 0x6045;
+const MODELS: [(u16, &str, &str); 2] = [(0x6045, "mchose:x9", "MCHOSE X9"), (0x600A, "mchose:v9turbo", "MCHOSE V9 Turbo+")];
 const REQUEST: [u8; 3] = [0x55, 0x65, 0x01];
 const FIELD_BATTERY: u8 = 0x02;
 const REPLY_MS: u64 = 1500;
@@ -23,19 +25,25 @@ pub fn parse(r: &[u8]) -> Option<i32> {
 }
 
 pub fn poll(ctx: &mut PollContext) {
-    if ctx.is_claimed(VID, PID) {
+    for (pid, key, name) in MODELS {
+        poll_model(ctx, pid, key, name);
+    }
+}
+
+fn poll_model(ctx: &mut PollContext, pid: u16, key: &str, name: &str) {
+    if ctx.is_claimed(VID, pid) {
         return;
     }
-    let colls = ctx.find(VID, PID, |c| c.page() == 0xFF90 && c.usage() == 0x0001 && c.in_len() == 64 && c.out_len() == 64);
+    let colls = ctx.find(VID, pid, |c| c.page() == 0xFF90 && c.usage() == 0x0001 && c.in_len() == 64 && c.out_len() == 64);
     if colls.is_empty() {
         return;
     }
     let base = DeviceStatus {
-        key: "mchose:x9".into(),
-        name: "MCHOSE X9".into(),
+        key: key.into(),
+        name: name.into(),
         kind: DeviceKind::Headset,
         via: "2.4 GHz dongle".into(),
-        hw: Some((VID, PID)),
+        hw: Some((VID, pid)),
         grace_sec: 600,
         ..Default::default()
     };
@@ -43,7 +51,7 @@ pub fn poll(ctx: &mut PollContext) {
         Some(percent) => DeviceStatus { percent, ..base },
         None => DeviceStatus { connected: false, ..base },
     };
-    ctx.add(s, VID, PID);
+    ctx.add(s, VID, pid);
 }
 
 #[cfg(test)]
