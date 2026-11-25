@@ -28,6 +28,7 @@ Average charging session = Gemiddelde laadsessie
 Average discharge rate = Gemiddelde ontlaadsnelheid
 Average drop while on battery. = Gemiddelde daling op batterij.
 Background behind taskbar text (for translucent taskbars) = Achtergrond achter taakbalktekst (voor doorzichtige taakbalken)
+Icons above percentages (narrower) = Pictogrammen boven percentages (smallere weergave)
 Battery history = Batterijgeschiedenis
 Battery level, last {range} = Batterijniveau, laatste {range}
 Battery life = Batterijduur

@@ -28,6 +28,7 @@ Average charging session = Átlagos töltés
 Average discharge rate = Átlagos merülési sebesség
 Average drop while on battery. = Átlagos csökkenés akkumulátorról.
 Background behind taskbar text (for translucent taskbars) = Háttér a tálca szövege mögött (áttetsző tálcákhoz)
+Icons above percentages (narrower) = Ikonok a százalékértékek felett (keskenyebb)
 Battery history = Akkumulátor-előzmények
 Battery level, last {range} = Akkumulátorszint, utolsó {range}
 Battery life = Akkumulátor-üzemidő

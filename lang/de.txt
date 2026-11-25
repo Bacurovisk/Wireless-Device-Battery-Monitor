@@ -28,6 +28,7 @@ Average charging session = Durchschnittlicher Ladevorgang
 Average discharge rate = Durchschnittliche Entladerate
 Average drop while on battery. = Durchschnittlicher Verlust im Akkubetrieb.
 Background behind taskbar text (for translucent taskbars) = Hintergrund hinter dem Taskleistentext (für transparente Taskleisten)
+Icons above percentages (narrower) = Symbole über Prozentwerten (schmaler)
 Battery history = Akkuverlauf
 Battery level, last {range} = Akkustand, letzte {range}
 Battery life = Akkulaufzeit

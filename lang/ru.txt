@@ -28,6 +28,7 @@ Average charging session = Средняя зарядка
 Average discharge rate = Средняя скорость разрядки
 Average drop while on battery. = Среднее снижение на батарее.
 Background behind taskbar text (for translucent taskbars) = Фон под текстом на панели задач (для прозрачных панелей)
+Icons above percentages (narrower) = Значки над процентами (компактный вид)
 Battery history = История батареи
 Battery level, last {range} = Уровень батареи, последние {range}
 Battery life = Время работы

@@ -28,6 +28,7 @@ Average charging session = Phiên sạc trung bình
 Average discharge rate = Tốc độ xả trung bình
 Average drop while on battery. = Mức giảm trung bình khi dùng pin.
 Background behind taskbar text (for translucent taskbars) = Nền phía sau chữ trên thanh tác vụ (cho thanh tác vụ trong suốt)
+Icons above percentages (narrower) = Biểu tượng trên phần trăm (hẹp hơn)
 Battery history = Lịch sử pin
 Battery level, last {range} = Mức pin, {range} gần nhất
 Battery life = Thời lượng pin

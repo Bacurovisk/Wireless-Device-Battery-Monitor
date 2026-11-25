@@ -28,6 +28,7 @@ Average charging session = Charge moyenne
 Average discharge rate = Vitesse de décharge moyenne
 Average drop while on battery. = Baisse moyenne sur batterie.
 Background behind taskbar text (for translucent taskbars) = Fond derrière le texte de la barre des tâches (barres translucides)
+Icons above percentages (narrower) = Icônes au-dessus des pourcentages (plus étroit)
 Battery history = Historique de la batterie
 Battery level, last {range} = Niveau de batterie, dernières {range}
 Battery life = Autonomie
