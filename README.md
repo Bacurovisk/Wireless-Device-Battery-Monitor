@@ -304,6 +304,15 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Bluetooth | Any device Windows knows a battery level for, plus the Google Fast Pair L / R / case split |
 | Generic HID | Devices exposing the standard Battery Strength usage |
 | Xbox | Windows.Gaming.Input (exact %) and XInput (coarse levels) |
+| Logitech ASTRO A50 X | USB base station `046D:0B0B`; the same read-only battery request as the A50 Gen 5 (protocol from [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0, tested on an A50 X there; untested here, [#105](../../issues/105)) |
+| ATK ZERO and other mice on the "8k NANO dongle-L" | `373B:11FE` (CompX report 8; confirmed on an ATK A9 Ultra V2 by [Joule](https://github.com/DillanCidral/Joule), also in [BatteryTray](https://github.com/qu1ncky/BatteryTray), MIT; untested here, [#204](../../issues/204)) |
+| MCHOSE L7 Ultra+ | Receiver `5253:1020`, also on the family's short feature report `11` (protocol from [HaloBattery](https://github.com/HeyOkay/HaloBattery), MIT, confirmed on an M7 Ultra, and [MouseDock](https://github.com/late-autumn-gif/mousedock), MIT, confirmed on an A7 Ultra on this receiver; untested here on an L7 Ultra+, [#192](../../issues/192)) |
+| Machenike L7 Mix (L7 Arctic) | Receiver `248A:FF4C` or USB cable `248A:FF4E` (protocol from [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0, tested on an L7 Arctic there; untested here, [#207](../../issues/207)) |
+| DAREU EK75 Pro | Receiver `260D:0042` or USB cable `260D:0046` (protocol from [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0, after DAREU's web driver, cable verified there; untested here, [#63](../../issues/63)) |
+| IPI PIAO mouse | "PIAO-2.4G" receiver `372E:1014` (protocol from [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0, after hardware captures and IPI's web driver; untested here, [#47](../../issues/47)) |
+| MCHOSE X9 | Headset over its 2.4 GHz dongle `3837:6045` (protocol from [HeadsetControl](https://github.com/Sapd/HeadsetControl), GPL-3.0, after a capture of M HUB; no charging state; untested here, [#147](../../issues/147)) |
+| AJAZZ AK820 MAX, AULA F87 Pro V2C | On the SONiX receiver `0C45:FEFC` (protocol from [HaloBattery](https://github.com/HeyOkay/HaloBattery), MIT, confirmed on an F87 Pro V2C on this receiver; no charging state; untested here on an AK820 MAX, [#160](../../issues/160)) |
+| AJAZZ AJ159P | Receiver `249A:5C2F` (protocol from [HaloBattery](https://github.com/HeyOkay/HaloBattery), MIT, confirmed on an AJ179 V2 MAX on this receiver, and [BatteryTray](https://github.com/qu1ncky/BatteryTray), MIT; untested here on an AJ159P, [#216](../../issues/216)) |
 
 Device not shown? Use *Request support for a device...* in the right-click menu (see above). More brands from the original project can be added as one file each in `src/drivers/`; pull requests are welcome (the ROCCAT, FNATIC BOLT and HyperX Cloud Flight drivers came from them). Devices can be excluded with `HKCU\Software\WirelessBattery\IgnoreDevices` (`VID:PID` list, the same setting as the original).
 
@@ -342,7 +351,6 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | Keychron Q6 HE (and other Keychron QMK keyboards on the cable) | `3434:0B60` | Keychron's stock firmware reports the battery only over Bluetooth (works there) | [#59](../../issues/59) |
 | Corsair Sabre v3 Pro Wireless (Slipstream V2 receiver) | `1B1C:2B42` | The only documented battery read ([OpenLinkHub](https://github.com/jurkovic-nikola/OpenLinkHub)) first logs in and switches the receiver to software mode, which takes over the mouse's onboard settings; BatteryHub only reads | [#98](../../issues/98) |
 | Keychron keyboards on the Keychron Link receiver (stock firmware), e.g. Q1 HE | `3434:D030` | Stock firmware reports the keyboard's battery over Bluetooth only, never through the receiver. Over Bluetooth it works. | [#61](../../issues/61) |
-| DAREU EK75 Pro | `260D:0042` | No documented protocol. Over Bluetooth it works when Windows shows the level. | [#63](../../issues/63) |
 | L90 headset (C-Media dongle) | `0D8C:0371` | The dongle has only audio and media keys, no vendor channel | [#64](../../issues/64) |
 | ONIKUMA GT808 headset | `3206:0861` | The dongle has only audio and media keys, no vendor channel. Over Bluetooth it works when Windows shows the level. | [#65](../../issues/65) |
 | "2.4G Wireless Device" mouse | `25A7:FA17` | No documented protocol (not the CompX / Areson layout used on other `25A7` receivers) | [#66](../../issues/66) |
@@ -354,17 +362,12 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | T87 keyboard | `056D:C077` | No documented protocol | [#44](../../issues/44) |
 | Keychron TurboLink 8K receiver | `3434:D05A` | Not among the documented Keychron receiver ids; which Launcher protocol it uses is not confirmed, so commands are not guessed | [#45](../../issues/45) |
 | Redragon K1NG 4K PRO (M916 PRO 4K) | `3554:F54F` | Not among the documented CompX (Pulsar / Kysona) ids; commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#46](../../issues/46) |
-| PIAO-2.4G mouse | `372E:1014` | No documented protocol for this `372E` receiver | [#47](../../issues/47) |
 | AJAZZ NJ07 (Bluetooth LE) | — | Windows reads no battery level from it over Bluetooth; its 2.4 GHz dongle has not been reported yet | [#69](../../issues/69) |
 | VXE V1 (VGN Siren V1) headset | `10D6:0016` | The Actions-chip dongle's vendor channels are undocumented; no battery query is known. Over Bluetooth it works when Windows shows the level. | [#85](../../issues/85) |
-| ASTRO A50 X (base station) | `046D:0B0B` | Its only vendor channel (`FF32:0074`) is not HID++ and has no documented battery command; G HUB reads it with its own protocol, which is not published | [#105](../../issues/105) |
-| AJAZZ AJ159P | `249A:5C2F` | No documented protocol for this receiver | [#216](../../issues/216) |
 | MCHOSE G11 headset | `3554:FD01` | No documented battery query for its dongle; commands are not guessed | [#213](../../issues/213) |
 | BTP-KP70A controller (X-input dongle) | `20BC:5130` | The dongle shows Windows an Xbox pad that reports no level; its vendor channel is undocumented | [#212](../../issues/212) |
 | Bloody R72 Pro | — | No documented protocol; the documented Bloody protocol is for other models | [#211](../../issues/211) |
-| L7 Mix mouse | `248A:FF4C` | No documented protocol for this receiver | [#207](../../issues/207) |
 | Logitech G325 LIGHTSPEED headset | `046D:0B21` | No documented battery read for this model (the PRO X 2 protocol is not confirmed on it); commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#206](../../issues/206) |
-| ATK ZERO | `373B:11FE` | Not among the documented ATK receiver ids; commands are not guessed | [#204](../../issues/204) |
 | HyperX Cloud Stinger 2 Wireless | not reported | The dongle's id was not in the request and no protocol for it has been checked; please comment with its VID:PID | [#203](../../issues/203) |
 | HyperX Pulsefire Haste 2 S | `03F0:0BB8` | No documented battery protocol for this mouse | [#201](../../issues/201) |
 | Razer BlackShark V3 Pro | `1532:0577` | No documented battery read for this dongle (the BlackShark V3 `057A` read is not confirmed on it); commands are not guessed | [#199](../../issues/199) |
@@ -372,22 +375,19 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | K68 keyboard (Ziyoulang) | `1EA7:0002` | No documented protocol | [#196](../../issues/196) |
 | Royal Kludge S98-ES | `258A:0150` | No documented protocol for this receiver. Over Bluetooth it works when Windows shows the level. | [#195](../../issues/195) |
 | AULA Kunlun X5 | `38A6:28F9` | Not among the documented AULA ids; commands are not guessed | [#194](../../issues/194) |
-| MCHOSE L7 Ultra+ | `5253:1020` | No documented protocol for this `5253` receiver | [#192](../../issues/192) |
 | "2.4G Wireless Receiver" mouse | `25A7:FA7C` | No documented protocol (not the CompX / Areson layout used on other `25A7` receivers) | [#225](../../issues/225) |
 | Attack Shark MEGA B2 TMR | `3554:F517` | Not among the documented CompX / Attack Shark ids; commands are not guessed | [#223](../../issues/223) |
 | HATOR Rockfall 3 Wireless | `379A:0300` | No documented battery read for this keyboard's dongle; commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#221](../../issues/221) |
 | HELLYBERRY HM47 | `379A:A202` | No documented protocol for this `379A` receiver; commands are not guessed | [#220](../../issues/220) |
 | Corsair K63 Wireless | `1B1C:1B50` | No documented battery protocol for this keyboard's receiver; commands are not guessed | [#163](../../issues/163) |
 | ASTRO A30 | `9886:0050` | No documented battery protocol for its dongle; commands are not guessed | [#162](../../issues/162) |
-| AJAZZ AK820 MAX on `0C45:FEFC` | `0C45:FEFC` | Not one of the documented SONiX dongle ids (the AK820 MAX on `05AC:024F` is supported); commands are not guessed | [#160](../../issues/160) |
 | Poly BT700 adapter | `047F:02E6` | Its vendor channel differs from the supported BT600 and no battery query is documented | [#159](../../issues/159) |
 | "GAMING HEADSET B100" | `1024:8087` | The dongle has only audio and media keys, no vendor channel. Over Bluetooth it works when Windows shows the level. | [#165](../../issues/165) |
 | RS322 ROX headset | `4C49:4255` | The dongle has only audio and media keys, no vendor channel. Over Bluetooth it works when Windows shows the level. | [#148](../../issues/148) |
 | QCY H3 Pro | `3654:4A55` | Only audio and media keys over USB, no vendor channel. Over Bluetooth it works when Windows shows the level. | [#144](../../issues/144) |
-| MCHOSE X9 headset | `3837:6045` | No documented battery protocol for its dongle; commands are not guessed | [#147](../../issues/147) |
 | SteelSeries Apex Pro Mini Wireless | `1038:1624` | No documented battery read for this keyboard; commands are not guessed | [#146](../../issues/146) |
 | Keychron K8 Pro (Bluetooth) | Bluetooth | Works whenever Windows shows its level in *Settings → Bluetooth & devices*; Keychron keyboards send no level otherwise | [#145](../../issues/145) |
-| IO Airox | `249A:5C2F` | No documented protocol for this receiver (shared with the AJAZZ AJ159P) | [#236](../../issues/236) |
+| IO Airox | `249A:5C2F` | Uses the same receiver id as the AJAZZ AJ159P, which is read now; whether that read works with the Airox is not confirmed. Please comment if it shows. | [#236](../../issues/236) |
 | Keychron Q1 Max | `320F:5088` | Keychron's stock firmware reports the battery only over Bluetooth (works there) | [#235](../../issues/235) |
 | Razer Kraken V3 Pro | `1532:052C` | Its dongle shows Windows only a media-keys collection, no vendor channel to ask | [#234](../../issues/234) |
 | Lenovo Legion M410 Wireless | `17EF:6197` | No documented battery protocol for this receiver; commands are not guessed | [#231](../../issues/231) |
