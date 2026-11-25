@@ -1,4 +1,5 @@
-//! HyperX Cloud III S Wireless headset over its 2.4 GHz dongle (VID 03F0, PID 06BE or 02CC).
+//! HyperX Cloud III S Wireless headset over its 2.4 GHz dongle (VID 03F0, PID 06BE or 02CC); the Cloud
+//! Stinger 3 Wireless (03C6) answers the same way.
 //!
 //! Protocol as documented by HyperX-Battery-Tray by GuacamoleGH (MIT,
 //! github.com/GuacamoleGH/HyperX-Battery-Tray), hyperx-battery-logger by OZX-OG (MIT,
@@ -30,6 +31,8 @@ const WAIT_MS: u64 = 1500;
 fn model(pid: u16) -> Option<&'static str> {
     match pid {
         0x06BE | 0x02CC => Some("HyperX Cloud III S Wireless"),
+        // Same exchange, confirmed on the headset by adskiykrik (issue #313).
+        0x03C6 => Some("HyperX Cloud Stinger 3 Wireless"),
         _ => None,
     }
 }
