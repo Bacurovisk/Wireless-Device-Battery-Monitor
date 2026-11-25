@@ -1,4 +1,4 @@
-# BatteryHub v1.7.5 (Rust)
+# BatteryHub v1.7.6 (Rust)
 
 An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor). All credit for the original idea, look and device protocols goes to the original project.
 
@@ -6,10 +6,18 @@ An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of 
 
 | File | |
 |---|---|
-| `BatteryHub-Taskbar-Setup-v1.7.5.exe` | Setup: Install / Update / Uninstall |
+| `BatteryHub-Taskbar-Setup-v1.7.6.exe` | Setup: Install / Update / Uninstall |
 | `SHA256SUMS.txt` | Checksum |
 
 Already installed? Use *Check for updates...* in the right-click menu (v1.1 and later), or run the new setup and click **Update**. Your settings and autostart choice are kept.
+
+## New in v1.7.6
+
+- **New devices:** Logitech G435 on its newer dongle (`046D:0ADF`) and ASTRO A20 X (`046D:0B35`), Razer BlackShark V2 Pro for Xbox (`1532:0A49`), Audeze Maxwell and Maxwell 2 (`3329:4B19` / `4B29`), HyperX Cloud II Wireless on the HP dongle (`03F0:0696`), Fractal Design Scape (`36BC:0001`), Attack Shark R11 Ultra (`3554:FB44`), ROG Strix Impact II Wireless (`0B05:1949`) and mice on the Incott 8K receiver (`093A:522C`).
+- **Logi Bolt:** a sleeping keyboard or mouse on a Bolt receiver stays listed (by [NanoBitrin](https://github.com/NanoBitrin), #363).
+- **Icon colour:** per device in its menu: the taskbar's, the brand's (e.g. Razer green, Logitech blue), a ready-made one or your own. Optionally red at the warning level.
+- **Earbuds:** both buds in the right-click menu (L / R), and each bud turns red on its own.
+- **Auto-hiding taskbars:** the right-click menu stays open with StartAllBack too.
 
 ## New in v1.7.5
 
