@@ -301,6 +301,9 @@ struct App {
     devchange: bool,
     size: SIZE,
     last_place: (RECT, RECT, i32),
+    /// Main strip uses a topmost popup owned by `Shell_TrayWnd` (e.g. when Start11's SDTaskbar
+    /// sits inside `Shell_TrayWnd` and fights child-window Z-order).
+    strip_popup: bool,
     /// Main taskbar's notification area, to notice when it changes (see tray_probe).
     main_tray: RECT,
     /// Every copy on another monitor knows its place: the strips appear on all taskbars together.
@@ -1409,12 +1412,18 @@ impl App {
             let alive = !self.strip.0.is_null()
                 && IsWindow(Some(self.strip)).as_bool()
                 && IsWindow(Some(self.taskbar)).as_bool()
-                && GetParent(self.strip).is_ok_and(|p| p == self.taskbar);
+                && has_sdtaskbar(self.taskbar) == self.strip_popup
+                && if self.strip_popup {
+                    GetWindow(self.strip, GW_OWNER).is_ok_and(|p| p == self.taskbar)
+                } else {
+                    GetParent(self.strip).is_ok_and(|p| p == self.taskbar)
+                };
             if !alive {
                 if is_our_strip(self.strip) {
                     let _ = DestroyWindow(self.strip);
                 }
                 self.strip = HWND::default();
+                self.strip_popup = false;
                 let Ok(taskbar) = FindWindowW(w!("Shell_TrayWnd"), None) else {
                     dbg_log("no Shell_TrayWnd");
                     return false;
@@ -1437,11 +1446,13 @@ impl App {
             if alive {
                 return true;
             }
-            let Some(strip) = create_strip(self.taskbar) else {
+            let popup = has_sdtaskbar(self.taskbar);
+            let Some(strip) = (if popup { create_copy(self.taskbar) } else { create_strip(self.taskbar) }) else {
                 return false;
             };
-            dbg_log(&format!("strip created {:?} parent {:?}", strip, self.taskbar));
+            dbg_log(&format!("strip created {:?} parent {:?} popup {}", strip, self.taskbar, popup));
             self.strip = strip;
+            self.strip_popup = popup;
             self.last_place = Default::default();
             // Shown only on another monitor: the new main strip stays hidden from the start (no
             // flash on the main taskbar before the first sync hides it).
@@ -1450,7 +1461,10 @@ impl App {
         if !self.fallback {
             self.paint();
             // While copies on other monitors still wait for their place, place() shows it with them.
-            if !self.primary_hidden && self.mirrors_ready {
+            if !self.primary_hidden
+                && self.mirrors_ready
+                && !(self.strip_popup && unsafe { fullscreen_over(self.taskbar) || !IsWindowVisible(self.taskbar).as_bool() })
+            {
                 unsafe {
                     let _ = ShowWindow(self.strip, SW_SHOWNOACTIVATE);
                 }
@@ -1627,7 +1641,12 @@ impl App {
                         break;
                     }
                     after = Some(h);
-                    if !self.mirrors.iter().any(|m| m.1 == h) && !self.parked.iter().any(|m| m.1 == h) && !self.popping(h) && is_our_strip(h) {
+                    if h != self.strip
+                        && !self.mirrors.iter().any(|m| m.1 == h)
+                        && !self.parked.iter().any(|m| m.1 == h)
+                        && !self.popping(h)
+                        && is_our_strip(h)
+                    {
                         let _ = DestroyWindow(h);
                     }
                 }
@@ -2016,6 +2035,12 @@ impl App {
             return;
         }
         unsafe {
+            if self.strip_popup && (fullscreen_over(self.taskbar) || !IsWindowVisible(self.taskbar).as_bool()) {
+                if IsWindowVisible(self.strip).as_bool() {
+                    let _ = ShowWindow(self.strip, SW_HIDE);
+                }
+                return;
+            }
             let Ok(tray) = FindWindowExW(Some(self.taskbar), None, w!("TrayNotifyWnd"), None) else {
                 return;
             };
@@ -2034,13 +2059,7 @@ impl App {
                 }
                 let top = top.max(0);
                 let left = ((client.right - self.size.cx) / 2).max(0);
-                let covered = GetWindow(self.strip, GW_HWNDPREV).is_ok_and(|h| !h.0.is_null()) || !IsWindowVisible(self.strip).as_bool();
-                let key = (tr, bar, top);
-                if !covered && self.last_place == key {
-                    return;
-                }
-                self.last_place = key;
-                let _ = SetWindowPos(self.strip, Some(HWND_TOP), left, top, self.size.cx, self.size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                self.place_strip_at(left, top, (tr, bar, top));
                 return;
             }
             let mut p = POINT { x: tr.left, y: bar.top };
@@ -2066,8 +2085,35 @@ impl App {
                     let _ = MoveWindow(rebar, tl.x, tl.y, left - tl.x, rr.bottom - rr.top, true);
                 }
             }
+            self.place_strip_at(left, top, (tr, bar, left));
+        }
+    }
+
+    fn place_strip_at(&mut self, left: i32, top: i32, key: (RECT, RECT, i32)) {
+        unsafe {
+            if self.strip_popup {
+                let mut sp = POINT { x: left, y: top };
+                let _ = ClientToScreen(self.taskbar, &mut sp);
+                let hidden = !IsWindowVisible(self.strip).as_bool();
+                let mut cur = RECT::default();
+                let _ = GetWindowRect(self.strip, &mut cur);
+                let moved = cur.left != sp.x || cur.top != sp.y || cur.right - cur.left != self.size.cx || cur.bottom - cur.top != self.size.cy;
+                if !hidden && !moved && self.last_place == key {
+                    return;
+                }
+                self.last_place = key;
+                if self.popping(self.strip) {
+                    let _ = SetWindowPos(self.strip, Some(HWND_TOPMOST), sp.x, sp.y, self.size.cx, self.size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                } else {
+                    let px = if self.strip == self.hovered && self.lit.len() == self.pixels.len() { &self.lit } else { &self.pixels };
+                    self.push_px_at(self.strip, px, Some(sp));
+                    if hidden {
+                        let _ = SetWindowPos(self.strip, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                    }
+                }
+                return;
+            }
             let covered = GetWindow(self.strip, GW_HWNDPREV).is_ok_and(|h| !h.0.is_null()) || !IsWindowVisible(self.strip).as_bool();
-            let key = (tr, bar, left);
             if !covered && self.last_place == key {
                 return;
             }
@@ -3679,6 +3725,26 @@ fn create_copy(taskbar: HWND) -> Option<HWND> {
     }
 }
 
+/// Stardock Start11's enhanced taskbar sits inside `Shell_TrayWnd` as `SDTaskbar` and fights
+/// child-window Z-order; a topmost popup owned by `Shell_TrayWnd` stays cleanly above it.
+fn has_sdtaskbar(bar: HWND) -> bool {
+    unsafe {
+        let mut after: Option<HWND> = None;
+        while let Ok(h) = FindWindowExW(Some(bar), after, w!("#32770"), None) {
+            if h.0.is_null() {
+                break;
+            }
+            after = Some(h);
+            let mut txt = [0u16; 32];
+            let n = GetWindowTextW(h, &mut txt) as usize;
+            if batteryhub::util::from_wide(&txt[..n]) == "SDTaskbar" {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 /// Creates a (hidden) strip window as a child of a taskbar.
 fn create_strip(taskbar: HWND) -> Option<HWND> {
     unsafe {
@@ -4816,6 +4882,9 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
             }
             WM_FOREGROUND => {
                 with_app(|a| {
+                    if a.strip_popup {
+                        a.place();
+                    }
                     if !a.mirrors.is_empty() {
                         a.sync_mirrors();
                     }
