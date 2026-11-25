@@ -334,7 +334,7 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 
 | Device | VID:PID | Why | Issue |
 |---|---|---|---|
-| Logitech G435 headset (LIGHTSPEED) | `046D:0ACB`, `046D:0ADF` | Its dongle gives the battery only in bootloader mode, which cuts the audio; BatteryHub never touches it. Over Bluetooth it works. | [#10](../../issues/10), [#56](../../issues/56), [#92](../../issues/92), [#119](../../issues/119), [#138](../../issues/138) |
+| Logitech G435 headset (LIGHTSPEED) | `046D:0ACB`, `046D:0ADF` | Its dongle gives the battery only in bootloader mode, which cuts the audio; BatteryHub never touches it. Over Bluetooth it works. | [#10](../../issues/10), [#56](../../issues/56), [#92](../../issues/92), [#119](../../issues/119), [#138](../../issues/138), [#359](../../issues/359) |
 | Havit Fuxi-H3 and the same dongle in Redragon / Rexus / Ardor headsets | `040B:0897` | The dongle sends only volume / mute keys; the command Havit's app uses is not known | [#6](../../issues/6), [#79](../../issues/79) |
 | Mad Dog GH750K, IO Graphite 2 Pro Wireless (JieLi dongle), "GAMING HEADSET B2", unbranded G435 look-alike, Attack Shark L80 Pro, "TA3000" headset | `4C4A:4155`, `3634:4155` | No documented battery query; the dongle's vendor channels belong to the audio chip (firmware / settings), so commands are not guessed | [#1](../../issues/1), [#30](../../issues/30), [#97](../../issues/97), [#114](../../issues/114), [#120](../../issues/120), [#132](../../issues/132) |
 | DP-HS-1015 headset | `10D6:B011` | An Actions-chip dongle: audio, media keys and the chip's own vendor channels (`FF90` / `FF82`), with no documented battery query. Over Bluetooth it works when Windows shows the level. | [#178](../../issues/178) |
