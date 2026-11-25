@@ -50,6 +50,13 @@ pub fn is_low(s: &DeviceStatus, threshold: i32) -> bool {
     !s.charging && !s.is_full() && s.connected && s.percent >= 0 && s.percent <= threshold
 }
 
+/// Earbuds: (left low, right low), each bud by its own level and charging state.
+pub fn buds_low(s: &DeviceStatus, threshold: i32) -> Option<(bool, bool)> {
+    let b = s.buds?;
+    let low = |v: i32, c: bool| s.connected && !c && v >= 0 && v <= threshold;
+    Some((low(b.left, b.left_charging), low(b.right, b.right_charging)))
+}
+
 // ---- names -------------------------------------------------------------------------------------
 
 /// A name typed by the user, cleaned up: no control characters, single spaces, at most NAME_MAX
@@ -88,6 +95,16 @@ pub fn warn_critical(settings_key: &str, device_key: &str) -> bool {
 
 pub fn set_warn_critical(settings_key: &str, device_key: &str, on: bool) -> bool {
     inst::create(HKCU, &sub(settings_key, "Warn5")).is_some_and(|k| k.set_dword(device_key, on as u32))
+}
+
+// ---- "Red icon at the warning level" ----------------------------------------------------------
+
+pub fn red_icon(settings_key: &str, device_key: &str) -> bool {
+    inst::open(HKCU, &sub(settings_key, "RedIcon"), false).and_then(|k| k.get(device_key)).is_some_and(|v| v != "0x00000000")
+}
+
+pub fn set_red_icon(settings_key: &str, device_key: &str, on: bool) -> bool {
+    inst::create(HKCU, &sub(settings_key, "RedIcon")).is_some_and(|k| k.set_dword(device_key, on as u32))
 }
 
 // ---- "Show on the taskbar" --------------------------------------------------------------------
@@ -174,7 +191,7 @@ pub fn with_new_first(saved: &[String], new: &[String]) -> Vec<String> {
 pub const FORGET_SECS: u64 = crate::history::KEEP_SECS;
 
 /// Per-device settings, by subkey (a value per device key).
-const DEVICE_SUBKEYS: [&str; 5] = ["Order", "Names", "Hidden", "Thresholds", "Warn5"];
+const DEVICE_SUBKEYS: [&str; 6] = ["Order", "Names", "Hidden", "Thresholds", "Warn5", "RedIcon"];
 
 fn seen_times(settings_key: &str) -> HashMap<String, u64> {
     inst::open(HKCU, &sub(settings_key, "Seen"), false)
@@ -261,6 +278,7 @@ const ITEM_RENAME: usize = 3;
 const ITEM_RESET_NAME: usize = 4;
 const ITEM_WARN5: usize = 5;
 const ITEM_SHOW: usize = 6;
+const ITEM_RED_ICON: usize = 7;
 const ITEM_THRESHOLD: usize = 8; // + index into THRESHOLDS
 const ITEM_MOVE_BACK: usize = 20;
 const ITEM_MOVE_ON: usize = 21;
@@ -275,6 +293,7 @@ pub enum DeviceAction {
     Rename,
     ResetName,
     ToggleWarn5,
+    ToggleRedIcon,
     ToggleShown,
     Threshold(i32),
     /// One place to the left (up on a vertical taskbar), or to the right (down).
@@ -338,6 +357,9 @@ pub fn append_device_menus(
             let check = if warn_critical(settings_key, &d.key) { MF_CHECKED } else { MF_UNCHECKED };
             let _ = AppendMenuW(sub, MF_STRING | check, id(ITEM_WARN5), &hs(&tr("Warn at 5% (notification)")));
             icons.set(sub, id(ITEM_WARN5) as u32, false, glyph::BELL);
+            let check = if red_icon(settings_key, &d.key) { MF_CHECKED } else { MF_UNCHECKED };
+            let _ = AppendMenuW(sub, MF_STRING | check, id(ITEM_RED_ICON), &hs(&tr("Red icon at the warning level")));
+            icons.set(sub, id(ITEM_RED_ICON) as u32, false, glyph::WARNING);
             let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             let shown = !hidden.contains(&d.key);
             let check = if shown { MF_CHECKED } else { MF_UNCHECKED };
@@ -380,6 +402,7 @@ pub fn decode_menu_id(id: usize) -> Option<(usize, DeviceAction)> {
         ITEM_RENAME => DeviceAction::Rename,
         ITEM_RESET_NAME => DeviceAction::ResetName,
         ITEM_WARN5 => DeviceAction::ToggleWarn5,
+        ITEM_RED_ICON => DeviceAction::ToggleRedIcon,
         ITEM_SHOW => DeviceAction::ToggleShown,
         ITEM_MOVE_BACK => DeviceAction::Move(false),
         ITEM_MOVE_ON => DeviceAction::Move(true),
@@ -409,7 +432,20 @@ mod tests {
             assert_eq!(decode_menu_id(MENU_BASE + dev * STRIDE + ITEM_SHOW), Some((dev, DeviceAction::ToggleShown)));
         }
         assert_eq!(decode_menu_id(3), None);
-        assert_eq!(decode_menu_id(MENU_BASE + 7), None);
+        assert_eq!(decode_menu_id(MENU_BASE + ITEM_RED_ICON), Some((0, DeviceAction::ToggleRedIcon)));
+        assert_eq!(decode_menu_id(MENU_BASE + ITEM_MOVE_ON + 3), None);
+    }
+
+    #[test]
+    fn each_bud_low_on_its_own() {
+        let mut s = DeviceStatus { connected: true, percent: 10, ..Default::default() };
+        s.buds = Some(crate::device::Buds { left: 100, right: 10, left_charging: false, right_charging: false, case: None });
+        assert_eq!(buds_low(&s, 15), Some((false, true)));
+        s.buds = Some(crate::device::Buds { left: 8, right: -1, left_charging: true, right_charging: false, case: None });
+        assert_eq!(buds_low(&s, 15), Some((false, false))); // charging, and not reported
+        s.connected = false;
+        s.buds = Some(crate::device::Buds { left: 5, right: 5, left_charging: false, right_charging: false, case: None });
+        assert_eq!(buds_low(&s, 15), Some((false, false)));
     }
 
     #[test]

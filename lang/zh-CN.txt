@@ -221,3 +221,4 @@ Wireless adapter = 无线适配器
 {display} (above) = {display}（上方）
 {display} (below) = {display}（下方）
 Case {level} = 充电盒 {level}
+Red icon at the warning level = 达到警告电量时图标变红

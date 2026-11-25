@@ -221,3 +221,4 @@ Wireless adapter = Draadloze adapter
 {display} (above) = {display} (boven)
 {display} (below) = {display} (onder)
 Case {level} = Oplaadcase {level}
+Red icon at the warning level = Rood pictogram op het waarschuwingsniveau

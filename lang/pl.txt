@@ -221,3 +221,4 @@ Wireless adapter = Adapter bezprzewodowy
 {display} (above) = {display} (powyżej)
 {display} (below) = {display} (poniżej)
 Case {level} = Etui {level}
+Red icon at the warning level = Czerwona ikona przy poziomie ostrzeżenia

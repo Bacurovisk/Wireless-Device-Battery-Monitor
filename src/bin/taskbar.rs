@@ -882,6 +882,46 @@ struct Piece {
     color: COLORREF,
     alpha: u32,
     gap_after: i32,
+    /// Part of the piece drawn in another colour (same size as `m`, drawn at the same place):
+    /// earbuds whose two buds are coloured apart.
+    second: Option<(Mask, COLORREF)>,
+}
+
+impl Piece {
+    fn new(dev: Option<usize>, m: Mask, color: COLORREF, alpha: u32, gap_after: i32) -> Self {
+        Piece { dev, m, color, alpha, gap_after, second: None }
+    }
+
+    /// The piece's masks with their colours.
+    fn layers(&self) -> impl Iterator<Item = (&Mask, COLORREF)> {
+        std::iter::once((&self.m, self.color)).chain(self.second.as_ref().map(|(m, c)| (m, *c)))
+    }
+
+    /// The same piece in two colours: `first` before column (or row) `at`, `second` from it on.
+    fn split(dev: Option<usize>, m: Mask, at: i32, rows: bool, colors: (COLORREF, COLORREF), alpha: u32, gap_after: i32) -> Self {
+        if colors.0 == colors.1 {
+            return Piece::new(dev, m, colors.0, alpha, gap_after);
+        }
+        let (a, b) = split_mask(&m, at, rows);
+        Piece { dev, m: a, color: colors.0, alpha, gap_after, second: Some((b, colors.1)) }
+    }
+}
+
+/// Two masks of `m`'s size: the ink before column (or row) `at`, and the ink from it on.
+fn split_mask(m: &Mask, at: i32, rows: bool) -> (Mask, Mask) {
+    let mut a = m.a.clone();
+    let mut b = m.a.clone();
+    for y in 0..m.h {
+        for x in 0..m.w {
+            let i = (y * m.w + x) as usize;
+            if (if rows { y } else { x }) < at {
+                b[i] = 0;
+            } else {
+                a[i] = 0;
+            }
+        }
+    }
+    (Mask { w: m.w, h: m.h, a }, Mask { w: m.w, h: m.h, a: b })
 }
 
 /// Every font the strip and the card draw with, for one DPI scale (creating a font and checking
@@ -977,22 +1017,47 @@ impl App {
         for (i, it) in items.iter().enumerate() {
             let Some(d) = &it.dev else {
                 // Battery-unknown glyph, so there is always something to right-click.
-                pieces.push(Piece { dev: Some(i), m: mask("\u{E996}", icons, light), color: fg, alpha: 110, gap_after: 0 });
+                pieces.push(Piece::new(Some(i), mask("\u{E996}", icons, light), fg, 110, 0));
                 continue;
             };
             let alpha = if d.asleep { 120 } else { 255 };
-            // Red at or below this device's own warning level (right-click menu, default 15%).
-            let low = settings::is_low(d, settings::threshold(SETTINGS_KEY, &d.key));
+            // Red at or below this device's own warning level (right-click menu, default 15%);
+            // earbuds by each bud's own level. The icon too when the device's menu asks for it.
+            let threshold = settings::threshold(SETTINGS_KEY, &d.key);
+            let low = settings::is_low(d, threshold);
+            let buds_low = settings::buds_low(d, threshold);
+            let red_icon = settings::red_icon(SETTINGS_KEY, &d.key);
+            let tint = |on: bool| if on { red } else { fg };
             // Lightning bolt on power: green while charging, blue once it reached 100%.
             let bolt_color = ui::bolt_color(d, light);
             let mark = bolt_color.is_some();
-            pieces.push(Piece { dev: Some(i), m: device_icon(d, icons, light), color: fg, alpha, gap_after: px(5.0) });
+            let icon = device_icon(d, icons, light);
+            let icon_piece = match buds_low {
+                // Each bud of the drawn earbuds in its own colour (left bud in the left half).
+                Some((l, r)) if d.kind == DeviceKind::Earbuds => {
+                    let half = icon.w / 2;
+                    Piece::split(Some(i), icon, half, false, (tint(red_icon && l), tint(red_icon && r)), alpha, px(5.0))
+                }
+                _ => Piece::new(Some(i), icon, tint(red_icon && low), alpha, px(5.0)),
+            };
+            pieces.push(icon_piece);
+            let gap = if mark { px(2.0) } else { 0 };
             let both = d.buds.filter(|b| d.percent >= 0 && b.left >= 0 && b.right >= 0);
-            let m = match both {
-                // Earbuds with both buds out: each bud's own level. On a vertical taskbar the two
-                // don't fit side by side: left over right.
-                Some(b) if self.vertical => stack_masks(&mask(&format!("{}%", b.left), text, light), &mask(&format!("{}%", b.right), text, light), px(1.0)),
-                Some(b) => mask(&format!("{}% {}%", b.left, b.right), text, light),
+            let piece = match both {
+                // Earbuds with both buds out: each bud's own level, each red on its own. On a
+                // vertical taskbar the two don't fit side by side: left over right.
+                Some(b) => {
+                    let (l, r) = buds_low.unwrap_or((low, low));
+                    let (ml, mr) = (mask(&format!("{}%", b.left), text, light), mask(&format!("{}%", b.right), text, light));
+                    if self.vertical {
+                        let at = ml.h;
+                        Piece::split(Some(i), stack_masks(&ml, &mr, px(1.0)), at, true, (tint(l), tint(r)), alpha, gap)
+                    } else {
+                        let m = mask(&format!("{}% {}%", b.left, b.right), text, light);
+                        let at = ml.w + (m.w - ml.w - mr.w).max(0) / 2;
+                        Piece::split(Some(i), m, at, false, (tint(l), tint(r)), alpha, gap)
+                    }
+                }
                 None => {
                     let t = if !d.level_text.is_empty() && d.percent < 0 {
                         d.level_text.clone()
@@ -1001,18 +1066,18 @@ impl App {
                     } else {
                         "?".into()
                     };
-                    mask(&t, text, light)
+                    Piece::new(Some(i), mask(&t, text, light), tint(low), alpha, gap)
                 }
             };
-            pieces.push(Piece { dev: Some(i), m, color: if low { red } else { fg }, alpha, gap_after: if mark { px(2.0) } else { 0 } });
+            pieces.push(piece);
             if let Some(c) = bolt_color {
-                pieces.push(Piece { dev: Some(i), m: mask("\u{E945}", bolt, light), color: c, alpha, gap_after: 0 });
+                pieces.push(Piece::new(Some(i), mask("\u{E945}", bolt, light), c, alpha, 0));
             }
         }
         // Refresh started from the menu: a small refresh glyph until it finishes.
         let refresh = self.manual && self.polling;
         if refresh {
-            pieces.push(Piece { dev: None, m: mask("\u{E72C}", bolt, light), color: fg, alpha: 170, gap_after: 0 });
+            pieces.push(Piece::new(None, mask("\u{E72C}", bolt, light), fg, 170, 0));
         }
         let mut tb = RECT::default();
         unsafe {
@@ -1081,16 +1146,18 @@ impl App {
                 }
                 let (off, blur, alpha) = p.dev.map(|i| moves[i]).unwrap_or((0, 0, 255));
                 let y0 = ((h - p.m.h) / 2 + px(self.offset_y as f32)).clamp(0, (h - p.m.h).max(0));
-                if let Some(i) = p.dev
-                    && items[i].p < 1.0
-                {
-                    let c = ((ranges[i].0 + ranges[i].1) as f32 / 2.0 + off as f32, h as f32 / 2.0);
-                    draw_popping(&mut cv, &p.m, (x + off, y0), c, items[i].p, s, p.color, p.alpha);
-                } else if blur > 0 {
-                    let b = blur_mask(&p.m, blur, true);
-                    cv.draw(&b, x + off - blur, y0, p.color, p.alpha * alpha / 255);
-                } else {
-                    cv.draw(&p.m, x + off, y0, p.color, p.alpha * alpha / 255);
+                for (m, color) in p.layers() {
+                    if let Some(i) = p.dev
+                        && items[i].p < 1.0
+                    {
+                        let c = ((ranges[i].0 + ranges[i].1) as f32 / 2.0 + off as f32, h as f32 / 2.0);
+                        draw_popping(&mut cv, m, (x + off, y0), c, items[i].p, s, color, p.alpha);
+                    } else if blur > 0 {
+                        let b = blur_mask(m, blur, true);
+                        cv.draw(&b, x + off - blur, y0, color, p.alpha * alpha / 255);
+                    } else {
+                        cv.draw(m, x + off, y0, color, p.alpha * alpha / 255);
+                    }
                 }
             }
         }
@@ -1185,15 +1252,17 @@ impl App {
                     continue;
                 }
                 let (off, blur, alpha) = p.dev.map(|i| moves[i]).unwrap_or((0, 0, 255));
-                if let Some(i) = p.dev
-                    && items[i].p < 1.0
-                {
-                    let c = (w as f32 / 2.0, (ranges[i].0 + ranges[i].1) as f32 / 2.0 + off as f32);
-                    draw_popping(&mut cv, &p.m, (x, y + off), c, items[i].p, s, p.color, p.alpha);
-                } else if blur > 0 {
-                    cv.draw(&blur_mask(&p.m, blur, false), x, y + off - blur, p.color, p.alpha * alpha / 255);
-                } else {
-                    cv.draw(&p.m, x, y + off, p.color, p.alpha * alpha / 255);
+                for (m, color) in p.layers() {
+                    if let Some(i) = p.dev
+                        && items[i].p < 1.0
+                    {
+                        let c = (w as f32 / 2.0, (ranges[i].0 + ranges[i].1) as f32 / 2.0 + off as f32);
+                        draw_popping(&mut cv, m, (x, y + off), c, items[i].p, s, color, p.alpha);
+                    } else if blur > 0 {
+                        cv.draw(&blur_mask(m, blur, false), x, y + off - blur, color, p.alpha * alpha / 255);
+                    } else {
+                        cv.draw(m, x, y + off, color, p.alpha * alpha / 255);
+                    }
                 }
             }
         }
@@ -4263,6 +4332,13 @@ fn device_action(d: &DeviceStatus, action: settings::DeviceAction, devices: &[De
         }
         DeviceAction::ToggleWarn5 => {
             settings::set_warn_critical(SETTINGS_KEY, &d.key, !settings::warn_critical(SETTINGS_KEY, &d.key));
+        }
+        DeviceAction::ToggleRedIcon => {
+            settings::set_red_icon(SETTINGS_KEY, &d.key, !settings::red_icon(SETTINGS_KEY, &d.key));
+            with_app(|a| {
+                a.card_cache.clear();
+                a.paint();
+            });
         }
         DeviceAction::Threshold(level) => {
             settings::set_threshold(SETTINGS_KEY, &d.key, level);

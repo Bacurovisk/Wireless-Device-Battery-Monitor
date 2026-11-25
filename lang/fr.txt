@@ -221,3 +221,4 @@ Wireless adapter = Adaptateur sans fil
 {display} (above) = {display} (au-dessus)
 {display} (below) = {display} (en dessous)
 Case {level} = Boîtier {level}
+Red icon at the warning level = Icône rouge au niveau d'alerte

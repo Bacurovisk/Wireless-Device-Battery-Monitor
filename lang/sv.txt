@@ -221,3 +221,4 @@ Wireless adapter = Trådlös adapter
 {display} (above) = {display} (ovanför)
 {display} (below) = {display} (nedanför)
 Case {level} = Fodral {level}
+Red icon at the warning level = Röd ikon vid varningsnivån

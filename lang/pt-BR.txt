@@ -221,3 +221,4 @@ Wireless adapter = Adaptador sem fio
 {display} (above) = {display} (acima)
 {display} (below) = {display} (abaixo)
 Case {level} = Estojo {level}
+Red icon at the warning level = Ícone vermelho no nível de alerta

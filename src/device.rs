@@ -81,6 +81,16 @@ impl Buds {
         };
         format!("{}  {}", side(n_("L"), self.left, self.left_charging), side(n_("R"), self.right, self.right_charging))
     }
+
+    /// "L: 80%, R: 75%" for menus and tooltips (a bud that is not reported: "L: –"); None when
+    /// neither bud reports.
+    pub fn levels(&self) -> Option<String> {
+        if self.left < 0 && self.right < 0 {
+            return None;
+        }
+        let side = |name: &str, v: i32| if v < 0 { format!("{}: –", crate::i18n::tr(name)) } else { format!("{}: {v}%", crate::i18n::tr(name)) };
+        Some(format!("{}, {}", side(n_("L"), self.left), side(n_("R"), self.right)))
+    }
 }
 
 /// One battery-powered device, as seen during a single poll.
@@ -205,7 +215,8 @@ impl DeviceStatus {
         } else {
             n_("on battery")
         };
-        format!("{}, {}", self.level(), crate::i18n::tr(state))
+        let level = self.buds.filter(|_| self.percent >= 0).and_then(|b| b.levels()).unwrap_or_else(|| self.level());
+        format!("{}, {}", level, crate::i18n::tr(state))
     }
 }
 

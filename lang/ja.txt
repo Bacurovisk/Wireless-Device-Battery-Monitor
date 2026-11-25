@@ -221,3 +221,4 @@ Wireless adapter = ワイヤレスアダプター
 {display} (above) = {display} (上)
 {display} (below) = {display} (下)
 Case {level} = ケース {level}
+Red icon at the warning level = 警告レベルでアイコンを赤く表示

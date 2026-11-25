@@ -221,3 +221,4 @@ Wireless adapter = อะแดปเตอร์ไร้สาย
 {display} (above) = {display} (บน)
 {display} (below) = {display} (ล่าง)
 Case {level} = เคส {level}
+Red icon at the warning level = ไอคอนสีแดงเมื่อถึงระดับเตือน

@@ -221,3 +221,4 @@ Wireless adapter = Бездротовий адаптер
 {display} (above) = {display} (зверху)
 {display} (below) = {display} (знизу)
 Case {level} = Кейс {level}
+Red icon at the warning level = Червоний значок на рівні попередження

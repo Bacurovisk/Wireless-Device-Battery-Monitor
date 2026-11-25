@@ -221,3 +221,4 @@ Wireless adapter = Bezdrátový adaptér
 {display} (above) = {display} (nahoře)
 {display} (below) = {display} (dole)
 Case {level} = Pouzdro {level}
+Red icon at the warning level = Červená ikona na úrovni varování

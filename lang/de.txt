@@ -221,3 +221,4 @@ Wireless adapter = Funkadapter
 {display} (above) = {display} (oben)
 {display} (below) = {display} (unten)
 Case {level} = Etui {level}
+Red icon at the warning level = Rotes Symbol ab der Warnstufe

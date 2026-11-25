@@ -221,3 +221,4 @@ Wireless adapter = Vezeték nélküli adapter
 {display} (above) = {display} (fent)
 {display} (below) = {display} (lent)
 Case {level} = Tok {level}
+Red icon at the warning level = Piros ikon a figyelmeztetési szintnél

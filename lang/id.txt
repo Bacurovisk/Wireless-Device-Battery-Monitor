@@ -221,3 +221,4 @@ Wireless adapter = Adaptor nirkabel
 {display} (above) = {display} (atas)
 {display} (below) = {display} (bawah)
 Case {level} = Casing {level}
+Red icon at the warning level = Ikon merah pada level peringatan

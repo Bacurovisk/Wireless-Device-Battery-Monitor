@@ -221,3 +221,4 @@ Wireless adapter = 무선 어댑터
 {display} (above) = {display}(위)
 {display} (below) = {display}(아래)
 Case {level} = 케이스 {level}
+Red icon at the warning level = 경고 수준에서 아이콘을 빨간색으로

@@ -221,3 +221,4 @@ Wireless adapter = Adattatore wireless
 {display} (above) = {display} (sopra)
 {display} (below) = {display} (sotto)
 Case {level} = Custodia {level}
+Red icon at the warning level = Icona rossa al livello di avviso
