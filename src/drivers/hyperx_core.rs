@@ -1,5 +1,6 @@
 //! HyperX Cloud II Core Wireless headset over its 2.4 GHz dongle (VID 03F0, PID 0995; 0795 is the
-//! second id the same headset shows, e.g. while charging).
+//! second id the same headset shows, e.g. while charging), and the Cloud III Wireless, which speaks the
+//! same exchange (dongle 05B7, alternate id 0C9D, both as listed by HyperHeadset and HaloBattery).
 //!
 //! Protocol as documented by HaloBattery (MIT, github.com/HeyOkay/HaloBattery,
 //! providers/hyperx_cloud3.py and docs/protocols.md: decoded from a USBPcap capture of NGENUITY in
@@ -19,8 +20,13 @@ use crate::hid::{HidColl, HidDev};
 use crate::util::Deadline;
 
 const VID: u16 = 0x03F0;
-const PIDS: [u16; 2] = [0x0995, 0x0795];
-const KEY: &str = "hyperx:cloud2core";
+/// (PID, entry key, name); both ids of one headset share an entry.
+const PIDS: [(u16, &str, &str); 4] = [
+    (0x0995, "hyperx:cloud2core", "HyperX Cloud II Core Wireless"),
+    (0x0795, "hyperx:cloud2core", "HyperX Cloud II Core Wireless"),
+    (0x05B7, "hyperx:cloud3wireless", "HyperX Cloud III Wireless"),
+    (0x0C9D, "hyperx:cloud3wireless", "HyperX Cloud III Wireless"),
+];
 const REPORT: u8 = 0x66;
 const CMD_BATTERY: u8 = 0x89;
 const RESP_BATTERY: u8 = 0x0D;
@@ -74,7 +80,7 @@ fn read(c: &HidColl) -> Option<(i32, bool)> {
 }
 
 pub fn poll(ctx: &mut PollContext) {
-    for pid in PIDS {
+    for (pid, key, name) in PIDS {
         if ctx.is_claimed(VID, pid) {
             continue;
         }
@@ -83,8 +89,8 @@ pub fn poll(ctx: &mut PollContext) {
             continue;
         }
         let base = DeviceStatus {
-            key: KEY.into(),
-            name: "HyperX Cloud II Core Wireless".into(),
+            key: key.into(),
+            name: name.into(),
             kind: DeviceKind::Headset,
             via: "2.4 GHz dongle".into(),
             hw: Some((VID, pid)),
@@ -94,7 +100,7 @@ pub fn poll(ctx: &mut PollContext) {
         match colls.iter().find_map(read) {
             Some((level, charging)) => {
                 // Both ids can answer at once while charging: one entry, the charging reading wins.
-                if let Some(o) = ctx.out.iter_mut().find(|o| o.key == KEY) {
+                if let Some(o) = ctx.out.iter_mut().find(|o| o.key == key) {
                     if charging || !o.connected {
                         *o = DeviceStatus { percent: level, charging, hw: o.hw, ..base };
                     }
@@ -103,7 +109,7 @@ pub fn poll(ctx: &mut PollContext) {
                     ctx.add(DeviceStatus { percent: level, charging, ..base }, VID, pid);
                 }
             }
-            None if ctx.out.iter().any(|o| o.key == KEY) => ctx.claim(VID, pid),
+            None if ctx.out.iter().any(|o| o.key == key) => ctx.claim(VID, pid),
             None => ctx.add(DeviceStatus { connected: false, ..base }, VID, pid),
         }
     }
