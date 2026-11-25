@@ -1,4 +1,4 @@
-# BatteryHub v1.7.4 (Rust)
+# BatteryHub v1.7.5 (Rust)
 
 An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor). All credit for the original idea, look and device protocols goes to the original project.
 
@@ -6,10 +6,16 @@ An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of 
 
 | File | |
 |---|---|
-| `BatteryHub-Taskbar-Setup-v1.7.4.exe` | Setup: Install / Update / Uninstall |
+| `BatteryHub-Taskbar-Setup-v1.7.5.exe` | Setup: Install / Update / Uninstall |
 | `SHA256SUMS.txt` | Checksum |
 
 Already installed? Use *Check for updates...* in the right-click menu (v1.1 and later), or run the new setup and click **Update**. Your settings and autostart choice are kept.
+
+## New in v1.7.5
+
+- **New devices:** Logitech G522 LIGHTSPEED (`046D:0B18`), HyperX Cloud III Wireless (`03F0:05B7`), HyperX Cloud Stinger 3 Wireless (`03F0:03C6`, tested by [adskiykrik](https://github.com/adskiykrik), #313), VGN Dragonfly 3 Pro (`391D:1A03`, tested by [PromiseTzZ](https://github.com/PromiseTzZ), #272), and from [Simdrom](https://github.com/Simdrom)'s #311: ASTRO A50 X, ATK ZERO, MCHOSE L7 Ultra+ and X9, Machenike L7 Mix, DAREU EK75 Pro, IPI PIAO, AJAZZ AK820 MAX on `0C45:FEFC` and AJAZZ AJ159P.
+- **Numbers in your language:** decimal comma where your language uses one (by [Bacurovisk](https://github.com/Bacurovisk), #255).
+- **Right-click menu:** belongs to the widget you clicked, so it stays open on auto-hiding taskbars (also with StartAllBack).
 
 ## New in v1.7.4
 

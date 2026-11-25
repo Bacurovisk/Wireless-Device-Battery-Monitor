@@ -1,6 +1,6 @@
 <p align="center"><img src="res/batteryhub.png" width="112" alt="BatteryHub icon"></p>
 
-<h1 align="center">BatteryHub v1.7.4</h1>
+<h1 align="center">BatteryHub v1.7.5</h1>
 
 <p align="center">
 <b>An ultra-lightweight Rust implementation of BatteryHub for Windows.</b><br>
@@ -39,7 +39,7 @@ Developed by [@ferloom](https://github.com/ferloom) with the help of Claude (AI)
 
 ## Download
 
-Get **`BatteryHub-Taskbar-Setup-v1.7.4.exe`** from the [**latest release**](../../releases/latest), run it and click **Install**.
+Get **`BatteryHub-Taskbar-Setup-v1.7.5.exe`** from the [**latest release**](../../releases/latest), run it and click **Install**.
 
 - No administrator rights needed (per-user install).
 - Already installed? Use *Check for updates...* in the right-click menu, or run the new setup and click **Update**.
@@ -392,10 +392,11 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | Lenovo Legion M410 Wireless | `17EF:6197` | No documented battery protocol for this receiver; commands are not guessed | [#231](../../issues/231) |
 | Apple Watch Magnetic Charging Cable | `05AC:1392` | A charger: the watch does not report its battery to Windows through it | [#230](../../issues/230) |
 | KRUX Plasma Wireless | not reported | The receiver's id was not in the request; please comment with its VID:PID | [#239](../../issues/239) |
-| Ardor Gaming Edge Wireless | `3206:0881` | The dongle has only media keys, no vendor channel. Over Bluetooth it works when Windows shows the level. | [#244](../../issues/244) |
+| Ardor Gaming Edge Wireless, Redragon Arrow H858 | `3206:0881` | The dongle has only media keys, no vendor channel. Over Bluetooth it works when Windows shows the level. | [#244](../../issues/244), [#353](../../issues/353) |
 | ASUS ROG Delta II (2.4 GHz) | `0B05:1AFA` | No documented battery read for its dongle; commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#252](../../issues/252) |
 | Rapoo gaming receiver | `24AE:1416` | No documented protocol for this receiver (like the VT9PRO on `24AE:1211`); commands are not guessed | [#249](../../issues/249) |
 | H2015 Pro headset | `3206:0871` | No documented battery query for its dongle; commands are not guessed | [#242](../../issues/242) |
+| MCHOSE V9 Pro 2 headset | `3837:6011` | Its dongle has another vendor collection (FF07:0222) than the V9 Pro / X9 (FF90), and no battery read is documented for it; commands are not guessed | [#354](../../issues/354) |
 | RAINY 75 PRO keyboard | `320F:5088` | Same receiver as the Evision keyboards BatteryHub reads, but the RAINY 75 PRO is not among the models whose read is documented; commands are not guessed | [#253](../../issues/253) |
 | Logitech G735 headset | `046D:0AD8` | No documented battery read for its dongle (not the Centurion protocol of the PRO X 2 / G522); commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#254](../../issues/254) |
 | HyeKu mouse receiver | `276D:1101` | No documented protocol | [#256](../../issues/256) |
@@ -460,7 +461,7 @@ Requirements: Rust 1.99 or newer (stable, MSVC toolchain; the crates use the 202
 .\build-release.ps1
 ```
 
-This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.7.4.exe` and `SHA256SUMS.txt`. The version comes from the `VERSION` file (up to four parts, e.g. `1.0.1.1`).
+This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.7.5.exe` and `SHA256SUMS.txt`. The version comes from the `VERSION` file (up to four parts, e.g. `1.0.1.1`).
 
 | Path | Contents |
 |---|---|
@@ -479,11 +480,11 @@ BatteryHub is not made by one person alone. Thank you to everyone who helped!
 - **[@ferloom](https://github.com/ferloom)**: author and maintainer.
 - **Claude (AI, by Anthropic)**: writes much of the code together with ferloom: drivers, the taskbar strip, the dashboard and the setup.
 - **Daniel Gutschalk**: ROCCAT Syn Max Air headset driver.
-- **[@Simdrom](https://github.com/Simdrom)**: Corsair Scimitar, Arctis Nova Pro Omni, dock battery (#189), Arctis GameBuds X and snappier card switching (#246).
+- **[@Simdrom](https://github.com/Simdrom)**: Corsair Scimitar, Arctis Nova Pro Omni, dock battery (#189), Arctis GameBuds X and snappier card switching (#246), nine devices from TaskbarVitals and Joule (#311).
 - **[@fevegit](https://github.com/fevegit)**: ASTRO A50 Gen 5, Pulsar XS-1 TenZ (#174).
 - **[@BatuDege](https://github.com/BatuDege)**: NZXT Lift Elite (#184).
 - **[@NeroHole](https://github.com/NeroHole)**: SinoWealth receivers, Redragon M602-KS (#111).
-- **[@Bacurovisk](https://github.com/Bacurovisk)**: Logitech G321 LIGHTSPEED (#107), Portuguese (Brazil) and translatable connection names (#222, #237).
+- **[@Bacurovisk](https://github.com/Bacurovisk)**: Logitech G321 LIGHTSPEED (#107), Portuguese (Brazil) and translatable connection names (#222, #237), decimal separator per language (#255).
 - **[@denwir](https://github.com/denwir)**: GameSir G7 Pro 8K, tested on hardware (#238).
 - **[@elcio96](https://github.com/elcio96)**: Smailwolf RS6, tested on hardware (#233).
 - **[@PromiseTzZ](https://github.com/PromiseTzZ)**: VGN Dragonfly 3 Pro, tested on hardware (#272).
