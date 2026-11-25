@@ -313,6 +313,15 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | MCHOSE X9 | Headset over its 2.4 GHz dongle `3837:6045` (protocol from [HeadsetControl](https://github.com/Sapd/HeadsetControl), GPL-3.0, after a capture of M HUB; no charging state; untested here, [#147](../../issues/147)) |
 | AJAZZ AK820 MAX, AULA F87 Pro V2C | On the SONiX receiver `0C45:FEFC` (protocol from [HaloBattery](https://github.com/HeyOkay/HaloBattery), MIT, confirmed on an F87 Pro V2C on this receiver; no charging state; untested here on an AK820 MAX, [#160](../../issues/160)) |
 | AJAZZ AJ159P | Receiver `249A:5C2F` (protocol from [HaloBattery](https://github.com/HeyOkay/HaloBattery), MIT, confirmed on an AJ179 V2 MAX on this receiver, and [BatteryTray](https://github.com/qu1ncky/BatteryTray), MIT; untested here on an AJ159P, [#216](../../issues/216)) |
+| Logitech G735 | Headset over its LIGHTSPEED dongle `046D:0AD8` (Centurion HID++ wrapped in report `F2`; protocol from [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0, tested on the headset there) |
+| HyperX Cloud Core Wireless | Over its dongle `0951:173F` (the Stinger Core read, verified on this headset by [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0) |
+| Razer BlackShark V3 X | Over its HyperSpeed dongle `1532:057D` or USB cable `057C` (protocol from OpenRazer PR #2899, verified on a `057D` dongle by [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0) |
+| MCHOSE V9 Pro 2 | Headset over its dongle `3837:6011` (M HUB's battery read, verified on a V9 Pro 2 by [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0) |
+| MCHOSE V9 Turbo+ | Headset `3837:600A`, on the X9's read (confirmed on the headset in [HaloBattery](https://github.com/HeyOkay/HaloBattery) #193, MIT) |
+| DAREU EM901X; Fantech Helios Go XD5 | EM901X on its receiver `260D:1074` or cable `260D:1090`; XD5 on its dongle `25A7:FA7C` or cable `FA7B` (protocol from [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0, both tested there) |
+| Mice on the Niceboy MW400 receiver | `248A:FA02`, e.g. Niceboy MW400, Empire Gaming RF908 (protocol from [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0, read on an MW400 there) |
+| Fantech Raigor III / II | On the `1EA7:0066` / `0064` dongle (protocol from [t20-battery](https://github.com/tuttizpro218/t20-battery) and [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0, verified on a Raigor III) |
+| Zaopin and ATK mice (CompX) | Zaopin 8K receiver `3554:F527` (confirmed on a ZPW MAX by [Joule](https://github.com/DillanCidral/Joule), MIT) and the ATK NK receiver `373B:10C9` (measured on an ATK A9 SE by [HaloBattery](https://github.com/HeyOkay/HaloBattery)); CompX report 8 |
 
 Device not shown? Use *Request support for a device...* in the right-click menu (see above). More brands from the original project can be added as one file each in `src/drivers/`; pull requests are welcome (the ROCCAT, FNATIC BOLT and HyperX Cloud Flight drivers came from them). Devices can be excluded with `HKCU\Software\WirelessBattery\IgnoreDevices` (`VID:PID` list, the same setting as the original).
 
@@ -374,7 +383,6 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | K68 keyboard (Ziyoulang) | `1EA7:0002` | No documented protocol | [#196](../../issues/196) |
 | Royal Kludge S98-ES | `258A:0150` | No documented protocol for this receiver. Over Bluetooth it works when Windows shows the level. | [#195](../../issues/195) |
 | AULA Kunlun X5 | `38A6:28F9` | Not among the documented AULA ids; commands are not guessed | [#194](../../issues/194) |
-| "2.4G Wireless Receiver" mouse | `25A7:FA7C` | No documented protocol (not the CompX / Areson layout used on other `25A7` receivers) | [#225](../../issues/225) |
 | Attack Shark MEGA B2 TMR | `3554:F517` | Not among the documented CompX / Attack Shark ids; commands are not guessed | [#223](../../issues/223) |
 | HATOR Rockfall 3 Wireless | `379A:0300` | No documented battery read for this keyboard's dongle; commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#221](../../issues/221) |
 | HELLYBERRY HM47 | `379A:A202` | No documented protocol for this `379A` receiver; commands are not guessed | [#220](../../issues/220) |
@@ -396,22 +404,17 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | ASUS ROG Delta II (2.4 GHz) | `0B05:1AFA` | No documented battery read for its dongle; commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#252](../../issues/252) |
 | Rapoo gaming receiver | `24AE:1416` | No documented protocol for this receiver (like the VT9PRO on `24AE:1211`); commands are not guessed | [#249](../../issues/249) |
 | H2015 Pro headset | `3206:0871` | No documented battery query for its dongle; commands are not guessed | [#242](../../issues/242) |
-| MCHOSE V9 Pro 2 headset | `3837:6011` | Its dongle has another vendor collection (FF07:0222) than the V9 Pro / X9 (FF90), and no battery read is documented for it; commands are not guessed | [#354](../../issues/354) |
 | RAINY 75 PRO keyboard | `320F:5088` | Same receiver as the Evision keyboards BatteryHub reads, but the RAINY 75 PRO is not among the models whose read is documented; commands are not guessed | [#253](../../issues/253) |
-| Logitech G735 headset | `046D:0AD8` | No documented battery read for its dongle (not the Centurion protocol of the PRO X 2 / G522); commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#254](../../issues/254) |
 | HyeKu mouse receiver | `276D:1101` | No documented protocol | [#256](../../issues/256) |
 | HyperX Cloud Flight S | `0951:16EA` | No documented battery read for the Flight S (the Cloud Flight's read is not confirmed on it); commands are not guessed | [#257](../../issues/257), [#282](../../issues/282) |
-| "2.4G Mouse" receiver | `1EA7:0066` | No documented protocol | [#258](../../issues/258) |
 | SteelSeries Prime Mini Wireless | `1038:184A` | Not among the SteelSeries mice whose battery read is documented ([rivalcfg](https://github.com/flozz/rivalcfg) covers the Prime Wireless `1840` / `1842`, not the Prime Mini Wireless); commands are not guessed | [#259](../../issues/259) |
 | "2.4G Receiver" mouse | `25A7:FA61` | No documented protocol (not one of the documented Areson / Redragon `25A7` ids) | [#260](../../issues/260) |
-| "2.4G Wireless Receiver" mouse | `260D:1074` | No documented protocol | [#262](../../issues/262) |
 | L30 PRO headset (C-Media dongle) | `0D8C:0370` | No documented battery query for this dongle; commands are not guessed | [#263](../../issues/263) |
 | "2.4G Mouse" (Telink receiver) | `248A:FF43` | Not among the documented Telink ids (Darmoshark `FF30` / `FF31`); commands are not guessed | [#266](../../issues/266) |
 | Keychron Ultra-Link 8K receiver | `3434:D028` | Not among the documented Keychron receiver ids; commands are not guessed | [#267](../../issues/267) |
 | MCHOSE G7 Max | `41E4:1001` | This receiver lacks the vendor collection the MCHOSE read uses (FF01); its own channel is not documented | [#269](../../issues/269) |
 | MCHOSE K87 V3 | `3837:1015` | No documented protocol for this receiver (no reply to the AJ139 / G3 read, as tested by the reporter); commands are not guessed | [#273](../../issues/273) |
 | Ulu Games Reload | `3554:FB35` | Not among the documented CompX ids (Pulsar, VXE, ATK); commands are not guessed | [#274](../../issues/274) |
-| HyperX Cloud Core Wireless | `0951:173F` | No documented battery read for this dongle; commands are not guessed | [#275](../../issues/275) |
 | iKF V11 Pro headset | `0E6A:0110` | The dongle has only a media-keys collection, no vendor channel | [#278](../../issues/278) |
 | XIBERIA K06S headset | `36F9:F002` | An Actions-chip dongle (like `10D6:4801`) with no documented battery query | [#279](../../issues/279) |
 | Genius wireless mouse | `0458:0189` | No documented protocol | [#281](../../issues/281) |
@@ -420,7 +423,6 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | 8BitDo Ultimate Wireless (X-input dongle) | `2DC8:3106` | The dongle shows Windows a wired Xbox pad, which reports no level | [#291](../../issues/291) |
 | Xbox 360-style controller (Zeroplus dongle) | `0C12:1F12` | The dongle shows Windows a wired Xbox pad, which reports no level | [#296](../../issues/296) |
 | VGN Dragonfly F1 Moba (VGN Mouse 2.4G Receiver) | `3554:F503` | Not among the documented CompX ids (Pulsar, VXE, ATK); commands are not guessed | [#298](../../issues/298), [#343](../../issues/343) |
-| NK mouse NANO dongle | `373B:10C9` | Not among the documented ATK / VXE receiver ids (`373B:1216` is supported); commands are not guessed | [#300](../../issues/300), [#334](../../issues/334) |
 | VGN Dragonfly 3 Master+ | `391D:1A05` | No documented protocol; unlike the Dragonfly 3 Pro (`1A03`), this receiver has no AJ139-style collection | [#301](../../issues/301) |
 | G03 Ultra 8K | `363C:FF9E` | No documented protocol | [#302](../../issues/302) |
 | Keychron C100 HE 8K | `3434:044A` | Keychron's stock firmware doesn't report a battery level over USB | [#304](../../issues/304) |
@@ -428,20 +430,16 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | ATK N9V2 Ultimate headset | `373B:1262` | Not among the documented ATK headset ids (N9 Pro, N9 Ultra, Mercury); commands are not guessed | [#309](../../issues/309) |
 | Keyboards on `05AC:024F` without the SONiX channel (e.g. Ardor Gaming KATANA) | `05AC:024F` | Same id as the SONiX keyboards BatteryHub reads, but these lack the SONiX battery channel (FF60); their own channel is not documented | [#310](../../issues/310), [#321](../../issues/321) |
 | ATK A9 Ultra | `373B:1119` | Not among the documented ATK receiver ids; commands are not guessed | [#316](../../issues/316) |
-| Empire Gaming RF908 | `248A:FA02` | No documented protocol | [#317](../../issues/317) |
 | Red Square Kiro | `3554:F511` | Not among the documented CompX ids (Pulsar, VXE, ATK); commands are not guessed | [#322](../../issues/322) |
 | "Wireless-Receiver" (Telink) | `248A:5B2F` | No documented protocol | [#323](../../issues/323) |
-| Razer BlackShark V3 X | `1532:057D` | No documented battery read for the V3 X (the BlackShark V3's read is not confirmed on it); commands are not guessed | [#326](../../issues/326) |
 | BTP-KP20D controller (X-input dongle) | `20BC:5159` | The dongle shows Windows an Xbox pad that reports no level; its vendor channel is undocumented | [#327](../../issues/327) |
 | Sony INZONE H5 | `054C:0EBF` | HeadsetControl documents its battery read on the FF04:0002 collection; this dongle showed FF04:0001, so which channel answers is not confirmed and commands are not guessed | [#328](../../issues/328) |
 | OnePlus Buds 3 | Bluetooth | Windows doesn't report its level, and OnePlus' own battery protocol is not documented | [#329](../../issues/329) |
 | HyperX Cloud III Wireless on `0FCC` | `03F0:0FCC` | Not among the documented Cloud III Wireless ids (`05B7` / `0C9D` are supported from v1.7.5); commands are not guessed | [#331](../../issues/331) |
-| MCHOSE V9 Turbo+ headset | `3837:600A` | Not the V9 Pro (`291D:385D`) or X9 (`3837:6045`) ids whose read is documented; commands are not guessed | [#332](../../issues/332), [#344](../../issues/344) |
 | AJAZZ NJ07 (Bluetooth) | Bluetooth | Windows doesn't report its level over Bluetooth, so there is nothing to read | [#337](../../issues/337) |
 | LAMZU ORCUS | `37B0:0042` | No documented protocol for this receiver (the supported LAMZU receivers use `373E`) | [#340](../../issues/340) |
 | ASUS ROG Azoth | `0B05:1A83` | No documented battery read; commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#341](../../issues/341) |
 | AJAZZ AK820 (`0C45:8009`) | `0C45:8009` | No documented protocol for this id (the AK820 MAX on `05AC:024F` / `0C45:FEFC` is supported) | [#347](../../issues/347) |
-| zaopin Z2 | `3554:F527` | Not among the documented CompX ids (Pulsar, VXE, ATK); commands are not guessed | [#348](../../issues/348) |
 | HATOR Phoenix 2 | `379A:6303` | No documented protocol for HATOR's `379A` receivers; commands are not guessed | [#351](../../issues/351) |
 | H838 headset (Weltrend dongle) | `040B:0802` | Like the `040B:0897` dongles: only volume / mute keys, and the command the headset's app uses is not known | [#352](../../issues/352) |
 | Lunacy One mouse | not reported | The request had no id; please comment with the receiver's VID:PID | [#293](../../issues/293) |

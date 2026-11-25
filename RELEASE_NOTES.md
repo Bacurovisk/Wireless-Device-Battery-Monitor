@@ -13,7 +13,7 @@ Already installed? Use *Check for updates...* in the right-click menu (v1.1 and 
 
 ## New in v1.7.5
 
-- **New devices:** Logitech G522 LIGHTSPEED (`046D:0B18`), HyperX Cloud III Wireless (`03F0:05B7`), HyperX Cloud Stinger 3 Wireless (`03F0:03C6`, tested by [adskiykrik](https://github.com/adskiykrik), #313), VGN Dragonfly 3 Pro (`391D:1A03`, tested by [PromiseTzZ](https://github.com/PromiseTzZ), #272), and from [Simdrom](https://github.com/Simdrom)'s #311: ASTRO A50 X, ATK ZERO, MCHOSE L7 Ultra+ and X9, Machenike L7 Mix, DAREU EK75 Pro, IPI PIAO, AJAZZ AK820 MAX on `0C45:FEFC` and AJAZZ AJ159P.
+- **New devices:** Logitech G522 LIGHTSPEED (`046D:0B18`) and G735 (`046D:0AD8`), HyperX Cloud Core Wireless (`0951:173F`), Razer BlackShark V3 X (`1532:057D`), MCHOSE V9 Pro 2 (`3837:6011`) and V9 Turbo+ (`3837:600A`), DAREU EM901X (`260D:1074`), Fantech Helios Go XD5 (`25A7:FA7C`) and Raigor (`1EA7:0066`), mice on the Niceboy MW400 receiver (`248A:FA02`), the Zaopin 8K (`3554:F527`) and ATK NK (`373B:10C9`) receivers, HyperX Cloud III Wireless (`03F0:05B7`), HyperX Cloud Stinger 3 Wireless (`03F0:03C6`, tested by [adskiykrik](https://github.com/adskiykrik), #313), VGN Dragonfly 3 Pro (`391D:1A03`, tested by [PromiseTzZ](https://github.com/PromiseTzZ), #272), and from [Simdrom](https://github.com/Simdrom)'s #311: ASTRO A50 X, ATK ZERO, MCHOSE L7 Ultra+ and X9, Machenike L7 Mix, DAREU EK75 Pro, IPI PIAO, AJAZZ AK820 MAX on `0C45:FEFC` and AJAZZ AJ159P.
 - **Numbers in your language:** decimal comma where your language uses one (by [Bacurovisk](https://github.com/Bacurovisk), #255).
 - **Right-click menu:** belongs to the widget you clicked, so it stays open on auto-hiding taskbars (also with StartAllBack).
 
