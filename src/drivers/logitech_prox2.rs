@@ -1,15 +1,16 @@
-//! Logitech G PRO X 2 LIGHTSPEED (VID 046D, PID 0AF7) and G522 LIGHTSPEED (PID 0B18) headsets over
-//! their 2.4 GHz receivers.
+//! Logitech G PRO X 2 LIGHTSPEED (VID 046D, PID 0AF7), G522 LIGHTSPEED (PID 0B18) and ASTRO A20 X
+//! (PID 0B35) headsets over their 2.4 GHz receivers.
 //!
 //! Not HID++ on FF43 (logitech.rs): Logitech's "Centurion" transport on the vendor collection
 //! FFA0:0001 (interface 3), 64-byte output / input report 51. Protocol as documented by HeadsetControl
 //! (GPL-3.0, github.com/Sapd/HeadsetControl, lib/devices/logitech_gpro_x2_lightspeed.hpp,
-//! lib/devices/logitech_g522_lightspeed.hpp and
+//! lib/devices/logitech_g522_lightspeed.hpp, lib/devices/logitech_astro_a20x.hpp (verified on Windows with the
+//! A20 X: prefix 50 23, bridge, battery feature 0104 on interface 5) and
 //! lib/devices/protocols/logitech_centurion_protocol.hpp), Solaar (GPL-2.0, its PRO X 2 0AF7 device
 //! dump) and HaloBattery (MIT, github.com/HeyOkay/HaloBattery, providers/logitech_centurion.py,
 //! confirmed on hardware in HaloBattery issue #103); implemented here from those facts.
 //!
-//!   frame     51 LL 00 <payload>                LL = payload length + 1 (G522: 50 23 LL 00 <payload>)
+//!   frame     51 LL 00 <payload>                LL = payload length + 1 (G522, A20 X: 50 23 LL 00 <payload>)
 //!   direct    payload <feature index> <function | 01> <params>; the reply echoes the index, data at 2
 //!   bridge    payload <bridge> 11 <size hi> <size lo> 00 <headset feature index> <function | 01> <params>
 //!             the receiver acknowledges (<bridge> 11), the headset answers
@@ -21,7 +22,7 @@
 //! [level %] [..] [state], state 1 / 2 = charging, 3 = charged. Firmware without 0104 gets
 //! HeadsetControl's fixed request 51 08 00 03 1A 00 03 00 04 0A: 51 03 = acknowledgement, 51 05 with
 //! byte 6 = 00 = headset off, 51 0B with byte 8 = 04 = battery (byte 10 level, byte 12 = 02 charging).
-//! The fixed request is the PRO X 2's own and is never sent to the G522. Only these reads are sent; no
+//! The fixed request is the PRO X 2's own and is never sent to the G522 or the A20 X. Only these reads are sent; no
 //! setting is changed.
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -35,9 +36,9 @@ const PID: u16 = 0x0AF7;
 const REPORT: u8 = 0x51;
 
 /// (PID, frame prefix, name, PRO X 2 fixed request as fallback)
-const MODELS: [(u16, &[u8], &str, bool); 2] = [
+const MODELS: [(u16, &[u8], &str, bool); 3] = [
     (PID, &[REPORT], "Logitech G PRO X 2 LIGHTSPEED", true),
-    (0x0B18, &[0x50, 0x23], "Logitech G522 LIGHTSPEED", false),
+    (0x0B18, &[0x50, 0x23], "Logitech G522 LIGHTSPEED", false), (0x0B35, &[0x50, 0x23], "Logitech ASTRO A20 X", false),
 ];
 const SW: u8 = 0x01;
 const BRIDGE_SEND: u8 = 0x10;

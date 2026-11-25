@@ -1,6 +1,6 @@
 //! Mice on CompX's "report 8" protocol (VID 3554, CompX's ODM id, ATK's 373B and Pulsar's 3710): Pulsar X2 V2 /
 //! X2H / X2A / Xlite V3, XS-1 TenZ, Kysona M600, ATK VXE R1 SE+, VXE Dragonfly R1 Pro (Max) and the LAMZU
-//! Atlantis / Thorn generation on the "LAMZU 4K Receiver". Each product id is listed explicitly;
+//! Atlantis / Thorn generation on the "LAMZU 4K Receiver", and the Attack Shark R11 Ultra. Each product id is listed explicitly;
 //! nothing else on these vendor ids gets a frame (3554:FA09 / FB40 are AULA keyboards, aula.rs).
 //!
 //! Protocol and ids as documented by the Linux kernel's hid-pulsar driver (GPL-2.0+,
@@ -46,7 +46,7 @@ const fn p(vid: u16, pid: u16, name: &'static str, group: &'static str, cable: b
     Product { vid, pid, name, group, cable }
 }
 
-const PRODUCTS: [Product; 16] = [
+const PRODUCTS: [Product; 18] = [
     p(0x3554, 0xF508, "Pulsar mouse", "pulsar1k", false),
     p(0x3554, 0xF509, "Pulsar mouse", "pulsar4k", false),
     p(0x3554, 0xF507, "Pulsar mouse", "pulsar-cable", true),
@@ -71,6 +71,10 @@ const PRODUCTS: [Product; 16] = [
     p(0x3710, 0x5406, "Pulsar TenZ", "pulsar-xs1", false),
     // 3710:3415 / interface 1 / FF02:0002 (17-byte reports), verified with the original BatteryHub.
     p(0x3710, 0x3415, "Pulsar TenZ", "pulsar-xs1", true),
+    // Attack Shark R11 Ultra: receiver and cable, verified on both by AS-R11Ultra-Battery-Tray (MIT,
+    // github.com/pixelinterest/AS-R11Ultra-Battery-Tray, protocol.md).
+    p(0x3554, 0xFB44, "Attack Shark R11 Ultra", "r11ultra", false),
+    p(0x3554, 0xFB43, "Attack Shark R11 Ultra", "r11ultra", true),
 ];
 
 pub fn checksum(b: &[u8]) -> u8 {

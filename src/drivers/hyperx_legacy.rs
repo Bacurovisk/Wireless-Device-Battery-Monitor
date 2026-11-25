@@ -1,4 +1,5 @@
-//! Older HyperX wireless headsets on their 2.4 GHz dongles: Cloud Flight (Kingston 0951:16C4 /
+//! Older HyperX wireless headsets on their 2.4 GHz dongles: Cloud II Wireless (HP 03F0:0696 / 018B),
+//! Cloud Flight (Kingston 0951:16C4 /
 //! 0951:1723) and Cloud Stinger Core Wireless (0951:170B; PlayStation receivers 03F0:0A93,
 //! 0951:1713, 03F0:0B93). The Cloud III S is in hyperx.rs, the Cloud II Core Wireless in hyperx_core.rs.
 //!
@@ -22,6 +23,11 @@
 //!   Report 21 on the 31-byte FF43:0202 collection: `21 BB CC`, reply `21 .. CC VV`:
 //!     03 = link (VV 01: headset not connected), 0C = charging (VV 01), 0B = level (VV %)
 //!
+//! * Cloud II Wireless (HP), from HeadsetControl (lib/devices/hyperx_cloud_2_wireless.hpp). Report 06 on
+//!   the 20-byte FF90:0303 collection: `06 FF BB <cmd>`, reply `06 FF BB <cmd> ..`:
+//!     02 = battery: [5..6] = mV (big endian), [7] = level %;   03 = charging ([4] == 1)
+//!   No reply: the headset is off.
+//!
 //! Read-only: only these queries are sent. A dongle whose headset does not answer is shown off.
 #![allow(clippy::doc_overindented_list_items)]
 use crate::device::{DeviceKind, DeviceStatus, PollContext};
@@ -33,9 +39,12 @@ enum Proto {
     Flight,
     Stinger { ps: bool },
     Alpha,
+    Cloud2,
 }
 
-const MODELS: [(u16, u16, &str, Proto); 8] = [
+const MODELS: [(u16, u16, &str, Proto); 10] = [
+    (0x03F0, 0x0696, "HyperX Cloud II Wireless", Proto::Cloud2),
+    (0x03F0, 0x018B, "HyperX Cloud II Wireless", Proto::Cloud2),
     (0x03F0, 0x098D, "HyperX Cloud Alpha Wireless", Proto::Alpha),
     (0x0951, 0x16C4, "HyperX Cloud Flight", Proto::Flight),
     (0x0951, 0x1723, "HyperX Cloud Flight", Proto::Flight),
@@ -209,12 +218,54 @@ fn alpha(c: &HidColl) -> Option<Reading> {
     Some(out)
 }
 
+// ---- Cloud II Wireless (HP) -------------------------------------------------------------------
+
+const CLOUD2_LEVEL: u8 = 0x02;
+const CLOUD2_CHARGING: u8 = 0x03;
+
+pub fn cloud2_request(cmd: u8) -> [u8; 20] {
+    let mut r = [0u8; 20];
+    r[..4].copy_from_slice(&[0x06, 0xFF, 0xBB, cmd]);
+    r
+}
+
+/// The reply to `cmd` (report id included), if this is it.
+pub fn cloud2_parse(r: &[u8], cmd: u8) -> Option<&[u8]> {
+    (r.len() >= 8 && r[..4] == [0x06, 0xFF, 0xBB, cmd]).then_some(r)
+}
+
+fn cloud2_query(d: &HidDev, cmd: u8) -> Option<Vec<u8>> {
+    d.flush();
+    if !d.write(&cloud2_request(cmd)) {
+        return None;
+    }
+    let end = Deadline::in_ms(1000);
+    while !end.passed() {
+        if let Some(r) = d.read(end.left_ms()).filter(|r| cloud2_parse(r, cmd).is_some()) {
+            return Some(r);
+        }
+    }
+    None
+}
+
+fn cloud2(c: &HidColl) -> Option<Reading> {
+    let d = HidDev::open(c)?;
+    let Some(r) = cloud2_query(&d, CLOUD2_LEVEL) else {
+        return Some(Reading::default()); // dongle present, headset silent
+    };
+    let mv = ((r[5] as i32) << 8) | r[6] as i32;
+    let percent = (r[7] <= 100).then_some(r[7] as i32);
+    let charging = cloud2_query(&d, CLOUD2_CHARGING).is_some_and(|c| c[4] == 1);
+    Some(Reading { on: true, percent, mv, charging, full: false })
+}
+
 // ---- Polling -----------------------------------------------------------------------------------
 
 fn collections(ctx: &PollContext, vid: u16, pid: u16, proto: Proto) -> Vec<HidColl> {
     match proto {
         Proto::Alpha => ctx.find(vid, pid, |c| c.page() == 0xFF43 && c.usage() == 0x0202 && c.out_len() >= 4 && c.in_len() >= 4),
         Proto::Flight => ctx.find(vid, pid, |c| c.page() == 0xFF90 && c.usage() == 0x0303 && c.out_len() == 20 && c.in_len() >= 5),
+        Proto::Cloud2 => ctx.find(vid, pid, |c| c.page() == 0xFF90 && c.usage() == 0x0303 && c.out_len() >= 8 && c.in_len() >= 8),
         Proto::Stinger { .. } => ctx.find(vid, pid, |c| c.page() == 0xFF00 && c.usage() == 0x0001 && c.feat_len() >= 32),
     }
 }
@@ -229,6 +280,7 @@ pub fn poll(ctx: &mut PollContext) {
             Proto::Flight => flight(c),
             Proto::Stinger { ps } => stinger(c, ps),
             Proto::Alpha => alpha(c),
+            Proto::Cloud2 => cloud2(c),
         });
         let Some(r) = found else { continue };
         let base = DeviceStatus {
@@ -293,6 +345,15 @@ mod tests {
         assert_eq!(stinger_battery(&r).map(|b| (b.percent, b.charging)), Some((Some(70), true)));
         r[9] = 0x01;
         assert_eq!(stinger_battery(&r), None);
+    }
+
+    #[test]
+    fn cloud2_frames() {
+        assert_eq!(&cloud2_request(CLOUD2_LEVEL)[..5], &[0x06, 0xFF, 0xBB, 0x02, 0x00]);
+        let r = pad(&[0x06, 0xFF, 0xBB, 0x02, 0x00, 0x0E, 0xD8, 0x4B], 20);
+        assert!(cloud2_parse(&r, CLOUD2_LEVEL).is_some());
+        assert!(cloud2_parse(&r, CLOUD2_CHARGING).is_none());
+        assert!(cloud2_parse(&pad(&[0x21, 0xFF, 0x05], 20), CLOUD2_LEVEL).is_none());
     }
 
     #[test]
