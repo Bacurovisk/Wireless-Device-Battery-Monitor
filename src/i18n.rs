@@ -7,13 +7,15 @@
 //! # comment
 //! @code = pl
 //! @name = Polski
+//! @decimal = ,
 //! Refresh devices = Odśwież urządzenia
 //! {name}: battery at {level}% = {name}: bateria {level}%
 //! ```
 //!
 //! The left side is the English text exactly as in the program (`\n` stands for a line break), the
 //! right side its translation. Placeholders in braces are filled in by the program and stay as
-//! they are. A missing or empty translation falls back to English.
+//! they are. A missing or empty translation falls back to English. `@decimal` is the language's
+//! decimal separator, `.` (3.9, the default) or `,` (3,9), used by `decimal()`.
 //!
 //! The languages in `lang/` are built into the exe. Users can add their own (or fix a built-in
 //! one): any `*.txt` in `%LOCALAPPDATA%\BatteryHub\Languages` is listed in the Language menu, and
@@ -60,6 +62,8 @@ pub struct Language {
     pub code: String,
     /// Name in the language itself ("Polski").
     pub name: String,
+    /// Decimal separator from `@decimal` ("," or "."); empty when the file has none.
+    pub decimal: String,
     pub texts: HashMap<String, String>,
     /// Where it came from: None for a built-in language.
     pub file: Option<PathBuf>,
@@ -84,6 +88,7 @@ pub fn parse(src: &str) -> Language {
         match k {
             "@code" => l.code = v.to_string(),
             "@name" => l.name = v.to_string(),
+            "@decimal" => l.decimal = v.to_string(),
             _ if k.starts_with('@') => {}
             _ if !v.is_empty() => {
                 l.texts.insert(unescape(k), unescape(v));
@@ -159,6 +164,14 @@ fn load_in(code: &str, dir: &Path) -> HashMap<String, String> {
     texts
 }
 
+/// The decimal separator of a language: the user's file with that code if it sets one, else the
+/// built-in file's, else ".".
+fn decimal_in(code: &str, dir: &Path) -> char {
+    let built_in = BUILT_IN.iter().find(|(c, _)| c.eq_ignore_ascii_case(code)).map(|(_, src)| parse(src).decimal);
+    let user = user_files(dir).into_iter().filter(|u| u.code.eq_ignore_ascii_case(code) && !u.decimal.is_empty()).map(|u| u.decimal).next_back();
+    user.or(built_in).and_then(|d| d.chars().next()).unwrap_or('.')
+}
+
 /// The best language for a Windows UI language name ("pl-PL", "pt-BR", "zh-Hant-TW"): an exact
 /// match, then the same language, then English.
 pub fn pick(windows: &str, codes: &[String]) -> String {
@@ -194,6 +207,7 @@ pub fn windows_language() -> String {
 struct Current {
     code: String,
     texts: HashMap<String, String>,
+    decimal: char,
 }
 
 static CURRENT: RwLock<Option<Current>> = RwLock::new(None);
@@ -208,8 +222,9 @@ pub fn set_language(choice: &str) -> String {
         choice.to_string()
     };
     let texts = load(&code);
+    let decimal = decimal_in(&code, &user_dir());
     if let Ok(mut c) = CURRENT.write() {
-        *c = Some(Current { code: code.clone(), texts });
+        *c = Some(Current { code: code.clone(), texts, decimal });
     }
     code
 }
@@ -227,6 +242,21 @@ pub fn tr(english: &str) -> String {
 /// `tr` with `{placeholders}` filled in: `trf("{name}: {level}%", &[("name", &n), ("level", &l)])`.
 pub fn trf(english: &str, args: &[(&str, &str)]) -> String {
     fill(&tr(english), args)
+}
+
+/// The decimal separator of the language in use ('.' until `set_language` is called).
+pub fn decimal_separator() -> char {
+    CURRENT.read().ok().and_then(|c| c.as_ref().map(|c| c.decimal)).unwrap_or('.')
+}
+
+/// A number with `digits` decimals and the language's separator: `decimal(3.94, 1)` is "3.9" in
+/// English, "3,9" in Polish.
+pub fn decimal(x: f64, digits: usize) -> String {
+    with_separator(&format!("{x:.digits$}"), decimal_separator())
+}
+
+fn with_separator(number: &str, separator: char) -> String {
+    if separator == '.' { number.to_string() } else { number.replacen('.', &separator.to_string(), 1) }
 }
 
 pub fn fill(text: &str, args: &[(&str, &str)]) -> String {
@@ -263,8 +293,10 @@ pub fn template(start: &HashMap<String, String>) -> String {
          # Each line: English text = translation. Keep {placeholders} and \\n (line break) as they are.\n\
          # Change @code (e.g. \"eo\") and @name (the language's own name), save the file, then pick it in\n\
          # the right-click menu: Language. A line left empty, or removed, shows the English text.\n\
-         @code = custom\n@name = My language\n\n",
+         # @decimal is the decimal separator: \".\" (3.9) or \",\" (3,9).\n\
+         @code = custom\n@name = My language\n",
     );
+    out.push_str(&format!("@decimal = {}\n\n", decimal_separator()));
     let en = parse(BUILT_IN[0].1);
     let mut keys: Vec<&String> = en.texts.keys().collect();
     keys.sort();
@@ -433,6 +465,32 @@ mod tests {
     }
 
     #[test]
+    fn decimal_separator_per_language() {
+        assert_eq!(parse("@code = xx\n@decimal = ,\nA = B\n").decimal, ",");
+        assert_eq!(with_separator("3.9", ','), "3,9");
+        assert_eq!(with_separator("12", ','), "12");
+        assert_eq!(with_separator("3.9", '.'), "3.9");
+        // Comma where it is the norm, the default dot elsewhere; every file says which.
+        const COMMA: [&str; 15] = ["cs", "de", "es", "fr", "hu", "id", "it", "nl", "pl", "pt-BR", "ru", "sv", "tr", "uk", "vi"];
+        for (code, src) in BUILT_IN {
+            let want = if COMMA.contains(code) { "," } else { "." };
+            assert_eq!(parse(src).decimal, want, "@decimal of lang/{code}.txt");
+        }
+        // A user file can set it, also for a built-in language.
+        let dir = std::env::temp_dir().join(format!("bh-decimal-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("eo.txt"), "@code = eo\n@decimal = ,\n").unwrap();
+        std::fs::write(dir.join("de-fix.txt"), "@code = de\n@decimal = .\n").unwrap();
+        std::fs::write(dir.join("pl-fix.txt"), "@code = pl\nExit = Zakończ\n").unwrap();
+        assert_eq!(decimal_in("eo", &dir), ',');
+        assert_eq!(decimal_in("de", &dir), '.');
+        assert_eq!(decimal_in("pl", &dir), ','); // no @decimal in the user file: the built-in one
+        assert_eq!(decimal_in("en", &dir), '.');
+        assert_eq!(decimal_in("xx", &dir), '.');
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn user_files_add_and_override_languages() {
         let dir = std::env::temp_dir().join(format!("bh-lang-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -446,7 +504,7 @@ mod tests {
         assert_eq!(pl.get("Exit").map(String::as_str), Some("Zakończ program"));
         assert!(pl.contains_key("Refresh devices")); // the rest of the built-in file stays
         let t = template(&pl);
-        assert!(t.contains("Exit = Zakończ program\n") && t.contains("@code = custom"));
+        assert!(t.contains("Exit = Zakończ program\n") && t.contains("@code = custom") && t.contains("\n@decimal = .\n"));
         assert_eq!(parse(&t).texts.len(), english_keys().len());
         std::fs::remove_dir_all(&dir).unwrap();
     }

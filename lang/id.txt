@@ -1,6 +1,7 @@
 # BatteryHub: Bahasa Indonesia. Each line: English text = translation (see src/i18n.rs).
 @code = id
 @name = Bahasa Indonesia
+@decimal = ,
 
 1 hour = 1 jam
 1 minute = 1 menit

@@ -1,6 +1,7 @@
 # BatteryHub: Français. Each line: English text = translation (see src/i18n.rs).
 @code = fr
 @name = Français
+@decimal = ,
 
 1 hour = 1 heure
 1 minute = 1 minute

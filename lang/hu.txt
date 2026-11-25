@@ -1,6 +1,7 @@
 # BatteryHub: Magyar. Each line: English text = translation (see src/i18n.rs).
 @code = hu
 @name = Magyar
+@decimal = ,
 
 1 hour = 1 óra
 1 minute = 1 perc

@@ -1,6 +1,7 @@
 # BatteryHub: Tiếng Việt. Each line: English text = translation (see src/i18n.rs).
 @code = vi
 @name = Tiếng Việt
+@decimal = ,
 
 1 hour = 1 giờ
 1 minute = 1 phút

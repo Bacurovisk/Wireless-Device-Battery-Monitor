@@ -1,6 +1,7 @@
 # BatteryHub: Nederlands. Each line: English text = translation (see src/i18n.rs).
 @code = nl
 @name = Nederlands
+@decimal = ,
 
 1 hour = 1 uur
 1 minute = 1 minuut

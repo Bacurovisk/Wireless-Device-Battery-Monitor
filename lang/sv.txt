@@ -1,6 +1,7 @@
 # BatteryHub: Svenska. Each line: English text = translation (see src/i18n.rs).
 @code = sv
 @name = Svenska
+@decimal = ,
 
 1 hour = 1 timme
 1 minute = 1 minut

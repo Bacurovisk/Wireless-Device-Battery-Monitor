@@ -1,6 +1,7 @@
 # BatteryHub: 繁體中文. Each line: English text = translation (see src/i18n.rs).
 @code = zh-TW
 @name = 繁體中文
+@decimal = .
 
 1 hour = 1 小時
 1 minute = 1 分鐘
