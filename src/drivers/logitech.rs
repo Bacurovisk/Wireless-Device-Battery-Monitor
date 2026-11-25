@@ -33,6 +33,12 @@ fn is_passthrough_dongle(pid: u16) -> bool {
     pid == 0xC54F
 }
 
+/// Logi Bolt receivers keep their pairing information in other sub-registers of 0xB5 than
+/// Unifying / LIGHTSPEED (Solaar, receiver.py `BoltReceiver`): 0x50 + n instead of 0x20 + n - 1.
+fn is_bolt_receiver(pid: u16) -> bool {
+    pid == 0xC548
+}
+
 enum Reply {
     Ok(Vec<u8>),
     Err(u8),
@@ -129,6 +135,9 @@ struct Slot {
     idx: u8,
     kind: DeviceKind,
     link: Option<bool>,
+    /// Serial from the Bolt pairing register (the device's unit id), so a sleeping device keeps
+    /// the same key it had when it answered.
+    serial: Option<u32>,
 }
 
 /// HID++ 1.0 device kind (pairing register / 0x41 notification, low nibble) -> DeviceKind.
@@ -152,6 +161,20 @@ fn parse_pairing(sub: u8, p: &[u8]) -> Option<(u16, u8)> {
     (wpid != 0 && wpid != 0xFFFF).then_some((wpid, p[7] & 0x0F))
 }
 
+/// Reply parameters of a 0xB5 read of Bolt sub-register `sub` (0x50 + n) -> (wpid, kind nibble,
+/// serial). Layout as Solaar reads it: [sub][kind (low nibble)][wpid lo][wpid hi][serial x4].
+fn parse_bolt_pairing(sub: u8, p: &[u8]) -> Option<(u16, u8, Option<u32>)> {
+    if p.len() < 4 || p[0] != sub {
+        return None;
+    }
+    let wpid = ((p[3] as u16) << 8) | p[2] as u16;
+    if wpid == 0 || wpid == 0xFFFF {
+        return None;
+    }
+    let serial = (p.len() >= 8).then(|| u32::from_be_bytes([p[4], p[5], p[6], p[7]])).filter(|&v| v != 0 && v != u32::MAX);
+    Some((wpid, p[1] & 0x0F, serial))
+}
+
 /// A 0x41 device connection notification -> (device index, link established).
 fn parse_link_notification(r: &[u8]) -> Option<(u8, bool)> {
     if r.len() < 7 || r[0] != 0x10 || r[2] != 0x41 || r[3] == 0 || !(1..=6).contains(&r[1]) {
@@ -163,17 +186,18 @@ fn parse_link_notification(r: &[u8]) -> Option<(u8, bool)> {
 /// Paired slots of a receiver, from its pairing registers, with the link state the receiver
 /// reports for each. None when the receiver has no readable pairing register (then every index
 /// is pinged, as before).
-fn receiver_slots(h: &Hidpp) -> Option<Vec<Slot>> {
+fn receiver_slots(h: &Hidpp, bolt: bool) -> Option<Vec<Slot>> {
     let mut slots = Vec::new();
     let mut answered = false;
     for n in 1..=6u8 {
-        let sub = 0x20 + n - 1;
+        let sub = if bolt { 0x50 + n } else { 0x20 + n - 1 };
         match h.request(0xFF, 0x83, 0xB5, &[sub], true, 900) {
             Reply::Ok(p) => {
                 answered = true;
-                if let Some((wpid, kind)) = parse_pairing(sub, &p) {
-                    crate::util::debug_log(|| format!("  slot {n}: paired, wpid {}, kind {kind}", hex4(wpid)));
-                    slots.push(Slot { idx: n, kind: pairing_kind(kind), link: None });
+                let parsed = if bolt { parse_bolt_pairing(sub, &p) } else { parse_pairing(sub, &p).map(|(w, k)| (w, k, None)) };
+                if let Some((wpid, kind, serial)) = parsed {
+                    crate::util::debug_log(|| format!("  slot {n}: paired, wpid {}, kind {kind}, serial {serial:08X?}", hex4(wpid)));
+                    slots.push(Slot { idx: n, kind: pairing_kind(kind), link: None, serial });
                 }
             }
             Reply::Err(e) => {
@@ -425,7 +449,7 @@ fn poll_device(ctx: &mut PollContext, pid: u16, shorts: &[HidColl], longs: &[Hid
     });
     // A receiver that lists its paired devices: ping only those, give a sleeping device time to
     // answer, and skip those the receiver reports as not linked.
-    let slots = if is_receiver && !passthrough && !bluetooth { receiver_slots(&h) } else { None };
+    let slots = if is_receiver && !passthrough && !bluetooth { receiver_slots(&h, is_bolt_receiver(pid)) } else { None };
     let indices: Vec<u8> = if let Some(slots) = &slots {
         slots.iter().map(|s| s.idx).collect()
     } else if passthrough {
@@ -500,6 +524,9 @@ fn poll_device(ctx: &mut PollContext, pid: u16, shorts: &[HidColl], longs: &[Hid
                 DeviceKind::Keyboard => "Logitech wireless keyboard".into(),
                 _ => s.name,
             };
+            if let Some(serial) = slot.and_then(|sl| sl.serial) {
+                s.key = format!("logi:unit:{serial:08X}");
+            }
             s.connected = false;
             s.vid = 0x046D;
             s.hw = Some((0x046D, pid));
@@ -577,6 +604,18 @@ mod tests {
         let empty = [0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
         assert_eq!(parse_pairing(0x21, &empty), None);
         assert_eq!(parse_pairing(0x20, &p[..5]), None);
+    }
+
+    #[test]
+    fn bolt_pairing_register() {
+        // 0xB5 sub 0x51 (Bolt slot 1): kind 1 (keyboard), wpid B378, serial 8D760B87.
+        let p = [0x51, 0x41, 0x78, 0xB3, 0x8D, 0x76, 0x0B, 0x87, 0, 0, 0, 0, 0, 0, 0, 0];
+        assert_eq!(parse_bolt_pairing(0x51, &p), Some((0xB378, 1, Some(0x8D76_0B87))));
+        assert_eq!(pairing_kind(1), DeviceKind::Keyboard);
+        assert_eq!(parse_bolt_pairing(0x52, &p), None); // another slot's reply
+        assert_eq!(parse_bolt_pairing(0x52, &[0x52, 0, 0, 0, 0, 0, 0, 0]), None); // empty slot
+        assert_eq!(parse_bolt_pairing(0x51, &p[..4]), Some((0xB378, 1, None)));
+        assert_eq!(format!("{:08X}", 0x8D76_0B87u32), "8D760B87"); // same form as read_unit_id20
     }
 
     #[test]
