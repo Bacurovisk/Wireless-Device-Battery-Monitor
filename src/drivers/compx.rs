@@ -46,7 +46,7 @@ const fn p(vid: u16, pid: u16, name: &'static str, group: &'static str, cable: b
     Product { vid, pid, name, group, cable }
 }
 
-const PRODUCTS: [Product; 14] = [
+const PRODUCTS: [Product; 16] = [
     p(0x3554, 0xF508, "Pulsar mouse", "pulsar1k", false),
     p(0x3554, 0xF509, "Pulsar mouse", "pulsar4k", false),
     p(0x3554, 0xF507, "Pulsar mouse", "pulsar-cable", true),
@@ -61,6 +61,12 @@ const PRODUCTS: [Product; 14] = [
     // Six LAMZU models (Atlantis OG V2 / Mini / Mini Pro, Thorn, Maya, Paro) share these ids.
     p(0x3554, 0xF510, "LAMZU mouse", "lamzu4k", false),
     p(0x3554, 0xF50F, "LAMZU mouse", "lamzu4k", true),
+    // Zaopin ZPW MAX 8K receiver: confirmed on hardware by Joule (MIT, github.com/DillanCidral/Joule,
+    // CompxProvider and docs/supported-devices.md); other Zaopin mice share it.
+    p(0x3554, 0xF527, "Zaopin mouse", "zaopin8k", false),
+    // ATK NK receiver: measured on an ATK A9 SE by HaloBattery (providers/pulsar.py, issue #347),
+    // also listed by Joule; other ATK mice share it.
+    p(0x373B, 0x10C9, "ATK mouse", "atk10c9", false),
     // Pulsar XS-1 8K Gen.2 receiver and its wired TenZ identity; both use report 8.
     p(0x3710, 0x5406, "Pulsar TenZ", "pulsar-xs1", false),
     // 3710:3415 / interface 1 / FF02:0002 (17-byte reports), verified with the original BatteryHub.
