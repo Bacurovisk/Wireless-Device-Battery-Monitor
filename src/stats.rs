@@ -95,6 +95,10 @@ pub fn counts_charge(s: &Session) -> bool {
 pub fn compute(pts: &[Point], current: Option<(i32, bool)>) -> Stats {
     let mut st = Stats { readings: pts.len(), first_reading: pts.first().map(|p| p.t), ..Default::default() };
     // Runs: consecutive points of the same state within one stretch of monitoring.
+    // Right after a charge a device keeps reporting the level it reached for a while (the reading
+    // settles before it moves), also across times it was off: a discharge only counts from its
+    // first change of level after a charge, or those hours would count as hours without any drop.
+    let mut settling = false;
     let mut i = 0;
     while i < pts.len() {
         let charging = pts[i].charging();
@@ -106,7 +110,21 @@ pub fn compute(pts: &[Point], current: Option<(i32, bool)>) -> Stats {
         // at the first reading on power (the level there is still the battery's), so it counts.
         let mut run: Vec<Point> = pts[i..j].to_vec();
         if !charging && j < pts.len() && !pts[j].starts() {
-            run.push(Point { flags: 0, ..pts[j] });
+            // By the first reading on power the level may already have gone up: the run ends
+            // there with its own last level, never with the charger's.
+            let last = run[run.len() - 1].level;
+            run.push(Point { flags: 0, level: pts[j].level.min(last), ..pts[j] });
+        }
+        if charging {
+            settling = true;
+        } else if settling {
+            match run.iter().position(|p| p.level != run[0].level) {
+                Some(m) => {
+                    settling = false;
+                    run.drain(..m);
+                }
+                None => run.clear(),
+            }
         }
         if let Some(s) = session(&run, charging)
             && run.len() > 1
@@ -265,6 +283,40 @@ mod tests {
         assert_eq!(st.remaining_h, None);
         assert_eq!(st.charge_rate, None);
         assert_eq!(compute(&[], None), Stats::default());
+    }
+
+    #[test]
+    fn charge_start_does_not_turn_a_drop_into_a_rise() {
+        // 73 -> 70 % over 3 h, then on the charger: the first reading on power already says 74 %.
+        let pts = [p(0, 73, START), p(60, 72, 0), p(120, 71, 0), p(180, 70, 0), p(185, 74, CHARGING), p(200, 82, CHARGING)];
+        let st = compute(&pts, None);
+        let s = st.discharges[0];
+        assert_eq!((s.from, s.to), (73, 70));
+        assert!((st.discharge_estimate().unwrap().rate - 3.0 / (185.0 / 60.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn level_held_after_a_charge_is_not_counted_as_no_drop() {
+        // 4 h at 1 %/h, a charge to 82 %, then 82 % for 3 h in two sessions (switched off in
+        // between) before the level starts to move again: 81 % one hour later.
+        let pts = [
+            p(0, 80, START),
+            p(60, 79, 0),
+            p(120, 78, 0),
+            p(180, 77, 0),
+            p(240, 76, 0),
+            p(250, 82, CHARGING),
+            p(260, 82, 0),
+            p(320, 82, 0),
+            p(900, 82, START),
+            p(960, 82, 0),
+            p(1020, 82, 0),
+            p(1080, 81, 0),
+            p(1140, 81, 0),
+        ];
+        let st = compute(&pts, Some((81, false)));
+        // Only 0 -> 250 min (4 % drop) and 1080 -> 1140 min (no drop) count: 4 % in 310 min.
+        assert!((st.discharge_estimate().unwrap().rate - 4.0 / (310.0 / 60.0)).abs() < 1e-9);
     }
 
     #[test]
