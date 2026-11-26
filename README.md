@@ -431,6 +431,7 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | H2015 Pro headset | `3206:0871` | No documented battery query for its dongle; commands are not guessed | [#242](../../issues/242), [#561](../../issues/561), [#563](../../issues/563) |
 | ATK Phantom ("Wireless mouse 8k dongle-M1") | `373B:12F5` | Its read (the BITMOUSE one of the `373B:1216` NANO dongle) is listed for it elsewhere but not confirmed on hardware; commands are not guessed | [#358](../../issues/358) |
 | RAINY 75 PRO keyboard | `320F:5088` | Same receiver as the Evision keyboards BatteryHub reads, but the RAINY 75 PRO is not among the models whose read is documented; commands are not guessed | [#253](../../issues/253) |
+| AJAZZ AK966 | `320F:5088`, `320F:5055` | Same receiver and cable ids as the Evision keyboards BatteryHub reads, but the AK966 is not among the models whose read is documented; commands are not guessed | [#450](../../issues/450), [#451](../../issues/451) |
 | HyeKu mouse receiver | `276D:1101` | No documented protocol | [#256](../../issues/256) |
 | HyperX Cloud Flight S | `0951:16EA` | No documented battery read for the Flight S (the Cloud Flight's read is not confirmed on it); commands are not guessed | [#257](../../issues/257), [#282](../../issues/282) |
 | SteelSeries Prime Mini Wireless | `1038:184A` | Not among the SteelSeries mice whose battery read is documented ([rivalcfg](https://github.com/flozz/rivalcfg) covers the Prime Wireless `1840` / `1842`, not the Prime Mini Wireless); commands are not guessed | [#259](../../issues/259) |
