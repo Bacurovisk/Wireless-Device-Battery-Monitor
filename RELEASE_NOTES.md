@@ -21,7 +21,6 @@ Already installed? Use *Check for updates...* in the right-click menu (v1.1 and 
 - **Fixed:** G435 newer dongle never read; Audeze Maxwell; G733 level (by [TIGamingTV](https://github.com/TIGamingTV), #478); Smailwolf / AJAZZ `A8A5:2255` below 100 % (by [elcio96](https://github.com/elcio96), #494).
 - **Taskbar full:** the widget hides where it would cover task buttons; with no room anywhere, the levels move to notification-area icons until there is room again.
 - **Compact layout:** icons above percentages (by [DyAvr](https://github.com/DyAvr), #456). **Delete device** in the dashboard for disconnected devices. Works with Stardock Start11, and a shorter right-click menu with *Widget*, *Settings* and *Help* (both by [artxamer](https://github.com/artxamer), #512, #520).
-- Updates are also looked for under `ferloom/battery-hub`, in case the repository is renamed.
 
 ## New in v1.7.6
 
