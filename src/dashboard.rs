@@ -35,6 +35,9 @@ const COPY_STATUSES: usize = 1;
 pub const COPY_RESET: usize = 2;
 /// To the taskbar program: a dashboard opened, send it every device now.
 pub const COPY_HELLO: usize = 3;
+/// To the taskbar program: forget the (disconnected) device whose key is the data: its
+/// measurements, settings and entry.
+pub const COPY_DELETE: usize = 4;
 /// The taskbar program's hidden main window.
 const TASKBAR_CLASS: PCWSTR = w!("BatteryHub.Taskbar.Main");
 const TIMER_ANIM: usize = 1;
@@ -50,6 +53,7 @@ const ID_RENAME: u32 = 20;
 /// + chart (two charts for earbuds: left and right bud).
 const ID_CHART: u32 = 30;
 const ID_RESET: u32 = 25;
+const ID_DELETE: u32 = 26;
 /// + device in the device bar.
 const ID_DEVICE: u32 = 100;
 /// Device bar: this many characters of a name, then "...".
@@ -134,6 +138,30 @@ pub fn reset_question(name: &str) -> String {
         "Delete all measurements of {name}?\n\nIts battery history, charging and discharge sessions and statistics are deleted, and BatteryHub starts measuring it again from now. This cannot be undone.",
         &[("name", name)],
     )
+}
+
+/// The question asked before a disconnected device is deleted.
+pub fn delete_question(name: &str) -> String {
+    trf(
+        "Delete {name}?\n\nIts battery history, statistics and settings are deleted and BatteryHub forgets the device. If it connects again, it shows up as a new device. This cannot be undone.",
+        &[("name", name)],
+    )
+}
+
+/// Forgets a device: through the taskbar program (it owns the history and the device list), or in
+/// the history file and the settings when it does not run.
+fn delete_device(from: HWND, key: &str) {
+    if send_to_taskbar(from, COPY_DELETE, key.as_bytes()) {
+        return;
+    }
+    let path = history::History::path(EDITION);
+    if let Ok(b) = std::fs::read(&path) {
+        let mut h = history::History::decode(&b);
+        if h.remove(key) {
+            let _ = h.save_to(&path);
+        }
+    }
+    crate::settings::forget_device(SETTINGS_KEY, key);
 }
 
 /// A device bar label: the first characters of the name, then "...".
@@ -663,6 +691,17 @@ impl Dash {
         }
         b.text(&label, rf, t.red, zr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         self.hits.add(zr, ID_RESET);
+        // A disconnected device can be deleted altogether (asks first).
+        if !d.connected {
+            let label = tr("Delete device...");
+            let dw = b.measure(&label, rf).cx + self.px(16.0);
+            let dr = rect(zr.right + self.px(4.0), rr.top, dw, self.px(24.0));
+            if self.hover == Some(ID_DELETE) {
+                b.rrect(dr.left as f32, dr.top as f32, dw as f32, self.px(24.0) as f32, self.px(4.0) as f32, t.button_hover, 1.0);
+            }
+            b.text(&label, rf, t.red, dr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            self.hits.add(dr, ID_DELETE);
+        }
         top + self.px(96.0)
     }
 
@@ -1403,6 +1442,34 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                                     d.load_history();
                                     d.invalidate();
                                 });
+                            }
+                        }
+                    }
+                    Some(ID_DELETE) => {
+                        // Asked outside `with`: the message box runs its own message loop.
+                        if let Some(s) = with(|d| d.status.clone()).filter(|s| !s.connected) {
+                            let answer = MessageBoxW(
+                                Some(hwnd),
+                                &HSTRING::from(delete_question(&s.name)),
+                                &HSTRING::from(tr("Delete device")),
+                                MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
+                            );
+                            if answer == IDYES {
+                                delete_device(hwnd, &s.key);
+                                // Another device, or close when it was the only one.
+                                let next = with(|d| {
+                                    d.devices.retain(|(o, _)| o.key != s.key);
+                                    (!d.devices.is_empty()).then_some(0)
+                                })
+                                .flatten();
+                                match next {
+                                    Some(i) => {
+                                        with(|d| d.switch_device(i));
+                                    }
+                                    None => {
+                                        let _ = DestroyWindow(hwnd);
+                                    }
+                                }
                             }
                         }
                     }

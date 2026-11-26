@@ -331,7 +331,18 @@ pub fn with_new_first(saved: &[String], new: &[String]) -> Vec<String> {
 pub const FORGET_SECS: u64 = crate::history::KEEP_SECS;
 
 /// Per-device settings, by subkey (a value per device key).
-const DEVICE_SUBKEYS: [&str; 7] = ["Order", "Names", "Hidden", "Thresholds", "Warn5", "RedIcon", "IconColor"];
+const DEVICE_SUBKEYS: [&str; 11] =
+    ["Order", "Names", "Hidden", "Thresholds", "Warn5", "RedIcon", "IconColor", "Hover", "CardChart", "CardTime", "BatteryOnly"];
+
+/// Deletes every setting BatteryHub keeps for one device (name, order, warning levels, colours,
+/// hover, when it was last seen and what it was): "Delete device" in the dashboard.
+pub fn forget_device(settings_key: &str, device_key: &str) {
+    for name in DEVICE_SUBKEYS.iter().chain(["Seen", "Known"].iter()) {
+        if let Some(k) = inst::open(HKCU, &sub(settings_key, name), true) {
+            k.delete_value(device_key);
+        }
+    }
+}
 
 fn seen_times(settings_key: &str) -> HashMap<String, u64> {
     inst::open(HKCU, &sub(settings_key, "Seen"), false)

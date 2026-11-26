@@ -111,6 +111,8 @@ Your warning levels, device names, options and battery history are kept either w
 - **Your order:** drag a device along the widget to another place (the others slide aside), or use *Move left / Move right* in its menu; every device keeps its place, and a device seen for the first time starts on the far left.
 - **Gone devices are forgotten:** a device not connected for 7 days loses its history, place, name and settings, so a device plugged in once does not stay around.
 - **Reset measurements** of a device (its menu, or the dashboard): after a warning, its history and statistics are deleted and measuring starts again.
+- **Delete device** (dashboard, disconnected devices): after a warning, BatteryHub forgets the device altogether: its history, statistics and settings. If it connects again, it shows up as new.
+- **Not enough room on the taskbar?** When the widget would cover task buttons, it hides on that taskbar (each monitor on its own); when no taskbar has room, the levels move to notification-area icons, said once in a notification, and the widget comes back as soon as there is room.
 - **Windows 11 style menu:** the right-click menu is drawn like Windows 11's own context menus, dark or light like the taskbar.
 - **Request support for a device** from the menu: pick a device that is not shown, and a GitHub issue opens filled in with what is needed to add it.
 - **Tiny:** about 0.1–0.2 MB of RAM when idle (Task Manager "Memory"), about 0.1 s of CPU per minute.
@@ -137,6 +139,7 @@ Left click does nothing (on purpose: the strip stays out of the way). **Right cl
 | *Refresh battery every* ▸ | **1 minute** / 5 / 10 / 30 minutes / 1 hour |
 | *Refresh when a device connects or disconnects* | **On** by default; see below |
 | *Show the icon when no device is connected* | **On** by default: with no device the strip shows a grey battery, so there is always something to right-click. Turned off, the strip stays empty then and BatteryHub's own icon appears in the notification area instead (right-click it for this menu) |
+| *Icons above percentages (narrower)* | **Off** by default. Each device's icon above its level, so the strip takes about half the width (when the taskbar is tall enough; by [DyAvr](https://github.com/DyAvr), #456) |
 | *Show as notification-area icons (Windows arranges them)* | **Off** by default. Instead of the strip, one notification-area icon per device with its level drawn in it. Windows places these icons like any other: drag them to reorder or in and out of the hidden icons. New icons start hidden behind ^ (Windows 11 does that for every app): drag them onto the taskbar or turn them on in *Settings → Personalization → Taskbar → Other system tray icons* once; Windows remembers it per device |
 | *Background behind taskbar text (for translucent taskbars)* | **Off** by default. A rounded plate in the taskbar's colour behind the widget, so it stays readable on a transparent taskbar (TranslucentTB, Windhawk Taskbar Styler...) |
 | *Widget position* ▸ | **Right** (default, next to the clock) or **Left**: right after the last taskbar icon when they are aligned left, or at the taskbar's left end (after the widgets / weather button, never on top of it) when they are centred; it follows as icons come and go. Horizontal taskbars only; *Position on the taskbar* applies to the right side |
@@ -589,6 +592,8 @@ BatteryHub is not made by one person alone. Thank you to everyone who helped!
 - **[@AlanRooMJ](https://github.com/AlanRooMJ)**: MEETION mice on `249A:5C2F` (#216).
 - **[@karim-kss](https://github.com/karim-kss)**: VGN DragonFly F2 Pro Max, checked on hardware (#524).
 - **[@AzukiPann](https://github.com/AzukiPann)**: Sony INZONE H5, tested on hardware (#328).
+- **[@artxamer](https://github.com/artxamer)**: the strip with Stardock Start11's taskbar (#512).
+- **[@DyAvr](https://github.com/DyAvr)**: compact layout, icons above percentages (#456); the idea of moving to notification-area icons when the taskbar is full (#455).
 
 **Device requests, dumps and testing.** Every new device comes from someone who asked for it, sent a dump or tested a version. Thank you to all of them:
 

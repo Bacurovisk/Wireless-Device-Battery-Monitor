@@ -142,8 +142,8 @@ const LEFT_REFRESH: Duration = Duration::from_secs(2);
 
 struct LeftEntry {
     bar: (i32, i32, i32, i32),
-    /// Screen x right after the items at the taskbar's left end.
-    end: i32,
+    /// The taskbar's items (left, right), screen x.
+    items: Vec<(i32, i32)>,
     at: Instant,
     /// LEFT_GEN when it was checked.
     generation: u32,
@@ -165,6 +165,25 @@ pub fn left_refresh_soon() {
 /// buttons are centred; the taskbar's own left edge when nothing starts there. None until the
 /// first answer (then `notify` gets `msg`). Horizontal taskbars only.
 pub fn left_content_end(bar: HWND, bar_rect: RECT, notify: HWND, msg: u32) -> Option<i32> {
+    items(bar, bar_rect, notify, msg, LEFT_REFRESH).map(|v| left_chain_end(&v, bar_rect.left, bar_rect.bottom - bar_rect.top))
+}
+
+/// Whether the span `x0..x1` (screen x) of the taskbar `bar` is free of its items (task buttons,
+/// Start, search, widgets...): Some(false) when the widget would cover one of them. None until the
+/// first answer. Checked again after `max_age`, and after `left_refresh_soon` (a window opened or
+/// closed). Horizontal taskbars only.
+pub fn room(bar: HWND, bar_rect: RECT, x0: i32, x1: i32, notify: HWND, msg: u32, max_age: Duration) -> Option<bool> {
+    items(bar, bar_rect, notify, msg, max_age).map(|v| has_room(&v, x0, x1))
+}
+
+/// No item overlaps `x0..x1`.
+pub fn has_room(items: &[(i32, i32)], x0: i32, x1: i32) -> bool {
+    !items.iter().any(|&(l, r)| l < x1 && r > x0)
+}
+
+/// The taskbar's items (left, right) in screen x, from UI Automation on a worker thread (one per
+/// taskbar); None until the first answer, then `notify` gets `msg` whenever they change.
+fn items(bar: HWND, bar_rect: RECT, notify: HWND, msg: u32, max_age: Duration) -> Option<Vec<(i32, i32)>> {
     let key = bar.0 as isize;
     let r = (bar_rect.left, bar_rect.top, bar_rect.right, bar_rect.bottom);
     let generation = LEFT_GEN.load(Ordering::SeqCst);
@@ -172,7 +191,7 @@ pub fn left_content_end(bar: HWND, bar_rect: RECT, notify: HWND, msg: u32) -> Op
         let mut g = LEFT.lock().unwrap_or_else(|e| e.into_inner());
         let m = g.get_or_insert_with(HashMap::new);
         match m.get(&key) {
-            Some(e) if e.bar == r => (Some(e.end), e.at.elapsed() >= LEFT_REFRESH || e.generation != generation),
+            Some(e) if e.bar == r => (Some(e.items.clone()), e.at.elapsed() >= max_age || e.generation != generation),
             _ => (None, true),
         }
     };
@@ -180,14 +199,14 @@ pub fn left_content_end(bar: HWND, bar_rect: RECT, notify: HWND, msg: u32) -> Op
     if start {
         let notify = notify.0 as isize;
         std::thread::spawn(move || {
-            let items = probe_items(key).unwrap_or_default();
-            let end = left_chain_end(&items, r.0, r.3 - r.1);
+            let mut items = probe_items(key).unwrap_or_default();
+            items.sort();
             let changed = {
                 let mut g = LEFT.lock().unwrap_or_else(|e| e.into_inner());
                 let m = g.get_or_insert_with(HashMap::new);
-                let old = m.insert(key, LeftEntry { bar: r, end, at: Instant::now(), generation });
-                m.retain(|_, e| e.at.elapsed() < LEFT_REFRESH * 30);
-                old.is_none_or(|o| o.end != end || o.bar != r)
+                let old = m.insert(key, LeftEntry { bar: r, items: items.clone(), at: Instant::now(), generation });
+                m.retain(|_, e| e.at.elapsed() < Duration::from_secs(600));
+                old.is_none_or(|o| o.items != items || o.bar != r)
             };
             if let Some(b) = LEFT_BUSY.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
                 b.remove(&key);
@@ -258,6 +277,14 @@ fn probe_items(bar: isize) -> Option<Vec<(i32, i32)>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn room_beside_items() {
+        let items = [(0, 55), (700, 744), (744, 788)];
+        assert!(has_room(&items, 1500, 1600));
+        assert!(!has_room(&items, 760, 860));
+        assert!(has_room(&items, 788, 900));
+    }
 
     #[test]
     fn left_chain() {

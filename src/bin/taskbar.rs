@@ -28,7 +28,7 @@ use windows::Win32::UI::Controls::{
 use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow, SetProcessDpiAwarenessContext};
 use windows::Win32::UI::Input::KeyboardAndMouse::{TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent};
 use windows::Win32::UI::Shell::{
-    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_WARNING, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW,
+    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_INFO, NIIF_WARNING, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
@@ -71,6 +71,11 @@ const TIMER_GLIDE: usize = 25;
 /// closes (its task button comes or goes), LEFT_PROBES times.
 const TIMER_LEFT_PROBE: usize = 26;
 const LEFT_PROBES: u8 = 4;
+/// How old the taskbar's items may be when checking room for the widget: next to the icons they
+/// move all the time; next to the clock only a window opening or closing changes the room (the
+/// shell hook marks the answer stale then), so this is only a fallback.
+const ROOM_LEFT_AGE: std::time::Duration = std::time::Duration::from_secs(2);
+const ROOM_AGE: std::time::Duration = std::time::Duration::from_secs(60);
 /// Length of that glide.
 const GLIDE_MS: f32 = 260.0;
 /// Length of that pop-in.
@@ -404,6 +409,13 @@ struct App {
     mirror_glides: RefCell<Vec<(HWND, POINT, POINT, Instant)>>,
     /// Checks of the taskbar's left end left after a window opened or closed.
     left_probes: u8,
+    /// Per taskbar: whether the widget fits there without covering a task button (false: hidden
+    /// there). Taskbars missing here have room as far as known.
+    rooms: RefCell<HashMap<isize, bool>>,
+    /// No taskbar the widget is shown on has room: the levels are notification-area icons.
+    crowded: bool,
+    /// When "not enough room" was last said (once per crowding, at most every 10 minutes).
+    crowded_said: Option<Instant>,
     /// "SHELLHOOK" message: windows opening and closing.
     shell_msg: u32,
     /// Copies of the strip on the taskbars of other monitors ("Show widget on"): (taskbar, strip).
@@ -1040,6 +1052,9 @@ impl App {
 
     /// Renders the strip and hands it to the layered window.
     fn paint(&mut self) {
+        if self.crowded && !self.fallback {
+            self.sync_tray();
+        }
         if self.fallback {
             self.sync_tray();
             return;
@@ -1162,8 +1177,8 @@ impl App {
                 cx += pieces[k].m.w + if pieces.get(k + 1).is_some_and(|q| q.dev == Some(i)) { pieces[k].gap_after } else { 0 };
                 k += 1;
             }
-            if compact {
-                if k > first + 1 {
+            if compact
+                && k > first + 1 {
                     let icon = &pieces[first];
                     let row_start = icon.m.w + icon.gap_after;
                     let row_w = cx - row_start;
@@ -1178,7 +1193,6 @@ impl App {
                         ys[j] = Some(y + icon.m.h + gap + (row_h - pieces[j].m.h) / 2);
                     }
                 }
-            }
             ranges[i] = (start, start + cx);
             x += cx as f32 * items[i].f;
         }
@@ -1561,6 +1575,8 @@ impl App {
         }
         dbg_log(&format!("fallback to notification-area icons: {on}"));
         self.fallback = on;
+        // Recomputed by the next tick (sync_crowded) once the strip is back.
+        self.crowded = false;
         if on {
             self.hide_tip();
             self.drop_mirrors();
@@ -1603,12 +1619,40 @@ impl App {
                 self.place();
             }
             self.sync_mirrors();
+            self.sync_crowded();
             self.sync_app_icon();
         } else {
             self.fail_ticks += 1;
             if self.fail_ticks >= FALLBACK_AFTER_TICKS {
                 self.set_fallback(true);
             }
+        }
+    }
+
+    /// No taskbar the widget is shown on has room beside its task buttons: the levels move to
+    /// notification-area icons (said once in a notification) until one has room again.
+    fn sync_crowded(&mut self) {
+        let mut bars: Vec<isize> = self.mirrors.iter().map(|m| m.0.0 as isize).collect();
+        if !self.primary_hidden {
+            bars.push(self.taskbar.0 as isize);
+        }
+        let crowded = {
+            let rooms = self.rooms.borrow();
+            !bars.is_empty() && bars.iter().all(|b| rooms.get(b) == Some(&false))
+        };
+        if crowded == self.crowded {
+            return;
+        }
+        self.crowded = crowded;
+        dbg_log(&format!("not enough room on the taskbar: {crowded}"));
+        if crowded {
+            self.sync_tray();
+            if self.crowded_said.is_none_or(|t| t.elapsed().as_secs() >= 600) {
+                self.crowded_said = Some(Instant::now());
+                self.notify_info(&tr("Not enough room on the taskbar"), &tr("The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position."));
+            }
+        } else if !self.fallback {
+            self.remove_tray();
         }
     }
 
@@ -1947,6 +1991,7 @@ impl App {
                 let mut client = RECT::default();
                 let _ = GetClientRect(bar, &mut client);
                 let left = ((client.right - self.size.cx) / 2).max(0);
+                self.rooms.borrow_mut().remove(&(bar.0 as isize));
                 self.show_mirror_at(bar, strip, left, top.max(0), self.size);
                 return false;
             }
@@ -1992,6 +2037,20 @@ impl App {
                 if tl.x + (wr.right - wr.left) > left && left > tl.x {
                     let _ = MoveWindow(worker, tl.x, tl.y, left - tl.x, wr.bottom - wr.top, true);
                 }
+            }
+            // Not enough room beside this taskbar's task buttons: hidden there (see tick).
+            let mut x0 = POINT { x: left, y: top };
+            let _ = ClientToScreen(bar, &mut x0);
+            let age = if self.align_left { ROOM_LEFT_AGE } else { ROOM_AGE };
+            let room = batteryhub::tray_probe::room(bar, br, x0.x, x0.x + self.size.cx, self.main, WM_TRAY_PROBED, age).is_none_or(|r| r)
+                && x0.x + self.size.cx <= right;
+            self.rooms.borrow_mut().insert(bar.0 as isize, room);
+            if !room {
+                self.mirror_glides.borrow_mut().retain(|g| g.0 != strip);
+                if IsWindowVisible(strip).as_bool() {
+                    let _ = ShowWindow(strip, SW_HIDE);
+                }
+                return false;
             }
             self.show_mirror_at(bar, strip, left, top, self.size);
         }
@@ -2177,6 +2236,7 @@ impl App {
                 }
                 let top = top.max(0);
                 let left = ((client.right - self.size.cx) / 2).max(0);
+                self.rooms.borrow_mut().remove(&(self.taskbar.0 as isize));
                 self.place_strip_at(left, top, (tr, bar, top));
                 return;
             }
@@ -2211,6 +2271,22 @@ impl App {
                 if tl.x + (rr.right - rr.left) > left && left > tl.x {
                     let _ = MoveWindow(rebar, tl.x, tl.y, left - tl.x, rr.bottom - rr.top, true);
                 }
+            }
+            // Not enough room beside the task buttons: hidden on this taskbar (see tick).
+            let mut x0 = POINT { x: left, y: top };
+            let _ = ClientToScreen(self.taskbar, &mut x0);
+            let age = if self.align_left { ROOM_LEFT_AGE } else { ROOM_AGE };
+            let room = batteryhub::tray_probe::room(self.taskbar, bar, x0.x, x0.x + self.size.cx, self.main, WM_TRAY_PROBED, age).is_none_or(|r| r)
+                && x0.x + self.size.cx <= tr.left;
+            self.rooms.borrow_mut().insert(self.taskbar.0 as isize, room);
+            if !room {
+                self.glide = None;
+                self.last_place = Default::default();
+                if IsWindowVisible(self.strip).as_bool() {
+                    self.hide_tip();
+                    let _ = ShowWindow(self.strip, SW_HIDE);
+                }
+                return;
             }
             self.place_strip_at(left, top, (tr, bar, left));
         }
@@ -2542,7 +2618,11 @@ impl App {
             let left = mask(&left_text, small_f, light);
             cv.draw(&left, pad, y, if est.is_some() { fg } else { dim }, 255);
         }
-        y += px(22.0); // same layout for every device, so cards share one height
+        if show_time {
+            y += px(22.0); // same layout for every device, so cards share one height
+        } else {
+            y -= px(4.0); // no time-left line: the bar moves up under the level
+        }
         cv.fill_rrect(pad, y, w - pad, y + px(6.0), px(3.0), track, 255);
         if d.percent > 0 {
             let fill = pad + (w - 2 * pad) * d.percent.min(100) / 100;
@@ -3564,6 +3644,24 @@ impl App {
         dbg_log(&format!("measurements of {key} deleted"));
     }
 
+    /// "Delete device" in the dashboard: forgets a disconnected device altogether (measurements,
+    /// settings and its entry). A device that is connected right now is left alone.
+    fn delete_device(&mut self, key: &str) {
+        if self.devices.get(key).is_some_and(|t| t.status.connected) {
+            return;
+        }
+        self.devices.remove(key);
+        self.order.retain(|k| k != key);
+        self.reset_history(key);
+        settings::forget_device(SETTINGS_KEY, key);
+        self.saved_order = settings::order(SETTINGS_KEY);
+        self.names = settings::names(SETTINGS_KEY);
+        self.hidden = settings::hidden(SETTINGS_KEY);
+        self.paint();
+        self.send_to_dashboards();
+        dbg_log(&format!("device {key} deleted"));
+    }
+
     /// Fresh readings for open dashboards (they show the live level and state).
     fn send_to_dashboards(&self) {
         if batteryhub::dashboard::any_open() {
@@ -3638,6 +3736,33 @@ impl App {
             SetTimer(Some(self.main), TIMER_NOTIFY, 60_000, None);
         }
         dbg_log(&format!("low-battery notification: {name} {level}%"));
+    }
+
+    /// Shows a Windows notification with the app's icon (see notify_low).
+    fn notify_info(&mut self, title: &str, text: &str) {
+        let size = unsafe { windows::Win32::UI::HiDpi::GetSystemMetricsForDpi(SM_CXSMICON, windows::Win32::UI::HiDpi::GetDpiForSystem()) };
+        let icon = unsafe {
+            let hinst = GetModuleHandleW(None).unwrap_or_default();
+            let Ok(h) = LoadImageW(Some(hinst.into()), windows::core::PCWSTR(1 as _), IMAGE_ICON, size, size, LR_DEFAULTCOLOR) else { return };
+            HICON(h.0)
+        };
+        let mut d = self.tray_data(NOTIFY_UID);
+        d.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE | NIF_INFO;
+        d.uCallbackMessage = WM_TRAY;
+        d.hIcon = icon;
+        d.dwInfoFlags = NIIF_INFO;
+        ui::fill_wide(&mut d.szTip, "BatteryHub");
+        ui::fill_wide(&mut d.szInfoTitle, title);
+        ui::fill_wide(&mut d.szInfo, text);
+        unsafe {
+            if !Shell_NotifyIconW(NIM_MODIFY, &d).as_bool() {
+                let _ = Shell_NotifyIconW(NIM_ADD, &d);
+            }
+            if let Some(old) = self.notify_icon.replace(icon) {
+                let _ = DestroyIcon(old);
+            }
+            SetTimer(Some(self.main), TIMER_NOTIFY, 60_000, None);
+        }
     }
 
     /// Removes the temporary notification icon.
@@ -5382,6 +5507,9 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                 if cds.dwData == batteryhub::dashboard::COPY_RESET && !cds.lpData.is_null() {
                     let key = String::from_utf8_lossy(std::slice::from_raw_parts(cds.lpData as *const u8, cds.cbData as usize)).to_string();
                     with_app(|a| a.reset_history(&key));
+                } else if cds.dwData == batteryhub::dashboard::COPY_DELETE && !cds.lpData.is_null() {
+                    let key = String::from_utf8_lossy(std::slice::from_raw_parts(cds.lpData as *const u8, cds.cbData as usize)).to_string();
+                    with_app(|a| a.delete_device(&key));
                 } else if cds.dwData == batteryhub::dashboard::COPY_HELLO {
                     // A dashboard just opened: it gets every device right away (its device bar).
                     with_app(|a| a.send_to_dashboards());
@@ -5445,7 +5573,7 @@ extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                     let code = (wp.0 & 0x7FFF) as u32;
                     if code == HSHELL_WINDOWCREATED || code == HSHELL_WINDOWDESTROYED {
                         with_app(|a| {
-                            if a.align_left && !a.vertical {
+                            if !a.vertical && !a.fallback {
                                 a.left_probes = LEFT_PROBES;
                                 SetTimer(Some(hwnd), TIMER_LEFT_PROBE, 200, None);
                             }
