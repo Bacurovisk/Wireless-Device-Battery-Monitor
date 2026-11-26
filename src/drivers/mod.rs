@@ -28,6 +28,7 @@ pub mod corsair_bragi;
 pub mod dareu;
 pub mod dareu_em901x;
 pub mod darmoshark;
+pub mod darmoshark_m3pro;
 pub mod drivercore;
 pub mod endgame_4k;
 pub mod evision;

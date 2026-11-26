@@ -356,6 +356,7 @@ pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
     drivers::mchose::poll(&mut ctx);
     drivers::evision::poll(&mut ctx);
     drivers::darmoshark::poll(&mut ctx);
+    drivers::darmoshark_m3pro::poll(&mut ctx);
     drivers::sonix::poll(&mut ctx);
     drivers::compx::poll(&mut ctx);
     drivers::compx_extra::poll(&mut ctx);
@@ -523,6 +524,7 @@ fn poll_with(colls: Vec<HidColl>) -> Vec<DeviceStatus> {
     drivers::mchose::poll(&mut ctx);
     drivers::evision::poll(&mut ctx);
     drivers::darmoshark::poll(&mut ctx);
+    drivers::darmoshark_m3pro::poll(&mut ctx);
     drivers::sonix::poll(&mut ctx);
     drivers::compx::poll(&mut ctx);
     drivers::compx_extra::poll(&mut ctx);
