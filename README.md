@@ -13,6 +13,7 @@ in about <b>0.2 MB of RAM</b>.
 <a href="../../actions/workflows/ci.yml"><img src="../../actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 <img src="https://img.shields.io/badge/written%20in-Rust-dea584?logo=rust" alt="Written in Rust">
 <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="GPL-3.0">
+<a href="https://discord.gg/aVp2E7a9tb"><img src="https://img.shields.io/badge/chat-Discord-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
 <a href="https://revolut.me/p2ps"><img src="https://img.shields.io/badge/support-Revolut-191C1F?logo=revolut&logoColor=white" alt="Support on Revolut"></a>
 </p>
 
@@ -20,6 +21,8 @@ in about <b>0.2 MB of RAM</b>.
 <img src="res/screenshot-card.png" width="300" alt="Hover card: Logitech PRO 2 LIGHTSPEED, 71%, about 3 d 13 h left, level bar, Logitech receiver, chart of the last 12 hours and a 12-hour forecast"><br>
 <img src="res/screenshot-taskbar.png" width="402" alt="BatteryHub on the Windows 11 taskbar next to the notification area: headset 72%, mouse 71%">
 </p>
+
+<p align="center"><b>Questions, ideas or help: join the <a href="https://discord.gg/aVp2E7a9tb">BatteryHub Discord</a>.</b></p>
 
 > [!CAUTION]
 > ## BatteryHub is FREE. Never pay for it.

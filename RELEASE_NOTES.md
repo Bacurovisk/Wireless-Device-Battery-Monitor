@@ -13,14 +13,38 @@ Already installed? Use *Check for updates...* in the right-click menu (v1.1 and 
 
 ## New in v1.8
 
-- **BatteryHub is free, and will stay free.** Nobody should pay for it; if you did, ask for a refund. Shown once after a new installation, and in *Help*.
-- **Per device:** *On hover* shows the card, only a short tooltip, or nothing; the card's chart and time left can be turned off; *Battery only* records nothing for the device.
-- **Phones over Bluetooth (experimental):** read over the standard Bluetooth LE Battery Service (e.g. iPhones). Otherwise the level is the one Windows has, which many phones only update when they reconnect, so it can stay old. Optional, also experimental: a rising level counts as charging. Tested on an iPhone 16.
-- **Widget position** *Left*, *Next to the icons* (also centred ones) or *Right*; the widget glides to its new place, also on other monitors. *Help* menu with the GitHub page, Discord and the latest releases. The tray icon can hide when no device is connected.
-- **New devices:** Logitech G435 on the older dongle (by [DopleZZ](https://github.com/DopleZZ), #481), HyperX Pulsefire Saga Pro (by [stanzeman](https://github.com/stanzeman), #553), Darmoshark M3 PRO (by [4679](https://github.com/4679), #511), ROG OMNI receiver (by [TIGamingTV](https://github.com/TIGamingTV), #452), JBL Quantum 800 (by [basziee](https://github.com/basziee), #443), Hitscan Hyperlight X (by [Dyzson](https://github.com/Dyzson), #427) and Hyperlight, Sony INZONE H5, G-Wolves mice, BEITONG KP70, Flydigi Vader 5 Pro, more ASUS ROG / TUF mice, VGN Dragonfly 4K and F2 Pro Max, AJAZZ 8K receiver, MEETION mice.
-- **Fixed:** G435 newer dongle never read; Audeze Maxwell; G733 level (by [TIGamingTV](https://github.com/TIGamingTV), #478); Smailwolf / AJAZZ `A8A5:2255` below 100 % (by [elcio96](https://github.com/elcio96), #494).
-- **Taskbar full:** the widget hides where it would cover task buttons; with no room anywhere, the levels move to notification-area icons until there is room again.
-- **Compact layout:** icons above percentages (by [DyAvr](https://github.com/DyAvr), #456). **Delete device** in the dashboard for disconnected devices. Works with Stardock Start11, and a shorter right-click menu with *Widget*, *Settings* and *Help* (both by [artxamer](https://github.com/artxamer), #512, #520).
+### BatteryHub is free
+- **BatteryHub is free and will stay free.** Nobody should pay for it; if you did, ask the seller for a refund. Shown once after a new installation, in *Help* and at the top of the README.
+
+### Per device (right-click a device)
+- **On hover:** the card, only a short tooltip, or nothing (the hover highlight stays).
+- **Card:** its chart and its time left can each be turned off; without time left the card has no empty gap.
+- **Battery only:** only the level is shown, nothing is recorded or worked out for the device. It asks first, because turning it on deletes the device's history.
+- **Delete device** in the dashboard, for devices that are not connected.
+
+### Phones over Bluetooth (experimental)
+- **Phones** (e.g. iPhones) are read over the standard Bluetooth LE Battery Service and kept connected between reads, so the level keeps updating. Otherwise the level is the one Windows has, which many phones only update when they reconnect, so it can stay old.
+- **Rising level means charging** (optional, also experimental, per phone): for phones whose charging state can't be read, a rising level counts as charging until it falls again.
+- Tested on an iPhone 16.
+
+### Taskbar
+- **Widget position:** *Left*, *Next to the icons* (also with centred icons) or *Right*; the widget glides to its new place, on every monitor.
+- **Taskbar full:** the widget hides where it would cover task buttons (per monitor); with no room on any taskbar, the levels move to notification-area icons, with a notification, until there is room again.
+- **Compact layout:** icons above percentages (by [DyAvr](https://github.com/DyAvr), #456), popping in on every monitor.
+- **Stardock Start11** works (by [artxamer](https://github.com/artxamer), #512).
+- The tray icon can hide when no device is connected, and the refresh icon animates on every monitor.
+
+### Right-click menu
+- **Shorter:** *Widget*, *Settings*, *Help* and *Exit* (by [artxamer](https://github.com/artxamer), #520).
+- **Help:** check for updates, install another version, request support for a device, GitHub, Discord, the free notice and the latest releases.
+
+### New devices
+- Logitech G435 on the older dongle (by [DopleZZ](https://github.com/DopleZZ), #481), HyperX Pulsefire Saga Pro (by [stanzeman](https://github.com/stanzeman), #553), Darmoshark M3 PRO (by [4679](https://github.com/4679), #511), ROG OMNI receiver (by [TIGamingTV](https://github.com/TIGamingTV), #452), JBL Quantum 800 (by [basziee](https://github.com/basziee), #443), Hitscan Hyperlight X (by [Dyzson](https://github.com/Dyzson), #427) and Hyperlight, Sony INZONE H5, G-Wolves mice, BEITONG KP70, Flydigi Vader 5 Pro, more ASUS ROG / TUF mice, VGN Dragonfly 4K and F2 Pro Max (#524), AJAZZ 8K receiver, MEETION mice.
+
+### Fixed
+- Logitech G435 on its newer dongle was never read; Audeze Maxwell; G733 level (by [TIGamingTV](https://github.com/TIGamingTV), #478); Smailwolf / AJAZZ `A8A5:2255` below 100 % (by [elcio96](https://github.com/elcio96), #494); a PMO wired keyboard without a battery showed 0 % (#434).
+- The widget no longer disappears for up to a minute after it gets wider.
+- Updates come only from this repository.
 
 ## New in v1.7.6
 
