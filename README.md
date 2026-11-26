@@ -369,7 +369,7 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 |---|---|---|---|
 | Havit Fuxi-H3 and the same dongle in Redragon / Rexus / Ardor headsets | `040B:0897` | The dongle sends only volume / mute keys; the command Havit's app uses is not known | [#6](../../issues/6), [#79](../../issues/79), [#367](../../issues/367), [#383](../../issues/383), [#390](../../issues/390), [#396](../../issues/396), [#402](../../issues/402), [#438](../../issues/438), [#484](../../issues/484), [#485](../../issues/485), [#493](../../issues/493) |
 | Mad Dog GH750K, IO Graphite 2 Pro Wireless (JieLi dongle), "GAMING HEADSET B2", unbranded G435 look-alike, Attack Shark L80 Pro, "TA3000" headset | `4C4A:4155`, `3634:4155` | No documented battery query; the dongle's vendor channels belong to the audio chip (firmware / settings), so commands are not guessed | [#1](../../issues/1), [#30](../../issues/30), [#97](../../issues/97), [#114](../../issues/114), [#120](../../issues/120), [#132](../../issues/132), [#369](../../issues/369), [#371](../../issues/371), [#377](../../issues/377), [#518](../../issues/518), [#527](../../issues/527), [#530](../../issues/530), [#560](../../issues/560) |
-| DP-HS-1015 headset | `10D6:B011` | An Actions-chip dongle: audio, media keys and the chip's own vendor channels (`FF90` / `FF82`), with no documented battery query. Over Bluetooth it works when Windows shows the level. | [#178](../../issues/178), [#365](../../issues/365), [#375](../../issues/375), [#422](../../issues/422) |
+| DP-HS-1015 headset | `10D6:B011` | An Actions-chip dongle: audio, media keys and the chip's own vendor channels (`FF90` / `FF82`), with no documented battery query. Over Bluetooth it works when Windows shows the level. | [#178](../../issues/178), [#365](../../issues/365), [#375](../../issues/375), [#422](../../issues/422), [#587](../../issues/587) |
 | Bloody MR710 headset | `10D6:4801` | The Actions-chip dongle has only audio, media keys and the chip's own channels; no documented battery query. Over Bluetooth it works when Windows shows the level. | [#31](../../issues/31), [#394](../../issues/394), [#483](../../issues/483) |
 | 8BitDo Ultimate 2C Wireless in X-input mode | `2DC8:310A` | The dongle shows Windows a wired Xbox pad (no level), and its configuration channel's battery read is documented only for other 8BitDo models; commands are not guessed | [#106](../../issues/106), [#420](../../issues/420), [#467](../../issues/467), [#522](../../issues/522) |
 | UGREEN 2.4 GHz receiver | `2B89:0043` | The receiver has no battery or link-state channel (UGREEN's own software doesn't read it either). Over Bluetooth it works when Windows shows the level. | [#108](../../issues/108), [#514](../../issues/514), [#515](../../issues/515) |
@@ -453,6 +453,8 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | Genius wireless mouse | `0458:0189` | No documented protocol | [#281](../../issues/281) |
 | Keychron B1 Pro (Keychron receiver) | `3434:D027` | Not among the documented Keychron receiver ids, and Keychron's stock keyboard firmware reports the battery over Bluetooth only (works there) | [#286](../../issues/286) |
 | Fantech Kanata WG9 | `32C2:001A` | No documented protocol | [#288](../../issues/288), [#574](../../issues/574) |
+| 2.4G receivers on `32C2` | `32C2:0018`, `32C2:0066` | No documented battery protocol; commands are not guessed | [#579](../../issues/579), [#585](../../issues/585) |
+| ATK A98 Pro | `373B:1152` | No documented battery protocol; commands are not guessed | [#581](../../issues/581) |
 | 8BitDo Ultimate Wireless (X-input dongle) | `2DC8:3106` | The dongle shows Windows a wired Xbox pad, which reports no level | [#291](../../issues/291) |
 | Xbox 360-style controller (Zeroplus dongle) | `0C12:1F12` | The dongle shows Windows a wired Xbox pad, which reports no level | [#296](../../issues/296) |
 | VGN Dragonfly F1 Moba, ATK Dragonfly F1 PRO MAX (VGN Mouse 2.4G Receiver) | `3554:F503` | Not among the documented CompX ids (Pulsar, VXE, ATK); commands are not guessed | [#298](../../issues/298), [#343](../../issues/343), [#413](../../issues/413) |
@@ -500,7 +502,7 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | ATK / NK mice on the 8K NANO dongles | `373B:11DC`, `373B:111B`, `373B:111A` | Not among the documented CompX ids (`373B:11FE` is supported); commands are not guessed | [#417](../../issues/417), [#466](../../issues/466), [#470](../../issues/470) |
 | MAD68 HE V2, MAD 8K dongle | `373B:1125`, `373B:1040` | No documented battery protocol; commands are not guessed | [#469](../../issues/469), [#544](../../issues/544) |
 | Rapoo gaming device | `24AE:1417` | No documented battery protocol; commands are not guessed | [#424](../../issues/424) |
-| Zircon 660, 660 Pro, 500 G2 | `331A:502D`, `331A:502E`, `331A:503C` | No documented battery protocol; commands are not guessed | [#425](../../issues/425), [#447](../../issues/447), [#480](../../issues/480) |
+| Zircon 660, 660 Pro, 500 G2 | `331A:502D`, `331A:502E`, `331A:503C` | No documented battery protocol; commands are not guessed | [#425](../../issues/425), [#447](../../issues/447), [#480](../../issues/480), [#576](../../issues/576) |
 | Redragon ARROW PRO H858 headset | — | No device id or documented battery protocol yet | [#426](../../issues/426) |
 | TMKB-M1 | `32C2:0025` | No documented battery protocol; commands are not guessed | [#431](../../issues/431) |
 | LED 8K Dongle Gen.2 | `3710:5502` | Not among the documented Pulsar ids; commands are not guessed | [#436](../../issues/436) |
@@ -519,7 +521,7 @@ Devices that were requested but cannot be supported for now, and why. Most of th
 | "Gaming Keyboard" | `258A:0049` | No documented battery protocol; commands are not guessed | [#482](../../issues/482) |
 | 8BitDo controller | `2DC8:3012` | No documented battery protocol; commands are not guessed | [#486](../../issues/486) |
 | Lenovo Wireless Mouse | `17EF:60FF` | No documented battery protocol; commands are not guessed | [#490](../../issues/490) |
-| AULA SC580 EVO, Fantech KANATA WG9RD | `B6A4:40C1`, `B6A4:40A1` | No documented battery protocol; commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#496](../../issues/496), [#537](../../issues/537) |
+| AULA SC580 EVO, Fantech KANATA WG9RD | `B6A4:40C1`, `B6A4:40A1` | No documented battery protocol; commands are not guessed. Over Bluetooth it works when Windows shows the level. | [#496](../../issues/496), [#537](../../issues/537), [#578](../../issues/578) |
 | AULA S609 | `10D6:DD00` | An Actions-chip dongle without a documented battery query; commands are not guessed | [#500](../../issues/500) |
 | Machenike G6 V2 controller | `045E:028E` | Shows Windows an Xbox 360 pad that reports no level (XInput: wired) | [#501](../../issues/501) |
 | G3M PRO | `320F:706E` | No documented battery protocol; commands are not guessed | [#508](../../issues/508) |
