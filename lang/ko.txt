@@ -260,3 +260,4 @@ The battery levels are shown as notification-area icons until there is room agai
 Widget = 위젯
 Settings = 설정
 About = 정보
+Next to the icons = 아이콘 옆

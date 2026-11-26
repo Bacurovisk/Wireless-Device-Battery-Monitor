@@ -260,3 +260,4 @@ The battery levels are shown as notification-area icons until there is room agai
 Widget = วิดเจ็ต
 Settings = การตั้งค่า
 About = เกี่ยวกับ
+Next to the icons = ข้างไอคอน

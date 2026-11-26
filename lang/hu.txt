@@ -260,3 +260,4 @@ The battery levels are shown as notification-area icons until there is room agai
 Widget = Widget
 Settings = Beállítások
 About = Névjegy
+Next to the icons = Az ikonok mellett

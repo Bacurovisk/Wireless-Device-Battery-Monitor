@@ -260,3 +260,4 @@ The battery levels are shown as notification-area icons until there is room agai
 Widget = Tiện ích
 Settings = Cài đặt
 About = Giới thiệu
+Next to the icons = Cạnh các biểu tượng

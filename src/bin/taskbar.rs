@@ -206,6 +206,8 @@ const ID_POSITION_RIGHT: usize = 97;
 /// "Widget position": next to the clock (right) or next to the taskbar icons (left).
 const ID_SIDE_RIGHT: usize = 98;
 const ID_SIDE_LEFT: usize = 99;
+/// "Widget position: next to the icons": right after the task buttons, wherever they are.
+const ID_SIDE_ICONS: usize = 118;
 /// "Help": the GitHub page and ID_HELP_RELEASE_FIRST + i for the latest releases.
 const ID_HELP_GITHUB: usize = 200;
 const ID_HELP_RELEASE_FIRST: usize = 201;
@@ -438,6 +440,8 @@ struct App {
     icons_mode: bool,
     /// "Widget position: left": next to the taskbar icons instead of the clock (horizontal taskbars).
     align_left: bool,
+    /// With align_left: right after the last task button (also centred ones), not at the left end.
+    after_icons: bool,
     /// "Show the icon when no device is connected" turned off: nothing on the strip then, and the
     /// app's own notification-area icon (APP_UID) holds the menu.
     hide_empty: bool,
@@ -2012,7 +2016,13 @@ impl App {
                 },
             };
             let left = if self.align_left {
-                let Some(x) = batteryhub::tray_probe::left_content_end(bar, br, self.main, WM_TRAY_PROBED) else { return true };
+                let found = if self.after_icons {
+                    let exclude = screen_spans(bar, &foreign_widgets(bar));
+                    batteryhub::tray_probe::icons_end(bar, br, right, &exclude, self.main, WM_TRAY_PROBED)
+                } else {
+                    batteryhub::tray_probe::left_content_end(bar, br, self.main, WM_TRAY_PROBED)
+                };
+                let Some(x) = found else { return true };
                 let mut p = POINT { x, y: br.top };
                 let _ = ScreenToClient(bar, &mut p);
                 p.x + (6.0 * s) as i32
@@ -2243,7 +2253,13 @@ impl App {
             let left = if self.align_left {
                 // Next to the taskbar icons (or the left end, after the widgets button, when they are
                 // centred); placed as soon as UI Automation has told where they end.
-                let Some(x) = batteryhub::tray_probe::left_content_end(self.taskbar, bar, self.main, WM_TRAY_PROBED) else { return };
+                let found = if self.after_icons {
+                    let exclude = screen_spans(self.taskbar, &foreign_widgets(self.taskbar));
+                    batteryhub::tray_probe::icons_end(self.taskbar, bar, tr.left, &exclude, self.main, WM_TRAY_PROBED)
+                } else {
+                    batteryhub::tray_probe::left_content_end(self.taskbar, bar, self.main, WM_TRAY_PROBED)
+                };
+                let Some(x) = found else { return };
                 let mut p = POINT { x, y: bar.top };
                 let _ = ScreenToClient(self.taskbar, &mut p);
                 p.x + (6.0 * self.scale()) as i32
@@ -3181,8 +3197,9 @@ impl App {
         let x = if self.vertical { y } else { x };
         let hit = self.hits.iter().find(|h| x >= h.0 && x < h.1).map(|h| (h.2, h.0, h.1));
         let mode = hit.and_then(|h| self.visible_at(h.0)).map_or(settings::HoverMode::Card, |d| settings::hover_mode(SETTINGS_KEY, &d.key));
-        // "Nothing" on hover: not even the highlight.
-        self.set_hovered(if mode == settings::HoverMode::Off { HWND::default() } else { on });
+        // The hover highlight (like Windows' own taskbar buttons) in every mode, "Nothing" included.
+        let _ = mode;
+        self.set_hovered(on);
         if self.card_away.take().is_some() {
             unsafe {
                 let _ = KillTimer(Some(self.main), TIMER_AWAY);
@@ -3830,7 +3847,9 @@ impl App {
     fn refresh_settings(&mut self) {
         self.light = ui::taskbar_is_light();
         self.offset = batteryhub::util::reg_get_dword(SETTINGS_KEY, "TaskbarOffset").unwrap_or(0);
-        self.align_left = batteryhub::util::reg_get_dword(SETTINGS_KEY, "WidgetLeft").unwrap_or(0) != 0;
+        let side = batteryhub::util::reg_get_dword(SETTINGS_KEY, "WidgetLeft").unwrap_or(0);
+        self.align_left = side != 0;
+        self.after_icons = side == 2;
         self.hide_empty = batteryhub::util::reg_get_dword(SETTINGS_KEY, "HideWhenEmpty").unwrap_or(0) != 0;
         self.offset_y = batteryhub::util::reg_get_dword(SETTINGS_KEY, "TaskbarOffsetY").unwrap_or(0) as i32;
         self.background = batteryhub::util::reg_get_dword(SETTINGS_KEY, "WidgetBackground").unwrap_or(0) != 0;
@@ -4454,6 +4473,7 @@ unsafe fn show_menu(from: Option<HWND>) {
             // Look of the widget: plate behind it, position, and which monitors show it.
             let (choice, offset, background, offset_y, icons_mode, align_left, hide_empty, vertical_bar, compact) =
                 with_app(|a| (a.choice.clone(), a.offset, a.background, a.offset_y, a.icons_mode, a.align_left, a.hide_empty, a.vertical, a.compact)).unwrap_or_default();
+            let after_icons = with_app(|a| a.after_icons).unwrap_or(false);
             let others: Vec<(String, String)> =
                 secondary_taskbars().into_iter().take(ID_MONITOR_GONE - ID_MONITOR_FIRST).map(|b| (monitor_id(b), monitor_label(b))).collect();
             let languages = batteryhub::i18n::available();
@@ -4482,9 +4502,14 @@ unsafe fn show_menu(from: Option<HWND>) {
                 if let Ok(sub) = CreatePopupMenu() {
                     let _ = AppendMenuW(sub, MF_STRING, ID_SIDE_RIGHT, &windows::core::HSTRING::from(tr("Right")));
                     let left_ok = if vertical_bar { MF_GRAYED } else { MF_ENABLED };
+                    let _ = AppendMenuW(sub, MF_STRING | left_ok, ID_SIDE_ICONS, &windows::core::HSTRING::from(tr("Next to the icons")));
                     let _ = AppendMenuW(sub, MF_STRING | left_ok, ID_SIDE_LEFT, &windows::core::HSTRING::from(tr("Left")));
-                    let on = if align_left && !vertical_bar { ID_SIDE_LEFT } else { ID_SIDE_RIGHT };
-                    let _ = CheckMenuRadioItem(sub, ID_SIDE_RIGHT as u32, ID_SIDE_LEFT as u32, on as u32, MF_BYCOMMAND.0);
+                    let on = match (align_left && !vertical_bar, after_icons) {
+                        (false, _) => ID_SIDE_RIGHT,
+                        (true, true) => ID_SIDE_ICONS,
+                        (true, false) => ID_SIDE_LEFT,
+                    };
+                    let _ = CheckMenuRadioItem(sub, ID_SIDE_RIGHT as u32, ID_SIDE_ICONS as u32, on as u32, MF_BYCOMMAND.0);
                     let n = GetMenuItemCount(Some(widget));
                     let _ = AppendMenuW(widget, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Widget position")));
                     icons.set(widget, n as u32, true, ui::glyph::SETTINGS);
@@ -4752,11 +4777,16 @@ unsafe fn show_menu(from: Option<HWND>) {
                         );
                     }
                 }
-                ID_SIDE_RIGHT | ID_SIDE_LEFT => {
-                    let left = cmd.0 as usize == ID_SIDE_LEFT;
-                    save_dword("WidgetLeft", left as u32);
+                ID_SIDE_RIGHT | ID_SIDE_LEFT | ID_SIDE_ICONS => {
+                    let side = match cmd.0 as usize {
+                        ID_SIDE_LEFT => 1,
+                        ID_SIDE_ICONS => 2,
+                        _ => 0,
+                    };
+                    save_dword("WidgetLeft", side);
                     with_app(|a| {
-                        a.align_left = left;
+                        a.align_left = side != 0;
+                        a.after_icons = side == 2;
                         a.last_place = Default::default();
                         a.place();
                         a.sync_mirrors();
@@ -4784,6 +4814,15 @@ unsafe fn show_menu(from: Option<HWND>) {
                         save_dword("CompactWidget", a.compact as u32);
                         a.paint();
                         a.tick();
+                        // The new layout pops in on every taskbar alike (the copies on other monitors
+                        // too, which otherwise just switched).
+                        let mut strips: Vec<HWND> = a.mirrors.iter().map(|m| m.1).collect();
+                        strips.push(a.strip);
+                        for st in strips {
+                            if !st.0.is_null() && IsWindowVisible(st).as_bool() {
+                                a.start_pop(st, false);
+                            }
+                        }
                     });
                 }
                 ID_BACKGROUND => {
@@ -5067,6 +5106,15 @@ const TASKBAR_PARTS: [&str; 16] = [
 
 /// x ranges (client coordinates of `bar`) of other programs' windows embedded in the taskbar,
 /// such as network or CPU meters: direct child windows that are not part of the taskbar.
+/// Spans in `bar`'s client x as screen x.
+fn screen_spans(bar: HWND, spans: &[(i32, i32)]) -> Vec<(i32, i32)> {
+    let mut p = POINT::default();
+    unsafe {
+        let _ = ClientToScreen(bar, &mut p);
+    }
+    spans.iter().map(|&(a, b)| (a + p.x, b + p.x)).collect()
+}
+
 fn foreign_widgets(bar: HWND) -> Vec<(i32, i32)> {
     let mut out = Vec::new();
     unsafe {

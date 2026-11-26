@@ -181,10 +181,12 @@ pub fn poll(ctx: &mut PollContext) {
         hid_ids.insert(cont, (c.vid, c.pid));
     }
 
-    // Phones: Windows keeps no level for most of them, but many (iPhones among them) offer the
-    // standard Battery Service over Bluetooth LE. Connected phones only, read once per poll.
+    // Phones: many (iPhones among them) offer the standard Battery Service over Bluetooth LE. It is
+    // read first, also when Windows has a level: Windows keeps the level a phone sent over HFP until
+    // it sends another, which can stay old for a long time (e.g. at 15 % while it charges at 30 %).
+    // Windows' level stays the fallback. Connected phones only, read once per poll.
     for (cid, name) in &container_name {
-        if battery.contains_key(cid) || reported.contains(cid) || !container_conn.get(cid).copied().unwrap_or(false) {
+        if reported.contains(cid) || !container_conn.get(cid).copied().unwrap_or(false) {
             continue;
         }
         let phone = container_cod.get(cid).is_some_and(|&c| kind_from_class_of_device(c) == DeviceKind::Phone)

@@ -168,6 +168,24 @@ pub fn left_content_end(bar: HWND, bar_rect: RECT, notify: HWND, msg: u32) -> Op
     items(bar, bar_rect, notify, msg, LEFT_REFRESH).map(|v| left_chain_end(&v, bar_rect.left, bar_rect.bottom - bar_rect.top))
 }
 
+/// Screen x right after the last of the taskbar's items before `limit` (the notification area):
+/// the end of the task buttons wherever they are (left or centred). Items overlapping `exclude`
+/// (other programs' widgets, screen x) don't count. None until the first answer.
+pub fn icons_end(bar: HWND, bar_rect: RECT, limit: i32, exclude: &[(i32, i32)], notify: HWND, msg: u32) -> Option<i32> {
+    items(bar, bar_rect, notify, msg, LEFT_REFRESH).map(|v| last_item_end(&v, bar_rect.left, limit, exclude))
+}
+
+/// The right end of the last item ending at or before `limit`, skipping those over `exclude`;
+/// `bar_left` when there is none.
+pub fn last_item_end(items: &[(i32, i32)], bar_left: i32, limit: i32, exclude: &[(i32, i32)]) -> i32 {
+    items
+        .iter()
+        .filter(|&&(l, r)| r <= limit && r > l && !exclude.iter().any(|&(a, b)| l < b && r > a))
+        .map(|&(_, r)| r)
+        .max()
+        .unwrap_or(bar_left)
+}
+
 /// Whether the span `x0..x1` (screen x) of the taskbar `bar` is free of its items (task buttons,
 /// Start, search, widgets...): Some(false) when the widget would cover one of them. None until the
 /// first answer. Checked again after `max_age`, and after `left_refresh_soon` (a window opened or
@@ -277,6 +295,16 @@ fn probe_items(bar: isize) -> Option<Vec<(i32, i32)>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn end_of_the_icons() {
+        // Centred task buttons, the tray from 1700: the widget goes after the last button.
+        let items = [(12, 160), (700, 744), (744, 788), (1700, 1740)];
+        assert_eq!(last_item_end(&items, 0, 1700, &[]), 788);
+        // Another program's widget at 1500..1600 doesn't count.
+        assert_eq!(last_item_end(&[(700, 788), (1500, 1600)], 0, 1700, &[(1500, 1600)]), 788);
+        assert_eq!(last_item_end(&[], 0, 1700, &[]), 0);
+    }
 
     #[test]
     fn room_beside_items() {

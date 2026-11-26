@@ -260,3 +260,4 @@ The battery levels are shown as notification-area icons until there is room agai
 Widget = Widżet
 Settings = Ustawienia
 About = O programie
+Next to the icons = Przy ikonach

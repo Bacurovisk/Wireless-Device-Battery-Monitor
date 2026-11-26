@@ -260,3 +260,4 @@ The battery levels are shown as notification-area icons until there is room agai
 Widget = 小工具
 Settings = 設定
 About = 關於
+Next to the icons = 圖示旁邊
