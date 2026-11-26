@@ -257,3 +257,6 @@ Delete device... = Ta bort enhet...
 Delete {name}?\n\nIts battery history, statistics and settings are deleted and BatteryHub forgets the device. If it connects again, it shows up as a new device. This cannot be undone. = Ta bort {name}?\n\nBatterihistorik, statistik och inställningar tas bort och BatteryHub glömmer enheten. Om den ansluts igen visas den som en ny enhet. Detta kan inte ångras.
 Not enough room on the taskbar = Inte tillräckligt med plats i aktivitetsfältet
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = Batterinivåerna visas som ikoner i meddelandefältet tills det finns plats igen. Du kan också flytta widgeten: högerklicka → Widgetens position.
+Widget = Widget
+Settings = Inställningar
+About = Om

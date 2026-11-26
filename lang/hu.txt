@@ -257,3 +257,6 @@ Delete device... = Eszköz törlése...
 Delete {name}?\n\nIts battery history, statistics and settings are deleted and BatteryHub forgets the device. If it connects again, it shows up as a new device. This cannot be undone. = Törli: {name}?\n\nAz akkumulátor-előzmények, a statisztikák és a beállítások törlődnek, és a BatteryHub elfelejti az eszközt. Ha újra csatlakozik, új eszközként jelenik meg. Ez nem vonható vissza.
 Not enough room on the taskbar = Nincs elég hely a tálcán
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = Az akkuszintek ikonként jelennek meg az értesítési területen, amíg nem lesz hely. A widgetet át is helyezheti: jobb kattintás → Widget helye.
+Widget = Widget
+Settings = Beállítások
+About = Névjegy

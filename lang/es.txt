@@ -257,3 +257,6 @@ Delete device... = Eliminar dispositivo...
 Delete {name}?\n\nIts battery history, statistics and settings are deleted and BatteryHub forgets the device. If it connects again, it shows up as a new device. This cannot be undone. = ¿Eliminar {name}?\n\nSe eliminan su historial de batería, estadísticas y ajustes, y BatteryHub olvida el dispositivo. Si se vuelve a conectar, aparecerá como nuevo. No se puede deshacer.
 Not enough room on the taskbar = No hay espacio en la barra de tareas
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = Los niveles de batería se muestran como iconos en el área de notificación hasta que haya espacio. También puedes mover el widget: clic derecho → Posición del widget.
+Widget = Widget
+Settings = Ajustes
+About = Acerca de

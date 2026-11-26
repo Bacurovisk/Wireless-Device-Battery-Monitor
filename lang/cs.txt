@@ -257,3 +257,6 @@ Delete device... = Smazat zařízení...
 Delete {name}?\n\nIts battery history, statistics and settings are deleted and BatteryHub forgets the device. If it connects again, it shows up as a new device. This cannot be undone. = Smazat {name}?\n\nJeho historie baterie, statistiky a nastavení se smažou a BatteryHub zařízení zapomene. Pokud se znovu připojí, zobrazí se jako nové. Tuto akci nelze vrátit.
 Not enough room on the taskbar = Na hlavním panelu není dost místa
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = Úrovně baterie se zobrazují jako ikony v oznamovací oblasti, dokud se neuvolní místo. Widget můžete také přesunout: klikněte na něj pravým tlačítkem → Pozice widgetu.
+Widget = Widget
+Settings = Nastavení
+About = O aplikaci

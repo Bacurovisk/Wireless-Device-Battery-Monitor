@@ -257,3 +257,6 @@ Delete device... = Hapus perangkat...
 Delete {name}?\n\nIts battery history, statistics and settings are deleted and BatteryHub forgets the device. If it connects again, it shows up as a new device. This cannot be undone. = Hapus {name}?\n\nRiwayat baterai, statistik, dan pengaturannya dihapus dan BatteryHub melupakan perangkat ini. Jika terhubung lagi, akan muncul sebagai perangkat baru. Tidak dapat dibatalkan.
 Not enough room on the taskbar = Ruang taskbar tidak cukup
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = Level baterai ditampilkan sebagai ikon di area notifikasi sampai ada ruang lagi. Anda juga dapat memindahkan widget: klik kanan → Posisi widget.
+Widget = Widget
+Settings = Pengaturan
+About = Tentang

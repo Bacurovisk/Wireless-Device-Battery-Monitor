@@ -257,3 +257,6 @@ Delete device... = Удалить устройство...
 Delete {name}?\n\nIts battery history, statistics and settings are deleted and BatteryHub forgets the device. If it connects again, it shows up as a new device. This cannot be undone. = Удалить {name}?\n\nИстория батареи, статистика и настройки будут удалены, и BatteryHub забудет это устройство. При повторном подключении оно появится как новое. Это нельзя отменить.
 Not enough room on the taskbar = Недостаточно места на панели задач
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = Уровни заряда показываются значками в области уведомлений, пока не освободится место. Виджет можно и переместить: правый клик → Положение виджета.
+Widget = Виджет
+Settings = Настройки
+About = О программе

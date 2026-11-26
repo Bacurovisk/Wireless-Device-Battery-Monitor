@@ -257,3 +257,6 @@ Delete device... = 删除设备...
 Delete {name}?\n\nIts battery history, statistics and settings are deleted and BatteryHub forgets the device. If it connects again, it shows up as a new device. This cannot be undone. = 删除 {name}?\n\n它的电池历史、统计和设置将被删除，BatteryHub 将忘记此设备。如果再次连接，它会显示为新设备。此操作无法撤销。
 Not enough room on the taskbar = 任务栏空间不足
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = 在有空间之前，电量会以通知区域图标显示。你也可以移动小组件：右键 → 小组件位置。
+Widget = 小组件
+Settings = 设置
+About = 关于

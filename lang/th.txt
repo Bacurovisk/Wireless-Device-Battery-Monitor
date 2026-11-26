@@ -257,3 +257,6 @@ Delete device... = ลบอุปกรณ์...
 Delete {name}?\n\nIts battery history, statistics and settings are deleted and BatteryHub forgets the device. If it connects again, it shows up as a new device. This cannot be undone. = ลบ {name} หรือไม่?\n\nประวัติแบตเตอรี่ สถิติ และการตั้งค่าจะถูกลบ และ BatteryHub จะลืมอุปกรณ์นี้ หากเชื่อมต่ออีกครั้งจะแสดงเป็นอุปกรณ์ใหม่ ไม่สามารถย้อนกลับได้
 Not enough room on the taskbar = พื้นที่บนแถบงานไม่พอ
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = ระดับแบตเตอรี่จะแสดงเป็นไอคอนในพื้นที่แจ้งเตือนจนกว่าจะมีพื้นที่ คุณยังย้ายวิดเจ็ตได้: คลิกขวา → ตำแหน่งวิดเจ็ต
+Widget = วิดเจ็ต
+Settings = การตั้งค่า
+About = เกี่ยวกับ

@@ -4450,184 +4450,213 @@ unsafe fn show_menu(from: Option<HWND>) {
             let _ = AppendMenuW(menu, MF_STRING, ID_REFRESH_LEVELS, &windows::core::HSTRING::from(tr("Refresh battery levels")));
             icons.set(menu, ID_REFRESH_LEVELS as u32, false, ui::glyph::REFRESH);
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
-            // How often the battery levels are read, and whether a device change triggers a read.
-            if let Ok(sub) = CreatePopupMenu() {
-                let current = refresh_minutes();
-                for (j, (m, label)) in INTERVALS.iter().enumerate() {
-                    let check = if *m == current { MF_CHECKED } else { MF_UNCHECKED };
-                    let _ = AppendMenuW(sub, MF_STRING | check, ID_INTERVAL_BASE + j, &windows::core::HSTRING::from(tr(label)));
-                }
-                let n = GetMenuItemCount(Some(menu));
-                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Refresh battery every")));
-                icons.set(menu, n as u32, true, ui::glyph::HISTORY);
-            }
-            let on_change = if refresh_on_change() { MF_CHECKED } else { MF_UNCHECKED };
-            let _ = AppendMenuW(menu, MF_STRING | on_change, ID_ON_CHANGE, &windows::core::HSTRING::from(tr("Refresh when a device connects or disconnects")));
-            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
             // Look of the widget: plate behind it, position, and which monitors show it.
             let (choice, offset, background, offset_y, icons_mode, align_left, hide_empty, vertical_bar, compact) =
                 with_app(|a| (a.choice.clone(), a.offset, a.background, a.offset_y, a.icons_mode, a.align_left, a.hide_empty, a.vertical, a.compact)).unwrap_or_default();
-            let _ = AppendMenuW(
-                menu,
-                MF_STRING | check(!hide_empty),
-                ID_SHOW_EMPTY,
-                &windows::core::HSTRING::from(tr("Show the icon when no device is connected")),
-            );
-            let _ = AppendMenuW(
-                menu,
-                MF_STRING | check(icons_mode),
-                ID_ICONS_MODE,
-                &windows::core::HSTRING::from(tr("Show as notification-area icons (Windows arranges them)")),
-            );
-            let _ = AppendMenuW(
-                menu,
-                MF_STRING | check(background),
-                ID_BACKGROUND,
-                &windows::core::HSTRING::from(tr("Background behind taskbar text (for translucent taskbars)")),
-            );
-            // Widget position: next to the clock or next to the taskbar icons (horizontal taskbars).
-            if let Ok(sub) = CreatePopupMenu() {
-                let _ = AppendMenuW(sub, MF_STRING, ID_SIDE_RIGHT, &windows::core::HSTRING::from(tr("Right")));
-                let left_ok = if vertical_bar { MF_GRAYED } else { MF_ENABLED };
-                let _ = AppendMenuW(sub, MF_STRING | left_ok, ID_SIDE_LEFT, &windows::core::HSTRING::from(tr("Left")));
-                let on = if align_left && !vertical_bar { ID_SIDE_LEFT } else { ID_SIDE_RIGHT };
-                let _ = CheckMenuRadioItem(sub, ID_SIDE_RIGHT as u32, ID_SIDE_LEFT as u32, on as u32, MF_BYCOMMAND.0);
-                let n = GetMenuItemCount(Some(menu));
-                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Widget position")));
-                icons.set(menu, n as u32, true, ui::glyph::SETTINGS);
-            }
-            let _ = AppendMenuW(
-                menu,
-                MF_STRING | check(compact),
-                ID_COMPACT,
-                &windows::core::HSTRING::from(tr("Icons above percentages (narrower)")),
-            );
-            if let Ok(sub) = CreatePopupMenu() {
-                let mut checked = ID_POSITION_CUSTOM;
-                for (i, px) in POSITION_OFFSETS.iter().enumerate() {
-                    let label = if *px == 0 { tr("Next to the notification area") } else { trf("{px} px to the left", &[("px", &px.to_string())]) };
-                    let _ = AppendMenuW(sub, MF_STRING, ID_POSITION_FIRST + i, &windows::core::HSTRING::from(label));
-                    if *px == offset {
-                        checked = ID_POSITION_FIRST + i;
-                    }
-                }
-                if checked == ID_POSITION_CUSTOM {
-                    // Set with the 10 px steps (or by hand in the registry, TaskbarOffset).
-                    let label = trf("Custom: {px} px to the left", &[("px", &offset.to_string())]);
-                    let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_POSITION_CUSTOM, &windows::core::HSTRING::from(label));
-                }
-                let _ = CheckMenuRadioItem(sub, ID_POSITION_FIRST as u32, ID_POSITION_CUSTOM as u32, checked as u32, MF_BYCOMMAND.0);
-                let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
-                let step = |on: bool| if on { MF_STRING } else { MF_STRING | MF_GRAYED };
-                let _ = AppendMenuW(sub, step(offset < POSITION_MAX), ID_POSITION_LEFT, &windows::core::HSTRING::from(tr("Move 10 px left")));
-                icons.set(sub, ID_POSITION_LEFT as u32, false, ui::glyph::LEFT);
-                let _ = AppendMenuW(sub, step(offset > 0), ID_POSITION_RIGHT, &windows::core::HSTRING::from(tr("Move 10 px right")));
-                icons.set(sub, ID_POSITION_RIGHT as u32, false, ui::glyph::RIGHT);
-                let n = GetMenuItemCount(Some(menu));
-                // The px steps count from the clock: not used next to the taskbar icons.
-                let grey = if align_left && !vertical_bar { MF_GRAYED } else { MF_ENABLED };
-                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP | grey, sub.0 as usize, &windows::core::HSTRING::from(tr("Position on the taskbar")));
-                icons.set(menu, n as u32, true, ui::glyph::SETTINGS);
-            }
-            if let Ok(sub) = CreatePopupMenu() {
-                let mut checked = ID_HEIGHT_CUSTOM;
-                for (i, px) in HEIGHT_OFFSETS.iter().enumerate() {
-                    let label = match *px {
-                        0 => tr("Centred"),
-                        p if p < 0 => trf("{px} px up", &[("px", &(-p).to_string())]),
-                        p => trf("{px} px down", &[("px", &p.to_string())]),
-                    };
-                    let _ = AppendMenuW(sub, MF_STRING, ID_HEIGHT_FIRST + i, &windows::core::HSTRING::from(label));
-                    if *px == offset_y {
-                        checked = ID_HEIGHT_FIRST + i;
-                    }
-                }
-                if checked == ID_HEIGHT_CUSTOM {
-                    let label = if offset_y < 0 {
-                        trf("Custom: {px} px up", &[("px", &(-offset_y).to_string())])
-                    } else {
-                        trf("Custom: {px} px down", &[("px", &offset_y.to_string())])
-                    };
-                    let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_HEIGHT_CUSTOM, &windows::core::HSTRING::from(label));
-                }
-                let _ = CheckMenuRadioItem(sub, ID_HEIGHT_FIRST as u32, ID_HEIGHT_CUSTOM as u32, checked as u32, MF_BYCOMMAND.0);
-                let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
-                let step = |on: bool| if on { MF_STRING } else { MF_STRING | MF_GRAYED };
-                let _ = AppendMenuW(sub, step(offset_y > -HEIGHT_MAX), ID_HEIGHT_UP, &windows::core::HSTRING::from(tr("Move 10 px up")));
-                icons.set(sub, ID_HEIGHT_UP as u32, false, ui::glyph::UP);
-                let _ = AppendMenuW(sub, step(offset_y < HEIGHT_MAX), ID_HEIGHT_DOWN, &windows::core::HSTRING::from(tr("Move 10 px down")));
-                icons.set(sub, ID_HEIGHT_DOWN as u32, false, ui::glyph::DOWN);
-                let n = GetMenuItemCount(Some(menu));
-                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Height on the taskbar")));
-                icons.set(menu, n as u32, true, ui::glyph::SETTINGS);
-            }
-            // With more than one monitor: all of them, the main one only, or one other monitor only.
             let others: Vec<(String, String)> =
                 secondary_taskbars().into_iter().take(ID_MONITOR_GONE - ID_MONITOR_FIRST).map(|b| (monitor_id(b), monitor_label(b))).collect();
-            if !others.is_empty()
-                && let Ok(sub) = CreatePopupMenu()
-            {
-                let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_ALL, &windows::core::HSTRING::from(tr("All monitors")));
-                let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_MAIN, &windows::core::HSTRING::from(tr("Main monitor only")));
-                let ids: Vec<String> = others.iter().map(|o| o.0.clone()).collect();
-                let checked = match choice.as_str() {
-                    "all" => ID_MONITOR_ALL,
-                    "main" => ID_MONITOR_MAIN,
-                    id => find_monitor(&ids, id).map(|i| ID_MONITOR_FIRST + i).unwrap_or(ID_MONITOR_GONE),
-                };
-                for (i, (_, label)) in others.iter().enumerate() {
-                    let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_FIRST + i, &windows::core::HSTRING::from(trf("{monitor} only", &[("monitor", label)])));
-                }
-                if checked == ID_MONITOR_GONE {
-                    let _ = AppendMenuW(
-                        sub,
-                        MF_STRING | MF_GRAYED,
-                        ID_MONITOR_GONE,
-                        &windows::core::HSTRING::from(tr("Chosen monitor (not connected, shown on main)")),
-                    );
-                }
-                let _ = CheckMenuRadioItem(sub, ID_MONITOR_ALL as u32, ID_MONITOR_GONE as u32, checked as u32, MF_BYCOMMAND.0);
-                let n = GetMenuItemCount(Some(menu));
-                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Show widget on")));
-                icons.set(menu, n as u32, true, ui::glyph::MONITOR);
-            }
-            // Language: Windows' language, every built-in and user language, and a new one.
             let languages = batteryhub::i18n::available();
-            if let Ok(sub) = CreatePopupMenu() {
-                let chosen = language_choice();
-                // Names the language it resolves to: Windows' display language, not its region format.
-                let codes: Vec<String> = languages.iter().map(|(c, _)| c.clone()).collect();
-                let auto = batteryhub::i18n::pick(&batteryhub::i18n::windows_language(), &codes);
-                let auto_name = languages.iter().find(|(c, _)| c.eq_ignore_ascii_case(&auto)).map_or(auto.as_str(), |(_, n)| n.as_str());
-                let auto_label = format!("{} ({auto_name})", tr("Windows language"));
-                let _ = AppendMenuW(sub, MF_STRING | check(chosen.is_empty()), ID_LANG_AUTO, &windows::core::HSTRING::from(auto_label));
-                let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
-                for (i, (code, name)) in languages.iter().enumerate().take(ID_LANG_LAST - ID_LANG_FIRST + 1) {
-                    let on = chosen.eq_ignore_ascii_case(code);
-                    let _ = AppendMenuW(sub, MF_STRING | check(on), ID_LANG_FIRST + i, &windows::core::HSTRING::from(name.as_str()));
+            // Widget: how and where the strip looks (#520).
+            if let Ok(widget) = CreatePopupMenu() {
+                ui::MenuIcons::check_or_icon(widget);
+                let _ = AppendMenuW(
+                    widget,
+                    MF_STRING | check(!hide_empty),
+                    ID_SHOW_EMPTY,
+                    &windows::core::HSTRING::from(tr("Show the icon when no device is connected")),
+                );
+                let _ = AppendMenuW(
+                    widget,
+                    MF_STRING | check(icons_mode),
+                    ID_ICONS_MODE,
+                    &windows::core::HSTRING::from(tr("Show as notification-area icons (Windows arranges them)")),
+                );
+                let _ = AppendMenuW(
+                    widget,
+                    MF_STRING | check(background),
+                    ID_BACKGROUND,
+                    &windows::core::HSTRING::from(tr("Background behind taskbar text (for translucent taskbars)")),
+                );
+                // Widget position: next to the clock or next to the taskbar icons (horizontal taskbars).
+                if let Ok(sub) = CreatePopupMenu() {
+                    let _ = AppendMenuW(sub, MF_STRING, ID_SIDE_RIGHT, &windows::core::HSTRING::from(tr("Right")));
+                    let left_ok = if vertical_bar { MF_GRAYED } else { MF_ENABLED };
+                    let _ = AppendMenuW(sub, MF_STRING | left_ok, ID_SIDE_LEFT, &windows::core::HSTRING::from(tr("Left")));
+                    let on = if align_left && !vertical_bar { ID_SIDE_LEFT } else { ID_SIDE_RIGHT };
+                    let _ = CheckMenuRadioItem(sub, ID_SIDE_RIGHT as u32, ID_SIDE_LEFT as u32, on as u32, MF_BYCOMMAND.0);
+                    let n = GetMenuItemCount(Some(widget));
+                    let _ = AppendMenuW(widget, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Widget position")));
+                    icons.set(widget, n as u32, true, ui::glyph::SETTINGS);
                 }
-                let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
-                let _ = AppendMenuW(sub, MF_STRING, ID_LANG_NEW, &windows::core::HSTRING::from(tr("Create your own language...")));
-                let _ = AppendMenuW(sub, MF_STRING, ID_LANG_FOLDER, &windows::core::HSTRING::from(tr("Open the languages folder")));
+                let _ = AppendMenuW(
+                    widget,
+                    MF_STRING | check(compact),
+                    ID_COMPACT,
+                    &windows::core::HSTRING::from(tr("Icons above percentages (narrower)")),
+                );
+                if let Ok(sub) = CreatePopupMenu() {
+                    let mut checked = ID_POSITION_CUSTOM;
+                    for (i, px) in POSITION_OFFSETS.iter().enumerate() {
+                        let label = if *px == 0 { tr("Next to the notification area") } else { trf("{px} px to the left", &[("px", &px.to_string())]) };
+                        let _ = AppendMenuW(sub, MF_STRING, ID_POSITION_FIRST + i, &windows::core::HSTRING::from(label));
+                        if *px == offset {
+                            checked = ID_POSITION_FIRST + i;
+                        }
+                    }
+                    if checked == ID_POSITION_CUSTOM {
+                        // Set with the 10 px steps (or by hand in the registry, TaskbarOffset).
+                        let label = trf("Custom: {px} px to the left", &[("px", &offset.to_string())]);
+                        let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_POSITION_CUSTOM, &windows::core::HSTRING::from(label));
+                    }
+                    let _ = CheckMenuRadioItem(sub, ID_POSITION_FIRST as u32, ID_POSITION_CUSTOM as u32, checked as u32, MF_BYCOMMAND.0);
+                    let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+                    let step = |on: bool| if on { MF_STRING } else { MF_STRING | MF_GRAYED };
+                    let _ = AppendMenuW(sub, step(offset < POSITION_MAX), ID_POSITION_LEFT, &windows::core::HSTRING::from(tr("Move 10 px left")));
+                    icons.set(sub, ID_POSITION_LEFT as u32, false, ui::glyph::LEFT);
+                    let _ = AppendMenuW(sub, step(offset > 0), ID_POSITION_RIGHT, &windows::core::HSTRING::from(tr("Move 10 px right")));
+                    icons.set(sub, ID_POSITION_RIGHT as u32, false, ui::glyph::RIGHT);
+                    let n = GetMenuItemCount(Some(widget));
+                    // The px steps count from the clock: not used next to the taskbar icons.
+                    let grey = if align_left && !vertical_bar { MF_GRAYED } else { MF_ENABLED };
+                    let _ = AppendMenuW(widget, MF_STRING | MF_POPUP | grey, sub.0 as usize, &windows::core::HSTRING::from(tr("Position on the taskbar")));
+                    icons.set(widget, n as u32, true, ui::glyph::SETTINGS);
+                }
+                if let Ok(sub) = CreatePopupMenu() {
+                    let mut checked = ID_HEIGHT_CUSTOM;
+                    for (i, px) in HEIGHT_OFFSETS.iter().enumerate() {
+                        let label = match *px {
+                            0 => tr("Centred"),
+                            p if p < 0 => trf("{px} px up", &[("px", &(-p).to_string())]),
+                            p => trf("{px} px down", &[("px", &p.to_string())]),
+                        };
+                        let _ = AppendMenuW(sub, MF_STRING, ID_HEIGHT_FIRST + i, &windows::core::HSTRING::from(label));
+                        if *px == offset_y {
+                            checked = ID_HEIGHT_FIRST + i;
+                        }
+                    }
+                    if checked == ID_HEIGHT_CUSTOM {
+                        let label = if offset_y < 0 {
+                            trf("Custom: {px} px up", &[("px", &(-offset_y).to_string())])
+                        } else {
+                            trf("Custom: {px} px down", &[("px", &offset_y.to_string())])
+                        };
+                        let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, ID_HEIGHT_CUSTOM, &windows::core::HSTRING::from(label));
+                    }
+                    let _ = CheckMenuRadioItem(sub, ID_HEIGHT_FIRST as u32, ID_HEIGHT_CUSTOM as u32, checked as u32, MF_BYCOMMAND.0);
+                    let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+                    let step = |on: bool| if on { MF_STRING } else { MF_STRING | MF_GRAYED };
+                    let _ = AppendMenuW(sub, step(offset_y > -HEIGHT_MAX), ID_HEIGHT_UP, &windows::core::HSTRING::from(tr("Move 10 px up")));
+                    icons.set(sub, ID_HEIGHT_UP as u32, false, ui::glyph::UP);
+                    let _ = AppendMenuW(sub, step(offset_y < HEIGHT_MAX), ID_HEIGHT_DOWN, &windows::core::HSTRING::from(tr("Move 10 px down")));
+                    icons.set(sub, ID_HEIGHT_DOWN as u32, false, ui::glyph::DOWN);
+                    let n = GetMenuItemCount(Some(widget));
+                    let _ = AppendMenuW(widget, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Height on the taskbar")));
+                    icons.set(widget, n as u32, true, ui::glyph::SETTINGS);
+                }
+                // With more than one monitor: all of them, the main one only, or one other monitor only.
+                if !others.is_empty()
+                    && let Ok(sub) = CreatePopupMenu()
+                {
+                    let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_ALL, &windows::core::HSTRING::from(tr("All monitors")));
+                    let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_MAIN, &windows::core::HSTRING::from(tr("Main monitor only")));
+                    let ids: Vec<String> = others.iter().map(|o| o.0.clone()).collect();
+                    let checked = match choice.as_str() {
+                        "all" => ID_MONITOR_ALL,
+                        "main" => ID_MONITOR_MAIN,
+                        id => find_monitor(&ids, id).map(|i| ID_MONITOR_FIRST + i).unwrap_or(ID_MONITOR_GONE),
+                    };
+                    for (i, (_, label)) in others.iter().enumerate() {
+                        let _ = AppendMenuW(sub, MF_STRING, ID_MONITOR_FIRST + i, &windows::core::HSTRING::from(trf("{monitor} only", &[("monitor", label)])));
+                    }
+                    if checked == ID_MONITOR_GONE {
+                        let _ = AppendMenuW(
+                            sub,
+                            MF_STRING | MF_GRAYED,
+                            ID_MONITOR_GONE,
+                            &windows::core::HSTRING::from(tr("Chosen monitor (not connected, shown on main)")),
+                        );
+                    }
+                    let _ = CheckMenuRadioItem(sub, ID_MONITOR_ALL as u32, ID_MONITOR_GONE as u32, checked as u32, MF_BYCOMMAND.0);
+                    let n = GetMenuItemCount(Some(widget));
+                    let _ = AppendMenuW(widget, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Show widget on")));
+                    icons.set(widget, n as u32, true, ui::glyph::MONITOR);
+                }
                 let n = GetMenuItemCount(Some(menu));
-                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Language")));
-                icons.set(menu, n as u32, true, ui::glyph::LANGUAGE);
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, widget.0 as usize, &windows::core::HSTRING::from(tr("Widget")));
+                icons.set(menu, n as u32, true, ui::glyph::VIEW);
             }
-            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
-            let _ = AppendMenuW(
-                menu,
-                MF_STRING | check(ui::autostart_enabled(autostart_name())),
-                ID_AUTOSTART,
-                &windows::core::HSTRING::from(tr("Automatically start with Windows")),
-            );
-            let _ = AppendMenuW(menu, MF_STRING | check(auto_update()), ID_AUTO_UPDATE, &windows::core::HSTRING::from(tr("Automatically check for updates")));
-            let _ = AppendMenuW(
-                menu,
-                MF_STRING | check(silent_install()) | if auto_update() { MF_ENABLED } else { MF_GRAYED },
-                ID_SILENT_UPDATE,
-                &windows::core::HSTRING::from(tr("Install updates silently")),
-            );
+            // Settings: reading, language, autostart and updates.
+            if let Ok(settings_menu) = CreatePopupMenu() {
+                ui::MenuIcons::check_or_icon(settings_menu);
+                // How often the battery levels are read, and whether a device change triggers a read.
+                if let Ok(sub) = CreatePopupMenu() {
+                    let current = refresh_minutes();
+                    for (j, (m, label)) in INTERVALS.iter().enumerate() {
+                        let check = if *m == current { MF_CHECKED } else { MF_UNCHECKED };
+                        let _ = AppendMenuW(sub, MF_STRING | check, ID_INTERVAL_BASE + j, &windows::core::HSTRING::from(tr(label)));
+                    }
+                    let n = GetMenuItemCount(Some(settings_menu));
+                    let _ = AppendMenuW(settings_menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Refresh battery every")));
+                    icons.set(settings_menu, n as u32, true, ui::glyph::HISTORY);
+                }
+                let on_change = if refresh_on_change() { MF_CHECKED } else { MF_UNCHECKED };
+                let _ = AppendMenuW(settings_menu, MF_STRING | on_change, ID_ON_CHANGE, &windows::core::HSTRING::from(tr("Refresh when a device connects or disconnects")));
+                let _ = AppendMenuW(settings_menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+                // Language: Windows' language, every built-in and user language, and a new one.
+                if let Ok(sub) = CreatePopupMenu() {
+                    let chosen = language_choice();
+                    // Names the language it resolves to: Windows' display language, not its region format.
+                    let codes: Vec<String> = languages.iter().map(|(c, _)| c.clone()).collect();
+                    let auto = batteryhub::i18n::pick(&batteryhub::i18n::windows_language(), &codes);
+                    let auto_name = languages.iter().find(|(c, _)| c.eq_ignore_ascii_case(&auto)).map_or(auto.as_str(), |(_, n)| n.as_str());
+                    let auto_label = format!("{} ({auto_name})", tr("Windows language"));
+                    let _ = AppendMenuW(sub, MF_STRING | check(chosen.is_empty()), ID_LANG_AUTO, &windows::core::HSTRING::from(auto_label));
+                    let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+                    for (i, (code, name)) in languages.iter().enumerate().take(ID_LANG_LAST - ID_LANG_FIRST + 1) {
+                        let on = chosen.eq_ignore_ascii_case(code);
+                        let _ = AppendMenuW(sub, MF_STRING | check(on), ID_LANG_FIRST + i, &windows::core::HSTRING::from(name.as_str()));
+                    }
+                    let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+                    let _ = AppendMenuW(sub, MF_STRING, ID_LANG_NEW, &windows::core::HSTRING::from(tr("Create your own language...")));
+                    let _ = AppendMenuW(sub, MF_STRING, ID_LANG_FOLDER, &windows::core::HSTRING::from(tr("Open the languages folder")));
+                    let n = GetMenuItemCount(Some(settings_menu));
+                    let _ = AppendMenuW(settings_menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Language")));
+                    icons.set(settings_menu, n as u32, true, ui::glyph::LANGUAGE);
+                }
+                let _ = AppendMenuW(settings_menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+                let _ = AppendMenuW(
+                    settings_menu,
+                    MF_STRING | check(ui::autostart_enabled(autostart_name())),
+                    ID_AUTOSTART,
+                    &windows::core::HSTRING::from(tr("Automatically start with Windows")),
+                );
+                let _ = AppendMenuW(settings_menu, MF_STRING | check(auto_update()), ID_AUTO_UPDATE, &windows::core::HSTRING::from(tr("Automatically check for updates")));
+                let _ = AppendMenuW(
+                    settings_menu,
+                    MF_STRING | check(silent_install()) | if auto_update() { MF_ENABLED } else { MF_GRAYED },
+                    ID_SILENT_UPDATE,
+                    &windows::core::HSTRING::from(tr("Install updates silently")),
+                );
+                let n = GetMenuItemCount(Some(menu));
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, settings_menu.0 as usize, &windows::core::HSTRING::from(tr("Settings")));
+                icons.set(menu, n as u32, true, ui::glyph::SETTINGS);
+            }
+            // About: updates, other versions, device requests.
+            if let Ok(about) = CreatePopupMenu() {
+                ui::MenuIcons::check_or_icon(about);
+                let _ = AppendMenuW(about, MF_STRING, ID_REQUEST, &windows::core::HSTRING::from(tr("Request support for a device...")));
+                icons.set(about, ID_REQUEST as u32, false, ui::glyph::MAIL);
+                let busy = UPDATE_BUSY.load(std::sync::atomic::Ordering::Relaxed);
+                let label = if busy { tr("Checking for updates...") } else { tr("Check for updates...") };
+                let _ = AppendMenuW(about, MF_STRING | if busy { MF_GRAYED } else { MF_ENABLED }, ID_CHECK_UPDATES, &windows::core::HSTRING::from(label));
+                icons.set(about, ID_CHECK_UPDATES as u32, false, ui::glyph::DOWNLOAD);
+                let _ = AppendMenuW(about, MF_STRING, ID_VERSIONS, &windows::core::HSTRING::from(tr("Install another version...")));
+                icons.set(about, ID_VERSIONS as u32, false, ui::glyph::HISTORY);
+                let n = GetMenuItemCount(Some(menu));
+                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, about.0 as usize, &windows::core::HSTRING::from(tr("About")));
+                icons.set(menu, n as u32, true, ui::glyph::INFO);
+            }
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             // Help: the GitHub page and the latest releases (their pages; loaded in the background).
             if let Ok(sub) = CreatePopupMenu() {
@@ -4649,14 +4678,6 @@ unsafe fn show_menu(from: Option<HWND>) {
                 let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Help")));
                 icons.set(menu, n as u32, true, ui::glyph::INFO);
             }
-            let _ = AppendMenuW(menu, MF_STRING, ID_REQUEST, &windows::core::HSTRING::from(tr("Request support for a device...")));
-            icons.set(menu, ID_REQUEST as u32, false, ui::glyph::MAIL);
-            let busy = UPDATE_BUSY.load(std::sync::atomic::Ordering::Relaxed);
-            let label = if busy { tr("Checking for updates...") } else { tr("Check for updates...") };
-            let _ = AppendMenuW(menu, MF_STRING | if busy { MF_GRAYED } else { MF_ENABLED }, ID_CHECK_UPDATES, &windows::core::HSTRING::from(label));
-            icons.set(menu, ID_CHECK_UPDATES as u32, false, ui::glyph::DOWNLOAD);
-            let _ = AppendMenuW(menu, MF_STRING, ID_VERSIONS, &windows::core::HSTRING::from(tr("Install another version...")));
-            icons.set(menu, ID_VERSIONS as u32, false, ui::glyph::HISTORY);
             let _ = AppendMenuW(menu, MF_STRING, ID_EXIT, &windows::core::HSTRING::from(tr("Exit")));
             icons.set(menu, ID_EXIT as u32, false, ui::glyph::EXIT);
             let mut pt = POINT::default();

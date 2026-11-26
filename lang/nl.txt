@@ -257,3 +257,6 @@ Delete device... = Apparaat verwijderen...
 Delete {name}?\n\nIts battery history, statistics and settings are deleted and BatteryHub forgets the device. If it connects again, it shows up as a new device. This cannot be undone. = {name} verwijderen?\n\nDe batterijgeschiedenis, statistieken en instellingen worden verwijderd en BatteryHub vergeet het apparaat. Als het opnieuw verbindt, verschijnt het als nieuw apparaat. Dit kan niet ongedaan worden gemaakt.
 Not enough room on the taskbar = Niet genoeg ruimte op de taakbalk
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = De batterijniveaus worden als pictogrammen in het systeemvak getoond tot er weer ruimte is. Je kunt de widget ook verplaatsen: rechtsklik → Widgetpositie.
+Widget = Widget
+Settings = Instellingen
+About = Over

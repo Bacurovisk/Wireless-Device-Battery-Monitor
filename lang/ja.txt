@@ -257,3 +257,6 @@ Delete device... = デバイスを削除...
 Delete {name}?\n\nIts battery history, statistics and settings are deleted and BatteryHub forgets the device. If it connects again, it shows up as a new device. This cannot be undone. = {name} を削除しますか?\n\nバッテリー履歴、統計、設定が削除され、BatteryHub はこのデバイスを忘れます。再接続すると新しいデバイスとして表示されます。元に戻せません。
 Not enough room on the taskbar = タスクバーに十分な空きがありません
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = 空きができるまで、バッテリー残量は通知領域のアイコンで表示されます。ウィジェットの位置も変更できます: 右クリック → ウィジェットの位置。
+Widget = ウィジェット
+Settings = 設定
+About = バージョン情報
