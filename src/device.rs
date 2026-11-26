@@ -363,6 +363,9 @@ pub fn poll_hardware(ids: &[(u16, u16)]) -> Vec<DeviceStatus> {
     drivers::blackshark::poll(&mut ctx);
     drivers::wlmouse::poll(&mut ctx);
     drivers::hitscan::poll(&mut ctx);
+    drivers::gwolves::poll(&mut ctx);
+    drivers::inzone::poll(&mut ctx);
+    drivers::betop::poll(&mut ctx);
     drivers::hyperx::poll(&mut ctx);
     drivers::hyperx_ngenuity::poll(&mut ctx);
     drivers::blackshark_v2pro::poll(&mut ctx);
@@ -537,6 +540,9 @@ fn poll_with(colls: Vec<HidColl>) -> Vec<DeviceStatus> {
     drivers::blackshark::poll(&mut ctx);
     drivers::wlmouse::poll(&mut ctx);
     drivers::hitscan::poll(&mut ctx);
+    drivers::gwolves::poll(&mut ctx);
+    drivers::inzone::poll(&mut ctx);
+    drivers::betop::poll(&mut ctx);
     drivers::hyperx::poll(&mut ctx);
     drivers::hyperx_ngenuity::poll(&mut ctx);
     drivers::blackshark_v2pro::poll(&mut ctx);
