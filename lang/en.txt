@@ -260,5 +260,4 @@ Not enough room on the taskbar = Not enough room on the taskbar
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position.
 Widget = Widget
 Settings = Settings
-About = About
 Next to the icons = Next to the icons

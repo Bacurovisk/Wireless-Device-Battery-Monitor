@@ -259,5 +259,4 @@ Not enough room on the taskbar = 작업 표시줄 공간이 부족합니다
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = 공간이 생길 때까지 배터리 잔량이 알림 영역 아이콘으로 표시됩니다. 위젯을 옮길 수도 있습니다: 마우스 오른쪽 클릭 → 위젯 위치.
 Widget = 위젯
 Settings = 설정
-About = 정보
 Next to the icons = 아이콘 옆

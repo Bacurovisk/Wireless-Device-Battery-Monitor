@@ -259,5 +259,4 @@ Not enough room on the taskbar = Ruang taskbar tidak cukup
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = Level baterai ditampilkan sebagai ikon di area notifikasi sampai ada ruang lagi. Anda juga dapat memindahkan widget: klik kanan → Posisi widget.
 Widget = Widget
 Settings = Pengaturan
-About = Tentang
 Next to the icons = Di samping ikon

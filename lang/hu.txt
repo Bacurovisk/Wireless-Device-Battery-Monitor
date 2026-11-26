@@ -259,5 +259,4 @@ Not enough room on the taskbar = Nincs elég hely a tálcán
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = Az akkuszintek ikonként jelennek meg az értesítési területen, amíg nem lesz hely. A widgetet át is helyezheti: jobb kattintás → Widget helye.
 Widget = Widget
 Settings = Beállítások
-About = Névjegy
 Next to the icons = Az ikonok mellett

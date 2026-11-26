@@ -259,5 +259,4 @@ Not enough room on the taskbar = 工作列空間不足
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = 在有空間之前，電量會以通知區域圖示顯示。你也可以移動小工具：按右鍵 → 小工具位置。
 Widget = 小工具
 Settings = 設定
-About = 關於
 Next to the icons = 圖示旁邊

@@ -150,10 +150,10 @@ Left click does nothing (on purpose: the strip stays out of the way). **Right cl
 | *Settings* ▸ *Automatically start with Windows* | Adds or removes BatteryHub's autostart entry (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\BatteryHub Taskbar`) |
 | *Settings* ▸ *Automatically check for updates* | **Off** by default. When on, BatteryHub checks GitHub once, about 2 s after it starts (not while it runs; if the network is not up yet it tries again every 15 s, up to 8 times); if there is a new version you get the same question as with *Check for updates...* |
 | *Settings* ▸ *Install updates silently* | **Off** by default; needs the automatic check. When the check finds a new version, BatteryHub downloads it, verifies its SHA-256 checksum and installs it in the background: no question, no setup window, no "Update finished" message. Settings and autostart are kept. |
-| *About* ▸ *Check for updates...* | "No new updates", or "A new update is available: v1.1 → v1.x - update now?". *Yes* downloads the setup, checks it against the release's SHA-256 checksum and starts it; it updates and restarts BatteryHub, keeping your settings and autostart |
-| *About* ▸ *Install another version...* | Opens the setup's list of all releases on GitHub, to go back to an older one (or install a newer one) |
-| *About* ▸ *Request support for a device...* | Lists every device BatteryHub can see (HID, USB and Bluetooth; vendor-specific and audio devices first). Pick yours, check the name and type, add notes, and *Send* opens a new GitHub issue in your browser, filled in with exactly what the window shows: name, type, your name (optional, the issue is public), notes, vendor / product id, HID and USB interface summary, Windows build. You submit it there (a GitHub account is needed); nothing is sent from the app. *Copy full report* copies the same plus the list of all devices. Also available as `batteryhub-taskbar.exe --report` |
-| *Help* ▸ | *Go to the GitHub page*, *Join the Discord server*, *BatteryHub is free and will stay free* (opens the page for a voluntary tip), and the latest five releases: each opens its release notes on GitHub |
+| *Help* ▸ *Check for updates...* | "No new updates", or "A new update is available: v1.1 → v1.x - update now?". *Yes* downloads the setup, checks it against the release's SHA-256 checksum and starts it; it updates and restarts BatteryHub, keeping your settings and autostart |
+| *Help* ▸ *Install another version...* | Opens the setup's list of all releases on GitHub, to go back to an older one (or install a newer one) |
+| *Help* ▸ *Request support for a device...* | Lists every device BatteryHub can see (HID, USB and Bluetooth; vendor-specific and audio devices first). Pick yours, check the name and type, add notes, and *Send* opens a new GitHub issue in your browser, filled in with exactly what the window shows: name, type, your name (optional, the issue is public), notes, vendor / product id, HID and USB interface summary, Windows build. You submit it there (a GitHub account is needed); nothing is sent from the app. *Copy full report* copies the same plus the list of all devices. Also available as `batteryhub-taskbar.exe --report` |
+| *Help* ▸ | Also *Go to the GitHub page*, *Join the Discord server*, *BatteryHub is free and will stay free* (opens the page for a voluntary tip), and the latest five releases: each opens its release notes on GitHub |
 | *Exit* | Closes BatteryHub |
 
 The hover card and the menu follow the taskbar theme (dark or light); the *Request support* window follows the Windows app theme.
@@ -326,7 +326,7 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Sony | DualShock 4, DualSense, DualSense Edge (USB and Bluetooth); INZONE H5 (see below) |
 | Apple | AirPods and Beats, from BLE proximity broadcasts (L / R / case) |
 | Bluetooth | Any device Windows knows a battery level for, plus the Google Fast Pair L / R / case split |
-| Phones (Bluetooth) | A connected phone: the level Windows has for it, or else the standard Bluetooth LE Battery Service (read only; iPhones and some Android phones offer it). The phone must be paired and connected in *Settings → Bluetooth & devices* |
+| Phones (Bluetooth), **experimental** | A connected phone: the level Windows has for it, or else the standard Bluetooth LE Battery Service (read only; iPhones and some Android phones offer it). The phone must be paired and connected in *Settings → Bluetooth & devices*. Without the Battery Service, the level is the one Windows has, which many phones only update when they reconnect, so it can stay old; no charging state |
 | Generic HID | Devices exposing the standard Battery Strength usage |
 | Xbox | Windows.Gaming.Input (exact %) and XInput (coarse levels) |
 | Logitech ASTRO A50 X | USB base station `046D:0B0B`; the same read-only battery request as the A50 Gen 5 (protocol from [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0, tested on an A50 X there; untested here, [#105](../../issues/105)) |
@@ -592,7 +592,7 @@ BatteryHub is not made by one person alone. Thank you to everyone who helped!
 - **[@AlanRooMJ](https://github.com/AlanRooMJ)**: MEETION mice on `249A:5C2F` (#216).
 - **[@karim-kss](https://github.com/karim-kss)**: VGN DragonFly F2 Pro Max, checked on hardware (#524).
 - **[@AzukiPann](https://github.com/AzukiPann)**: Sony INZONE H5, tested on hardware (#328).
-- **[@artxamer](https://github.com/artxamer)**: the strip with Stardock Start11's taskbar (#512), the menu in *Widget*, *Settings* and *About* (#520).
+- **[@artxamer](https://github.com/artxamer)**: the strip with Stardock Start11's taskbar (#512), the menu in *Widget*, *Settings* and *Help* (#520).
 - **[@DyAvr](https://github.com/DyAvr)**: compact layout, icons above percentages (#456); the idea of moving to notification-area icons when the taskbar is full (#455).
 
 **Device requests, dumps and testing.** Every new device comes from someone who asked for it, sent a dump or tested a version. Thank you to all of them:

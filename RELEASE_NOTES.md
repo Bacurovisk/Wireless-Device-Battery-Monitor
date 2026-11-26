@@ -15,12 +15,12 @@ Already installed? Use *Check for updates...* in the right-click menu (v1.1 and 
 
 - **BatteryHub is free, and will stay free.** Nobody should pay for it; if you did, ask for a refund. Shown once after a new installation, and in *Help*.
 - **Per device:** *On hover* shows the card, only a short tooltip, or nothing; the card's chart and time left can be turned off; *Battery only* records nothing for the device.
-- **Phones over Bluetooth:** the standard Bluetooth LE Battery Service is read when Windows has no level (e.g. iPhones).
+- **Phones over Bluetooth (experimental):** read over the standard Bluetooth LE Battery Service (e.g. iPhones). Otherwise the level is the one Windows has, which many phones only update when they reconnect, so it can stay old.
 - **Widget position** *Left*, *Next to the icons* (also centred ones) or *Right*; the widget glides to its new place, also on other monitors. *Help* menu with the GitHub page, Discord and the latest releases. The tray icon can hide when no device is connected.
 - **New devices:** Logitech G435 on the older dongle (by [DopleZZ](https://github.com/DopleZZ), #481), HyperX Pulsefire Saga Pro (by [stanzeman](https://github.com/stanzeman), #553), Darmoshark M3 PRO (by [4679](https://github.com/4679), #511), ROG OMNI receiver (by [TIGamingTV](https://github.com/TIGamingTV), #452), JBL Quantum 800 (by [basziee](https://github.com/basziee), #443), Hitscan Hyperlight X (by [Dyzson](https://github.com/Dyzson), #427) and Hyperlight, Sony INZONE H5, G-Wolves mice, BEITONG KP70, Flydigi Vader 5 Pro, more ASUS ROG / TUF mice, VGN Dragonfly 4K and F2 Pro Max, AJAZZ 8K receiver, MEETION mice.
 - **Fixed:** G435 newer dongle never read; Audeze Maxwell; G733 level (by [TIGamingTV](https://github.com/TIGamingTV), #478); Smailwolf / AJAZZ `A8A5:2255` below 100 % (by [elcio96](https://github.com/elcio96), #494).
 - **Taskbar full:** the widget hides where it would cover task buttons; with no room anywhere, the levels move to notification-area icons until there is room again.
-- **Compact layout:** icons above percentages (by [DyAvr](https://github.com/DyAvr), #456). **Delete device** in the dashboard for disconnected devices. Works with Stardock Start11, and a shorter right-click menu with *Widget*, *Settings* and *About* (both by [artxamer](https://github.com/artxamer), #512, #520).
+- **Compact layout:** icons above percentages (by [DyAvr](https://github.com/DyAvr), #456). **Delete device** in the dashboard for disconnected devices. Works with Stardock Start11, and a shorter right-click menu with *Widget*, *Settings* and *Help* (both by [artxamer](https://github.com/artxamer), #512, #520).
 - Updates are also looked for under `ferloom/battery-hub`, in case the repository is renamed.
 
 ## New in v1.7.6

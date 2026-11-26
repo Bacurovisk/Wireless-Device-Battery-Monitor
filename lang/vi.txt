@@ -259,5 +259,4 @@ Not enough room on the taskbar = Không đủ chỗ trên thanh tác vụ
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = Mức pin được hiển thị dưới dạng biểu tượng trong khu vực thông báo cho đến khi có chỗ. Bạn cũng có thể di chuyển widget: nhấp chuột phải → Vị trí widget.
 Widget = Tiện ích
 Settings = Cài đặt
-About = Giới thiệu
 Next to the icons = Cạnh các biểu tượng

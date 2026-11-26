@@ -259,5 +259,4 @@ Not enough room on the taskbar = Inte tillräckligt med plats i aktivitetsfälte
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = Batterinivåerna visas som ikoner i meddelandefältet tills det finns plats igen. Du kan också flytta widgeten: högerklicka → Widgetens position.
 Widget = Widget
 Settings = Inställningar
-About = Om
 Next to the icons = Bredvid ikonerna

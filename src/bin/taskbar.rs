@@ -4667,24 +4667,19 @@ unsafe fn show_menu(from: Option<HWND>) {
                 let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, settings_menu.0 as usize, &windows::core::HSTRING::from(tr("Settings")));
                 icons.set(menu, n as u32, true, ui::glyph::SETTINGS);
             }
-            // About: updates, other versions, device requests.
-            if let Ok(about) = CreatePopupMenu() {
-                ui::MenuIcons::check_or_icon(about);
-                let _ = AppendMenuW(about, MF_STRING, ID_REQUEST, &windows::core::HSTRING::from(tr("Request support for a device...")));
-                icons.set(about, ID_REQUEST as u32, false, ui::glyph::MAIL);
+            // Help: updates, other versions, device requests, the project's pages and the latest
+            // releases (their pages; loaded in the background).
+            if let Ok(sub) = CreatePopupMenu() {
+                ui::MenuIcons::check_or_icon(sub);
                 let busy = UPDATE_BUSY.load(std::sync::atomic::Ordering::Relaxed);
                 let label = if busy { tr("Checking for updates...") } else { tr("Check for updates...") };
-                let _ = AppendMenuW(about, MF_STRING | if busy { MF_GRAYED } else { MF_ENABLED }, ID_CHECK_UPDATES, &windows::core::HSTRING::from(label));
-                icons.set(about, ID_CHECK_UPDATES as u32, false, ui::glyph::DOWNLOAD);
-                let _ = AppendMenuW(about, MF_STRING, ID_VERSIONS, &windows::core::HSTRING::from(tr("Install another version...")));
-                icons.set(about, ID_VERSIONS as u32, false, ui::glyph::HISTORY);
-                let n = GetMenuItemCount(Some(menu));
-                let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, about.0 as usize, &windows::core::HSTRING::from(tr("About")));
-                icons.set(menu, n as u32, true, ui::glyph::INFO);
-            }
-            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
-            // Help: the GitHub page and the latest releases (their pages; loaded in the background).
-            if let Ok(sub) = CreatePopupMenu() {
+                let _ = AppendMenuW(sub, MF_STRING | if busy { MF_GRAYED } else { MF_ENABLED }, ID_CHECK_UPDATES, &windows::core::HSTRING::from(label));
+                icons.set(sub, ID_CHECK_UPDATES as u32, false, ui::glyph::DOWNLOAD);
+                let _ = AppendMenuW(sub, MF_STRING, ID_VERSIONS, &windows::core::HSTRING::from(tr("Install another version...")));
+                icons.set(sub, ID_VERSIONS as u32, false, ui::glyph::HISTORY);
+                let _ = AppendMenuW(sub, MF_STRING, ID_REQUEST, &windows::core::HSTRING::from(tr("Request support for a device...")));
+                icons.set(sub, ID_REQUEST as u32, false, ui::glyph::MAIL);
+                let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
                 let _ = AppendMenuW(sub, MF_STRING, ID_HELP_GITHUB, &windows::core::HSTRING::from(tr("Go to the GitHub page")));
                 icons.set(sub, ID_HELP_GITHUB as u32, false, ui::glyph::INFO);
                 let _ = AppendMenuW(sub, MF_STRING, ID_HELP_DISCORD, &windows::core::HSTRING::from(tr("Join the Discord server")));
@@ -4703,6 +4698,7 @@ unsafe fn show_menu(from: Option<HWND>) {
                 let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Help")));
                 icons.set(menu, n as u32, true, ui::glyph::INFO);
             }
+            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             let _ = AppendMenuW(menu, MF_STRING, ID_EXIT, &windows::core::HSTRING::from(tr("Exit")));
             icons.set(menu, ID_EXIT as u32, false, ui::glyph::EXIT);
             let mut pt = POINT::default();

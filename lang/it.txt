@@ -259,5 +259,4 @@ Not enough room on the taskbar = Spazio insufficiente sulla barra delle applicaz
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = I livelli di batteria sono mostrati come icone nell'area di notifica finché non c'è spazio. Puoi anche spostare il widget: clic destro → Posizione del widget.
 Widget = Widget
 Settings = Impostazioni
-About = Informazioni
 Next to the icons = Accanto alle icone

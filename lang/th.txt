@@ -259,5 +259,4 @@ Not enough room on the taskbar = พื้นที่บนแถบงาน�
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = ระดับแบตเตอรี่จะแสดงเป็นไอคอนในพื้นที่แจ้งเตือนจนกว่าจะมีพื้นที่ คุณยังย้ายวิดเจ็ตได้: คลิกขวา → ตำแหน่งวิดเจ็ต
 Widget = วิดเจ็ต
 Settings = การตั้งค่า
-About = เกี่ยวกับ
 Next to the icons = ข้างไอคอน

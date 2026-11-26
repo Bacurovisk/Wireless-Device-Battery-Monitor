@@ -259,5 +259,4 @@ Not enough room on the taskbar = Na hlavním panelu není dost místa
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = Úrovně baterie se zobrazují jako ikony v oznamovací oblasti, dokud se neuvolní místo. Widget můžete také přesunout: klikněte na něj pravým tlačítkem → Pozice widgetu.
 Widget = Widget
 Settings = Nastavení
-About = O aplikaci
 Next to the icons = Vedle ikon

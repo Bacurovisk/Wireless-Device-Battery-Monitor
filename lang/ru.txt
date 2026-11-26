@@ -259,5 +259,4 @@ Not enough room on the taskbar = Недостаточно места на пан
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = Уровни заряда показываются значками в области уведомлений, пока не освободится место. Виджет можно и переместить: правый клик → Положение виджета.
 Widget = Виджет
 Settings = Настройки
-About = О программе
 Next to the icons = Рядом со значками

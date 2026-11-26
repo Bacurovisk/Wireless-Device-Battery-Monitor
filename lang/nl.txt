@@ -259,5 +259,4 @@ Not enough room on the taskbar = Niet genoeg ruimte op de taakbalk
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = De batterijniveaus worden als pictogrammen in het systeemvak getoond tot er weer ruimte is. Je kunt de widget ook verplaatsen: rechtsklik → Widgetpositie.
 Widget = Widget
 Settings = Instellingen
-About = Over
 Next to the icons = Naast de pictogrammen

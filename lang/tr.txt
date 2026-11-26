@@ -259,5 +259,4 @@ Not enough room on the taskbar = Görev çubuğunda yeterli yer yok
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = Yer açılana kadar pil seviyeleri bildirim alanında simge olarak gösterilir. Widget'ı da taşıyabilirsiniz: sağ tık → Widget konumu.
 Widget = Araç
 Settings = Ayarlar
-About = Hakkında
 Next to the icons = Simgelerin yanında

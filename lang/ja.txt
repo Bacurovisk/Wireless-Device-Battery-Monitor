@@ -259,5 +259,4 @@ Not enough room on the taskbar = タスクバーに十分な空きがありま�
 The battery levels are shown as notification-area icons until there is room again. You can also move the widget: right-click it → Widget position. = 空きができるまで、バッテリー残量は通知領域のアイコンで表示されます。ウィジェットの位置も変更できます: 右クリック → ウィジェットの位置。
 Widget = ウィジェット
 Settings = 設定
-About = バージョン情報
 Next to the icons = アイコンの隣
