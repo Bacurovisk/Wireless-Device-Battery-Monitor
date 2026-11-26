@@ -198,6 +198,86 @@ pub fn ensure_watcher() -> bool {
     }
 }
 
+// ---- GATT Battery Service (phones) --------------------------------------------------------------
+
+/// Waits up to `ms` for a WinRT operation; cancels it when it takes longer.
+fn wait<T: windows::core::RuntimeType + 'static>(op: windows_future::IAsyncOperation<T>, ms: u64) -> Option<T> {
+    use windows_future::AsyncStatus;
+    let end = Instant::now() + std::time::Duration::from_millis(ms);
+    loop {
+        match op.Status().ok()? {
+            AsyncStatus::Completed => return op.GetResults().ok(),
+            AsyncStatus::Started => {}
+            _ => return None,
+        }
+        if Instant::now() >= end {
+            let _ = op.Cancel();
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+/// When a phone did not answer: not asked again for this long (a phone out of range, or one
+/// without the Battery Service, would otherwise slow every read down).
+const GATT_RETRY_SECS: u64 = 15 * 60;
+
+fn gatt_failed() -> &'static Mutex<HashMap<u64, Instant>> {
+    static M: OnceLock<Mutex<HashMap<u64, Instant>>> = OnceLock::new();
+    M.get_or_init(Default::default)
+}
+
+/// Battery level from the standard Bluetooth LE Battery Service (0x180F, Battery Level 0x2A19)
+/// of a paired device, e.g. an iPhone. Only a read of a standard characteristic: nothing is
+/// written. None when the device does not answer within a few seconds.
+pub fn read_gatt_battery(addr: u64) -> Option<u8> {
+    use windows::Devices::Bluetooth::BluetoothCacheMode;
+    use windows::Devices::Bluetooth::BluetoothLEDevice;
+    use windows::Devices::Bluetooth::GenericAttributeProfile::{GattCharacteristicUuids, GattCommunicationStatus, GattServiceUuids};
+    if let Some(at) = gatt_failed().lock().ok()?.get(&addr)
+        && at.elapsed().as_secs() < GATT_RETRY_SECS
+    {
+        return None;
+    }
+    let read = || -> Option<u8> {
+        let dev = wait(BluetoothLEDevice::FromBluetoothAddressAsync(addr).ok()?, 3000)?;
+        let level = (|| {
+            let services = wait(dev.GetGattServicesForUuidWithCacheModeAsync(GattServiceUuids::Battery().ok()?, BluetoothCacheMode::Uncached).ok()?, 4000)?;
+            if services.Status().ok()? != GattCommunicationStatus::Success {
+                return None;
+            }
+            let list = services.Services().ok()?;
+            let svc = (list.Size().ok()? > 0).then(|| list.GetAt(0).ok()).flatten()?;
+            let level = (|| {
+                let chars = wait(svc.GetCharacteristicsForUuidWithCacheModeAsync(GattCharacteristicUuids::BatteryLevel().ok()?, BluetoothCacheMode::Cached).ok()?, 3000)?;
+                let list = chars.Characteristics().ok()?;
+                let ch = (list.Size().ok()? > 0).then(|| list.GetAt(0).ok()).flatten()?;
+                let r = wait(ch.ReadValueWithCacheModeAsync(BluetoothCacheMode::Uncached).ok()?, 3000)?;
+                if r.Status().ok()? != GattCommunicationStatus::Success {
+                    return None;
+                }
+                buffer_bytes(&r.Value().ok()?)?.first().copied().filter(|&b| b <= 100)
+            })();
+            let _ = svc.Close();
+            level
+        })();
+        let _ = dev.Close();
+        level
+    };
+    let level = read();
+    if let Ok(mut m) = gatt_failed().lock() {
+        match level {
+            Some(_) => {
+                m.remove(&addr);
+            }
+            None => {
+                insert_bounded(&mut m, addr, Instant::now(), |t| *t, GATT_RETRY_SECS, 64);
+            }
+        }
+    }
+    level
+}
+
 /// Stops listening until the next `ensure_watcher` (called at the end of every read). Broadcasts
 /// heard so far stay available; the next read starts the watcher again and waits for fresh ones.
 pub fn stop_watcher() {

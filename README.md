@@ -21,6 +21,16 @@ in about <b>0.2 MB of RAM</b>.
 <img src="res/screenshot-taskbar.png" width="402" alt="BatteryHub on the Windows 11 taskbar next to the notification area: headset 72%, mouse 71%">
 </p>
 
+> [!CAUTION]
+> ## BatteryHub is FREE. Never pay for it.
+> **BatteryHub is free and will always stay free. Nobody should ever pay for it.**
+>
+> **If you paid someone for BatteryHub, you were scammed: ask them for a refund**, and report the seller where you bought it.
+>
+> Why this notice is here: the team found people **selling BatteryHub for money**. The owners never sold it and never would. That is also why the program says it is free after a new installation, and in its *Help* menu.
+>
+> The only official place to get it is this GitHub page: **[download the latest release](../../releases/latest)**. A tip through [Revolut](https://revolut.me/p2ps) is always voluntary, never required.
+
 > [!IMPORTANT]
 > **This is a recode of krisgfx9/Wireless-Device-Battery-Monitor** (the C++ BatteryHub by krisgfx9), not a fork and not the original.
 > It rewrites the original in Rust. The idea, the look of the taskbar strip and the device protocols all come from the original project, and the credit for them goes to its authors.
@@ -29,7 +39,7 @@ in about <b>0.2 MB of RAM</b>.
 >
 > This recode is still **not the original**, but it **is supported and will stay supported**: it keeps being developed and updated, with new devices added from [device requests](../../issues).
 
-Developed by [@ferloom](https://github.com/ferloom) with the help of Claude (AI).
+<p align="center"><b>Made with ❤️ by <a href="https://github.com/ferloom">ferloom</a></b> (with the help of Claude AI)</p>
 
 ---
 
@@ -121,7 +131,7 @@ Left click does nothing (on purpose: the strip stays out of the way). **Right cl
 
 | Menu item | What it does |
 |---|---|
-| *Device name (level, state; earbuds: L: / R:)* ▸ | *Dashboard...*, *Battery history*, *Statistics* (the dashboard on that tab), *Rename device...*, *Red warning at or below* 50 / 40 / 30 / 20 / **15** / 10 / 5%, *Warn at 5% (notification)* (**on** by default), *Red icon at the warning level* (off by default; earbuds: each bud on its own), *Icon colour* (the taskbar's, the brand's, e.g. Razer green or Logitech blue, six ready-made colours or your own), and *Show on the taskbar* (**on** by default; turned off, the device leaves the strip, its tooltip and the hover card but stays in this menu, still read, with its history and the 5% warning), *Move left* / *Move right* (its place on the strip; dragging it there works too) and *Reset measurements...* (asks first, then deletes the device's history and statistics) |
+| *Device name (level, state; earbuds: L: / R:)* ▸ | *Dashboard...*, *Battery history*, *Statistics* (the dashboard on that tab), *Rename device...*, *Red warning at or below* 50 / 40 / 30 / 20 / **15** / 10 / 5%, *Warn at 5% (notification)* (**on** by default), *Red icon at the warning level* (off by default; earbuds: each bud on its own), *Icon colour* (the taskbar's, the brand's, e.g. Razer green or Logitech blue, six ready-made colours or your own), and *Show on the taskbar* (**on** by default; turned off, the device leaves the strip, its tooltip and the hover card but stays in this menu, still read, with its history and the 5% warning), *On hover* ▸ (*Card with details*, the default; *Only the name and level (tooltip)*, the short tooltip of the first versions, e.g. "Mouse: 80% (charging)"; or *Nothing*, not even the highlight; plus *Battery chart on the card* and *Time left on the card*, both **on** by default), *Battery only (no history, statistics or forecast)* (off by default; turned on, nothing is recorded or worked out for the device, only its level is shown), *Move left* / *Move right* (its place on the strip; dragging it there works too) and *Reset measurements...* (asks first, then deletes the device's history and statistics) |
 | *Refresh devices* | Full rescan; devices that are gone disappear |
 | *Refresh battery levels* | Reads the levels again |
 | *Refresh battery every* ▸ | **1 minute** / 5 / 10 / 30 minutes / 1 hour |
@@ -139,7 +149,7 @@ Left click does nothing (on purpose: the strip stays out of the way). **Right cl
 | *Install updates silently* | **Off** by default; needs the automatic check. When the check finds a new version, BatteryHub downloads it, verifies its SHA-256 checksum and installs it in the background: no question, no setup window, no "Update finished" message. Settings and autostart are kept. |
 | *Request support for a device...* | Lists every device BatteryHub can see (HID, USB and Bluetooth; vendor-specific and audio devices first). Pick yours, check the name and type, add notes, and *Send* opens a new GitHub issue in your browser, filled in with exactly what the window shows: name, type, your name (optional, the issue is public), notes, vendor / product id, HID and USB interface summary, Windows build. You submit it there (a GitHub account is needed); nothing is sent from the app. *Copy full report* copies the same plus the list of all devices. Also available as `batteryhub-taskbar.exe --report` |
 | *Install another version...* | Opens the setup's list of all releases on GitHub, to go back to an older one (or install a newer one) |
-| *Help* ▸ | *Go to the GitHub page*, *Join the Discord server*, and the latest five releases: each opens its release notes on GitHub |
+| *Help* ▸ | *Go to the GitHub page*, *Join the Discord server*, *BatteryHub is free and will stay free* (opens the page for a voluntary tip), and the latest five releases: each opens its release notes on GitHub |
 | *Check for updates...* | "No new updates", or "A new update is available: v1.1 → v1.x - update now?". *Yes* downloads the setup, checks it against the release's SHA-256 checksum and starts it; it updates and restarts BatteryHub, keeping your settings and autostart |
 | *Exit* | Closes BatteryHub |
 
@@ -306,6 +316,7 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Sony | DualShock 4, DualSense, DualSense Edge (USB and Bluetooth) |
 | Apple | AirPods and Beats, from BLE proximity broadcasts (L / R / case) |
 | Bluetooth | Any device Windows knows a battery level for, plus the Google Fast Pair L / R / case split |
+| Phones (Bluetooth) | A connected phone: the level Windows has for it, or else the standard Bluetooth LE Battery Service (read only; iPhones and some Android phones offer it). The phone must be paired and connected in *Settings → Bluetooth & devices* |
 | Generic HID | Devices exposing the standard Battery Strength usage |
 | Xbox | Windows.Gaming.Input (exact %) and XInput (coarse levels) |
 | Logitech ASTRO A50 X | USB base station `046D:0B0B`; the same read-only battery request as the A50 Gen 5 (protocol from [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0, tested on an A50 X there; untested here, [#105](../../issues/105)) |

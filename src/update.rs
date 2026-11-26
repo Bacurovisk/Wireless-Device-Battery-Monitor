@@ -2,7 +2,7 @@
 //! request downloads a release's setup, verifies it and starts it.
 //!
 //! Integrity rules (nothing unverified is ever started):
-//!  * every release asset must come from `https://github.com/<REPO>/releases/download/`, and
+//!  * every release asset must come from `https://github.com/<one of REPOS>/releases/download/`, and
 //!    every redirect must stay on HTTPS and on GitHub's own hosts;
 //!  * the release must have SHA256SUMS.txt listing the setup, and the setup's SHA-256 must match;
 //!  * when this build carries a release-signing public key (see scripts/new-signing-key.ps1),
@@ -20,8 +20,12 @@ use windows::Win32::Networking::WinHttp::*;
 use windows::Win32::Security::Cryptography::*;
 use windows::core::{HSTRING, PCWSTR};
 
-/// GitHub repository the updates come from (owner/name).
+/// GitHub repository of the project (owner/name): links, and the first place updates come from.
 pub const REPO: &str = "ferloom/Wireless-Device-Battery-Monitor";
+/// Every place updates come from: the project's repository, and the name it may get later
+/// (if the repository is ever renamed, the programs already out there still find updates).
+/// The newest release of the two wins.
+pub const REPOS: [&str; 2] = [REPO, "ferloom/battery-hub"];
 /// Prefix of the setup file in a release ("BatteryHub-Taskbar-Setup-v1.1.exe").
 const SETUP_PREFIX: &str = "BatteryHub-Taskbar-Setup-";
 /// Largest download accepted (the setup is about 1 MB).
@@ -60,15 +64,42 @@ pub fn check() -> Check {
 }
 
 fn latest_release() -> Result<Release, String> {
-    let body = http_get(&format!("https://api.github.com/repos/{REPO}/releases/latest"))?;
-    parse_release(&String::from_utf8_lossy(&body)).ok_or_else(|| "unexpected answer from GitHub".into())
+    let mut first_err = None;
+    let mut best: Option<Release> = None;
+    for repo in REPOS {
+        let found = http_get(&format!("https://api.github.com/repos/{repo}/releases/latest"))
+            .and_then(|body| parse_release(&String::from_utf8_lossy(&body)).ok_or_else(|| "unexpected answer from GitHub".into()));
+        match found {
+            Ok(r) if best.as_ref().is_none_or(|b| crate::install::version_cmp(&r.version, &b.version).is_gt()) => best = Some(r),
+            Ok(_) => {}
+            Err(e) => {
+                first_err.get_or_insert(e);
+            }
+        }
+    }
+    best.ok_or_else(|| first_err.unwrap_or_else(|| "no release found".into()))
 }
 
 /// Every release that has a setup, newest first (for installing a chosen, also older, version).
 pub fn list_releases() -> Result<Vec<Release>, String> {
-    let body = http_get(&format!("https://api.github.com/repos/{REPO}/releases?per_page=50"))?;
-    let text = String::from_utf8_lossy(&body);
-    let mut out: Vec<Release> = split_objects(&text).iter().filter_map(|o| parse_release(o)).collect();
+    let mut out: Vec<Release> = Vec::new();
+    let mut first_err = None;
+    let mut any = false;
+    for repo in REPOS {
+        match http_get(&format!("https://api.github.com/repos/{repo}/releases?per_page=50")) {
+            Ok(body) => {
+                any = true;
+                let text = String::from_utf8_lossy(&body);
+                out.extend(split_objects(&text).iter().filter_map(|o| parse_release(o)));
+            }
+            Err(e) => {
+                first_err.get_or_insert(e);
+            }
+        }
+    }
+    if !any {
+        return Err(first_err.unwrap_or_else(|| "no release found".into()));
+    }
     out.sort_by(|a, b| crate::install::version_cmp(&b.version, &a.version));
     out.dedup_by(|a, b| a.version == b.version);
     Ok(out)
@@ -119,7 +150,7 @@ fn parse_release(json: &str) -> Option<Release> {
         return None;
     }
     let page_url = json_string(json, "html_url")
-        .filter(|u| u.starts_with(&format!("https://github.com/{REPO}/releases/")))
+        .filter(|u| REPOS.iter().any(|repo| u.starts_with(&format!("https://github.com/{repo}/releases/"))))
         .unwrap_or_else(|| format!("https://github.com/{REPO}/releases/latest"));
     let urls: Vec<String> = json_strings(json, "browser_download_url").into_iter().filter(|u| is_release_asset(u)).collect();
     let setup_url = urls.iter().find(|u| file_name(u).starts_with(SETUP_PREFIX) && u.ends_with(".exe"))?.clone();
@@ -129,9 +160,13 @@ fn parse_release(json: &str) -> Option<Release> {
     Some(Release { version, setup_name: file_name(&setup_url).to_string(), setup_url, sums_url, sig_url, page_url, prerelease })
 }
 
-/// A download URL of one of this repository's releases (no other host, path or scheme).
+/// A download URL of one of the releases of REPOS (no other host, path or scheme).
 pub fn is_release_asset(url: &str) -> bool {
-    let prefix = format!("https://github.com/{REPO}/releases/download/");
+    REPOS.iter().any(|repo| asset_of(url, repo))
+}
+
+fn asset_of(url: &str, repo: &str) -> bool {
+    let prefix = format!("https://github.com/{repo}/releases/download/");
     url.strip_prefix(&prefix).is_some_and(|rest| {
         let parts: Vec<&str> = rest.split('/').collect();
         parts.len() == 2
@@ -444,6 +479,8 @@ mod tests {
             assert!(parse_release(&json).is_none(), "{bad}");
         }
         assert!(is_release_asset("https://github.com/ferloom/Wireless-Device-Battery-Monitor/releases/download/v1.5/SHA256SUMS.txt"));
+        assert!(is_release_asset("https://github.com/ferloom/battery-hub/releases/download/v1.8/BatteryHub-Taskbar-Setup-v1.8.exe"));
+        assert!(!is_release_asset("https://github.com/ferloom/battery-hub-x/releases/download/v1.8/BatteryHub-Taskbar-Setup-v1.8.exe"));
         assert!(parse_release(r#"{"tag_name": "v1.5; rm", "assets": []}"#).is_none());
     }
 

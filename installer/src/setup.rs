@@ -344,6 +344,12 @@ pub fn install(ed: &Edition, payload: &[u8], log: &Log, st: &State, c: &Choices,
     progress(0.93, "Setting up autostart");
     set_autostart(ed, log, &exe, c.autostart, &mut created);
 
+    // A new installation (not an update): the program says once that it is free.
+    if !st.installed
+        && let Some(k) = inst::create(HKCU, ed.settings_key)
+    {
+        k.set_string("FreeNotice", "1");
+    }
     if c.launch || was_running {
         progress(0.97, "Starting BatteryHub");
         // The updated program says "Update finished: vOLD -> vNEW" once when it starts.

@@ -23,7 +23,7 @@ use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{CreateMutexW, GetCurrentProcess, SetProcessWorkingSetSize};
 use windows::Win32::UI::Controls::{
-    TOOLTIPS_CLASSW, TTF_ABSOLUTE, TTF_TRACK, TTM_ADDTOOLW, TTM_SETMAXTIPWIDTH, TTM_TRACKACTIVATE, TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
+    TOOLTIPS_CLASSW, TTF_ABSOLUTE, TTF_TRACK, TTM_ADDTOOLW, TTM_GETBUBBLESIZE, TTM_SETMAXTIPWIDTH, TTM_TRACKACTIVATE, TTM_TRACKPOSITION, TTM_UPDATETIPTEXTW, TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
 };
 use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow, SetProcessDpiAwarenessContext};
 use windows::Win32::UI::Input::KeyboardAndMouse::{TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent};
@@ -207,6 +207,9 @@ const HELP_RELEASES: usize = 5;
 const ID_HELP_DISCORD: usize = 207;
 /// The project's Discord server (a permanent invite).
 const DISCORD_URL: &str = "https://discord.gg/aVp2E7a9tb";
+/// "BatteryHub is free and will stay free": opens the page for a tip.
+const ID_HELP_FREE: usize = 208;
+const SUPPORT_URL: &str = "https://revolut.me/p2ps";
 /// "Show the icon when no device is connected".
 const ID_SHOW_EMPTY: usize = 210;
 const POSITION_MAX: u32 = 1000;
@@ -2264,7 +2267,7 @@ impl App {
         let now = batteryhub::history::now_secs();
         let gap = batteryhub::history::gap_limit(refresh_minutes());
         for s in fresh {
-            if s.connected && !s.asleep && s.percent >= 0 && !s.key.starts_with("demo:") {
+            if s.connected && !s.asleep && s.percent >= 0 && !s.key.starts_with("demo:") && !settings::battery_only(SETTINGS_KEY, &s.key) {
                 self.history.record(&s.key, now, s.percent, s.charging, s.is_full(), gap);
                 if let Some(b) = s.buds {
                     for (side, level, charging) in [("L", b.left, b.left_charging), ("R", b.right, b.right_charging)] {
@@ -2312,7 +2315,8 @@ impl App {
         let h = self.history.points(&d.key);
         let last = self.history.latest(&d.key).map(|p| (p.t, p.level, p.flags));
         let text = format!(
-            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{:?}|{}|{:?}|{:?}|{:?}|{:?}",
+            "{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{:?}|{}|{:?}|{:?}|{:?}|{:?}",
+            card_opts(&d.key),
             d.key,
             d.name,
             d.percent,
@@ -2456,7 +2460,8 @@ impl App {
         } else {
             st.discharge_estimate()
         };
-        let left_text = if !read_now || d.is_full() {
+        let (show_chart, show_time) = card_opts(&d.key);
+        let left_text = if !read_now || d.is_full() || !show_time {
             String::new()
         } else {
             match st.time_left(d.percent, d.charging) {
@@ -2490,6 +2495,13 @@ impl App {
         if let Some(dock) = d.dock_text() {
             y += px(20.0);
             cv.draw(&mask(&trf("Dock battery: {dock}", &[("dock", &dock)]), small_f, light), pad, y, dim, 255);
+        }
+        if !show_chart {
+            // No chart: the card ends under the connection line.
+            self.card_chart_y = (i32::MIN / 2, i32::MIN / 2);
+            let h = (y + px(18.0) + pad).min(tall);
+            cv.px.truncate((w * h) as usize);
+            return (w, h, cv.px);
         }
         y += px(30.0);
 
@@ -2810,7 +2822,7 @@ impl App {
         let pad = (16.0 * self.card_anim.scale).round() as i32;
         let (x0, x1) = (pad, content.w - pad);
         let (top, bottom) = self.card_chart_y;
-        let on_chart = cy >= top - pad && cy <= bottom + pad && cx >= x0 - pad / 2 && cx <= x1 + pad / 2;
+        let on_chart = card_opts(&content.key).0 && cy >= top - pad && cy <= bottom + pad && cx >= x0 - pad / 2 && cx <= x1 + pad / 2;
         let pick = on_chart.then(|| {
             let now = batteryhub::history::now_secs();
             let f = ((cx - x0) as f64 / (x1 - x0).max(1) as f64).clamp(0.0, 1.0);
@@ -3019,7 +3031,10 @@ impl App {
             return;
         }
         let x = if self.vertical { y } else { x };
-        self.set_hovered(on);
+        let hit = self.hits.iter().find(|h| x >= h.0 && x < h.1).map(|h| (h.2, h.0, h.1));
+        let mode = hit.and_then(|h| self.visible_at(h.0)).map_or(settings::HoverMode::Card, |d| settings::hover_mode(SETTINGS_KEY, &d.key));
+        // "Nothing" on hover: not even the highlight.
+        self.set_hovered(if mode == settings::HoverMode::Off { HWND::default() } else { on });
         if self.card_away.take().is_some() {
             unsafe {
                 let _ = KillTimer(Some(self.main), TIMER_AWAY);
@@ -3038,16 +3053,64 @@ impl App {
                 let mut tme = TRACKMOUSEEVENT { cbSize: size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: on, dwHoverTime: 0 };
                 self.tracking = TrackMouseEvent(&mut tme).is_ok();
             }
-            let hit = self.hits.iter().find(|h| x >= h.0 && x < h.1).map(|h| (h.2, h.0, h.1));
             let key = hit.map(|h| h.0).unwrap_or(usize::MAX);
             if self.tip_for == Some(key) {
                 return;
             }
             self.tip_for = Some(key);
-            // The card (name, level, last 24 hours) above the hovered device; nothing between devices.
-            match hit {
-                Some((i, from, to)) => self.show_card(i, on, from, to),
-                None => self.hide_card(),
+            // The card (name, level, last 24 hours) above the hovered device, or the short
+            // tooltip, or nothing (the device's "On hover" setting); nothing between devices.
+            match (hit, mode) {
+                (Some((i, from, to)), settings::HoverMode::Card) => {
+                    self.tooltip_off();
+                    self.show_card(i, on, from, to)
+                }
+                (Some((i, from, to)), settings::HoverMode::Tip) => {
+                    self.hide_card();
+                    self.tooltip_on(i, on, from, to);
+                }
+                _ => {
+                    self.tooltip_off();
+                    self.hide_card()
+                }
+            }
+        }
+    }
+
+    /// The short tooltip ("Mouse: 80% (charging)") above (or beside) device `i` of `strip`.
+    fn tooltip_on(&mut self, i: usize, strip: HWND, from: i32, to: i32) {
+        unsafe {
+            ui::set_tooltip_theme(self.tip, !self.light);
+            let mut text: Vec<u16> = self.tip_text(i).encode_utf16().chain(std::iter::once(0)).collect();
+            let mut ti = tool_info(self.main, &mut text);
+            SendMessageW(self.tip, TTM_UPDATETIPTEXTW, None, Some(LPARAM(&mut ti as *mut _ as isize)));
+            SendMessageW(self.tip, TTM_TRACKACTIVATE, Some(WPARAM(1)), Some(LPARAM(&mut ti as *mut _ as isize)));
+            let size = SendMessageW(self.tip, TTM_GETBUBBLESIZE, None, Some(LPARAM(&mut ti as *mut _ as isize))).0;
+            let (tw, th) = ((size & 0xFFFF) as i32, ((size >> 16) & 0xFFFF) as i32);
+            let mut rc = RECT::default();
+            let _ = GetWindowRect(strip, &mut rc);
+            let gap = (4.0 * self.scale()) as i32;
+            let (cx, cy) = if self.vertical {
+                let mut mi = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+                let _ = GetMonitorInfoW(MonitorFromWindow(strip, MONITOR_DEFAULTTONEAREST), &mut mi);
+                let left_side = rc.left < (mi.rcMonitor.left + mi.rcMonitor.right) / 2;
+                (if left_side { rc.right + gap } else { rc.left - tw - gap }, rc.top + (from + to) / 2 - th / 2)
+            } else {
+                let mut mi = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+                let _ = GetMonitorInfoW(MonitorFromWindow(strip, MONITOR_DEFAULTTONEAREST), &mut mi);
+                let above = rc.top - th - gap >= mi.rcMonitor.top;
+                (rc.left + (from + to) / 2 - tw / 2, if above { rc.top - th - gap } else { rc.bottom + gap })
+            };
+            let pos = ((cy as u32 & 0xFFFF) << 16) | (cx as u32 & 0xFFFF);
+            SendMessageW(self.tip, TTM_TRACKPOSITION, None, Some(LPARAM(pos as isize)));
+        }
+    }
+
+    fn tooltip_off(&mut self) {
+        if !self.tip.0.is_null() {
+            unsafe {
+                let mut ti = tool_info(self.main, &mut [0u16]);
+                SendMessageW(self.tip, TTM_TRACKACTIVATE, Some(WPARAM(0)), Some(LPARAM(&mut ti as *mut _ as isize)));
             }
         }
     }
@@ -3718,7 +3781,7 @@ fn on_update_downloaded(main: HWND, result: Result<batteryhub::update::Verified,
 /// (any release, also an older one; verified like an update).
 /// Opens a GitHub page in the default browser.
 fn open_url(url: &str) {
-    if !url.starts_with("https://github.com/") && url != DISCORD_URL {
+    if !url.starts_with("https://github.com/") && url != DISCORD_URL && url != SUPPORT_URL {
         return;
     }
     unsafe {
@@ -4054,6 +4117,29 @@ fn is_our_strip(h: HWND) -> bool {
     }
 }
 
+/// "BatteryHub is free": shown once after a new installation.
+fn free_notice() {
+    let text = tr(FREE_NOTICE);
+    unsafe {
+        MessageBoxW(
+            None,
+            &windows::core::HSTRING::from(text),
+            &windows::core::HSTRING::from(tr("BatteryHub is free")),
+            MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST,
+        );
+    }
+}
+
+const FREE_NOTICE: &str = n_("BatteryHub is free and will always stay free.\n\nNobody should ever pay for it. If you paid someone for BatteryHub, you were scammed: ask them for a refund.\n\nThe only official place to get it is the GitHub page: github.com/ferloom/Wireless-Device-Battery-Monitor\n\nMade with love by ferloom.");
+
+/// What the card of a device holds: (battery chart, time left). "Battery only" turns both off.
+fn card_opts(key: &str) -> (bool, bool) {
+    if settings::battery_only(SETTINGS_KEY, key) {
+        return (false, false);
+    }
+    (settings::card_chart(SETTINGS_KEY, key), settings::card_time(SETTINGS_KEY, key))
+}
+
 fn tool_info(owner: HWND, text: &mut [u16]) -> TTTOOLINFOW {
     TTTOOLINFOW {
         cbSize: size_of::<TTTOOLINFOW>() as u32,
@@ -4328,6 +4414,7 @@ unsafe fn show_menu(from: Option<HWND>) {
                 let _ = AppendMenuW(sub, MF_STRING, ID_HELP_GITHUB, &windows::core::HSTRING::from(tr("Go to the GitHub page")));
                 icons.set(sub, ID_HELP_GITHUB as u32, false, ui::glyph::INFO);
                 let _ = AppendMenuW(sub, MF_STRING, ID_HELP_DISCORD, &windows::core::HSTRING::from(tr("Join the Discord server")));
+                let _ = AppendMenuW(sub, MF_STRING, ID_HELP_FREE, &windows::core::HSTRING::from(format!("{}  ♥", tr("BatteryHub is free and will stay free"))));
                 let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
                 let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, 0, &windows::core::HSTRING::from(tr("Recent updates")));
                 let releases = recent_releases();
@@ -4444,6 +4531,7 @@ unsafe fn show_menu(from: Option<HWND>) {
                 }
                 ID_HELP_GITHUB => open_url(&format!("https://github.com/{}", batteryhub::update::REPO)),
                 ID_HELP_DISCORD => open_url(DISCORD_URL),
+                ID_HELP_FREE => open_url(SUPPORT_URL),
                 id if (ID_HELP_RELEASE_FIRST..ID_HELP_RELEASE_FIRST + HELP_RELEASES).contains(&id) => {
                     if let Some((_, url)) = recent_releases().get(id - ID_HELP_RELEASE_FIRST) {
                         open_url(url);
@@ -4639,6 +4727,22 @@ fn device_action(d: &DeviceStatus, action: settings::DeviceAction, devices: &[De
                 a.card_cache.clear();
                 a.paint();
             });
+        }
+        DeviceAction::Hover(m) => {
+            settings::set_hover_mode(SETTINGS_KEY, &d.key, m);
+            with_app(|a| a.hide_tip());
+        }
+        DeviceAction::ToggleCardChart => {
+            settings::set_card_chart(SETTINGS_KEY, &d.key, !settings::card_chart(SETTINGS_KEY, &d.key));
+            with_app(|a| a.card_cache.clear());
+        }
+        DeviceAction::ToggleCardTime => {
+            settings::set_card_time(SETTINGS_KEY, &d.key, !settings::card_time(SETTINGS_KEY, &d.key));
+            with_app(|a| a.card_cache.clear());
+        }
+        DeviceAction::ToggleBatteryOnly => {
+            settings::set_battery_only(SETTINGS_KEY, &d.key, !settings::battery_only(SETTINGS_KEY, &d.key));
+            with_app(|a| a.card_cache.clear());
         }
         DeviceAction::ToggleWarn5 => {
             settings::set_warn_critical(SETTINGS_KEY, &d.key, !settings::warn_critical(SETTINGS_KEY, &d.key));
@@ -5380,6 +5484,12 @@ fn main() {
         SetTimer(Some(main), TIMER_QUICK, QUICK_MS, None);
         if auto_update() {
             SetTimer(Some(main), TIMER_AUTO_UPDATE, AUTO_UPDATE_DELAY_MS, None);
+        }
+        // Started by the setup after a new installation: say once that BatteryHub is free (people
+        // were found selling it). Its own thread, so the strip keeps working while it is open.
+        if batteryhub::util::reg_get_string(SETTINGS_KEY, "FreeNotice").is_some() {
+            batteryhub::util::reg_delete_value(SETTINGS_KEY, "FreeNotice");
+            std::thread::spawn(free_notice);
         }
         // Started by the setup after an update: say so once.
         if let Some(old) = batteryhub::util::reg_get_string(SETTINGS_KEY, "UpdatedFrom") {

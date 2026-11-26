@@ -121,6 +121,8 @@ pub fn poll(ctx: &mut PollContext) {
     let mut container_cat: BTreeMap<String, String> = BTreeMap::new();
     let mut container_conn: BTreeMap<String, bool> = BTreeMap::new();
     let mut container_addr: BTreeMap<String, u64> = BTreeMap::new();
+    // LE addresses first: a phone's Battery Service is read over LE.
+    let mut container_le: BTreeMap<String, u64> = BTreeMap::new();
     let mut battery: BTreeMap<String, Found> = BTreeMap::new();
 
     for n in sets.iter().flat_map(|set| set.nodes()) {
@@ -134,6 +136,9 @@ pub fn poll(ctx: &mut PollContext) {
             container_name.insert(cid.clone(), name.clone());
             if let Some(a) = bt_address(inst) {
                 container_addr.insert(cid.clone(), a);
+                if inst.starts_with("BTHLE\\") {
+                    container_le.insert(cid.clone(), a);
+                }
             }
             if let Some(cod) = n.u32(&CLASS_OF_DEVICE) {
                 container_cod.insert(cid.clone(), cod);
@@ -174,6 +179,23 @@ pub fn poll(ctx: &mut PollContext) {
             reported.insert(cont.clone());
         }
         hid_ids.insert(cont, (c.vid, c.pid));
+    }
+
+    // Phones: Windows keeps no level for most of them, but many (iPhones among them) offer the
+    // standard Battery Service over Bluetooth LE. Connected phones only, read once per poll.
+    for (cid, name) in &container_name {
+        if battery.contains_key(cid) || reported.contains(cid) || !container_conn.get(cid).copied().unwrap_or(false) {
+            continue;
+        }
+        let phone = container_cod.get(cid).is_some_and(|&c| kind_from_class_of_device(c) == DeviceKind::Phone)
+            || container_cat.get(cid).is_some_and(|c| kind_from_category(c) == DeviceKind::Phone);
+        if !phone {
+            continue;
+        }
+        let Some(&addr) = container_le.get(cid).or_else(|| container_addr.get(cid)) else { continue };
+        if let Some(pct) = ble::read_gatt_battery(addr) {
+            battery.insert(cid.clone(), Found { pct, name: strip_service_suffix(name.clone()), connected: true });
+        }
     }
 
     let (mut watching, mut waited) = (false, false);

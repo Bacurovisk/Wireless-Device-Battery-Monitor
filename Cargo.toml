@@ -15,6 +15,9 @@ path = "src/lib.rs"
 name = "batteryhub-taskbar"
 path = "src/bin/taskbar.rs"
 
+[dependencies.windows-future]
+version = "0.3.2"
+
 [dependencies.windows]
 version = "0.62.2"
 features = [
@@ -51,7 +54,9 @@ features = [
   "Win32_UI_Input_Ime",
   "Win32_Graphics_Gdi",
   "Win32_Graphics_Dwm",
+  "Devices_Bluetooth",
   "Devices_Bluetooth_Advertisement",
+  "Devices_Bluetooth_GenericAttributeProfile",
   "Storage_Streams",
   "Gaming_Input",
   "Devices_Power",

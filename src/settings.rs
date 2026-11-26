@@ -107,6 +107,72 @@ pub fn set_red_icon(settings_key: &str, device_key: &str, on: bool) -> bool {
     inst::create(HKCU, &sub(settings_key, "RedIcon")).is_some_and(|k| k.set_dword(device_key, on as u32))
 }
 
+// ---- What hovering a device shows ----------------------------------------------------------------
+
+/// What the mouse on a device brings up.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum HoverMode {
+    /// The card (level, time left, chart) - the default.
+    Card,
+    /// Only a short tooltip with the name and level, as in the first versions.
+    Tip,
+    /// Nothing.
+    Off,
+}
+
+fn dword(settings_key: &str, name: &str, device_key: &str) -> Option<u32> {
+    let v = inst::open(HKCU, &sub(settings_key, name), false).and_then(|k| k.get(device_key))?;
+    u32::from_str_radix(v.trim_start_matches("0x"), 16).ok()
+}
+
+fn set_dword(settings_key: &str, name: &str, device_key: &str, v: u32) -> bool {
+    inst::create(HKCU, &sub(settings_key, name)).is_some_and(|k| k.set_dword(device_key, v))
+}
+
+pub fn hover_mode(settings_key: &str, device_key: &str) -> HoverMode {
+    match dword(settings_key, "Hover", device_key) {
+        Some(1) => HoverMode::Tip,
+        Some(2) => HoverMode::Off,
+        _ => HoverMode::Card,
+    }
+}
+
+pub fn set_hover_mode(settings_key: &str, device_key: &str, m: HoverMode) -> bool {
+    set_dword(settings_key, "Hover", device_key, match m {
+        HoverMode::Card => 0,
+        HoverMode::Tip => 1,
+        HoverMode::Off => 2,
+    })
+}
+
+/// The card shows the battery chart (default on).
+pub fn card_chart(settings_key: &str, device_key: &str) -> bool {
+    dword(settings_key, "CardChart", device_key) != Some(0)
+}
+
+pub fn set_card_chart(settings_key: &str, device_key: &str, on: bool) -> bool {
+    set_dword(settings_key, "CardChart", device_key, on as u32)
+}
+
+/// The card shows the time left (default on).
+pub fn card_time(settings_key: &str, device_key: &str) -> bool {
+    dword(settings_key, "CardTime", device_key) != Some(0)
+}
+
+pub fn set_card_time(settings_key: &str, device_key: &str, on: bool) -> bool {
+    set_dword(settings_key, "CardTime", device_key, on as u32)
+}
+
+/// "Battery only": nothing is measured or worked out for the device (no history, statistics,
+/// time left or chart), only its level is shown.
+pub fn battery_only(settings_key: &str, device_key: &str) -> bool {
+    dword(settings_key, "BatteryOnly", device_key).is_some_and(|v| v != 0)
+}
+
+pub fn set_battery_only(settings_key: &str, device_key: &str, on: bool) -> bool {
+    set_dword(settings_key, "BatteryOnly", device_key, on as u32)
+}
+
 // ---- "Icon colour" ---------------------------------------------------------------------------
 
 /// Colour of a device's icon on the taskbar.
@@ -344,7 +410,7 @@ impl CriticalWarnings {
 
 /// Menu ids: BASE + device index * STRIDE + one of the item offsets below.
 pub const MENU_BASE: usize = 1000;
-const STRIDE: usize = 32;
+const STRIDE: usize = 48;
 const ITEM_DASHBOARD: usize = 0;
 const ITEM_HISTORY: usize = 1;
 const ITEM_STATS: usize = 2;
@@ -361,7 +427,13 @@ const ITEM_COLOR_TASKBAR: usize = 23;
 const ITEM_COLOR_BRAND: usize = 24;
 const ITEM_COLOR_CUSTOM: usize = 25;
 const ITEM_COLOR_PRESET: usize = 26; // + index into PRESETS
-const _: () = assert!(ITEM_COLOR_PRESET + PRESETS.len() <= STRIDE);
+const ITEM_HOVER_CARD: usize = 32;
+const ITEM_HOVER_TIP: usize = 33;
+const ITEM_HOVER_OFF: usize = 34;
+const ITEM_CARD_CHART: usize = 35;
+const ITEM_CARD_TIME: usize = 36;
+const ITEM_BATTERY_ONLY: usize = 37;
+const _: () = assert!(ITEM_COLOR_PRESET + PRESETS.len() <= ITEM_HOVER_CARD && ITEM_BATTERY_ONLY < STRIDE);
 const _: () = assert!(ITEM_THRESHOLD + THRESHOLDS.len() <= ITEM_MOVE_BACK && ITEM_RESET_HISTORY < STRIDE);
 
 /// What a device menu item asks for.
@@ -377,6 +449,10 @@ pub enum DeviceAction {
     IconColor(IconColor),
     CustomColor,
     ToggleShown,
+    Hover(HoverMode),
+    ToggleCardChart,
+    ToggleCardTime,
+    ToggleBatteryOnly,
     Threshold(i32),
     /// One place to the left (up on a vertical taskbar), or to the right (down).
     Move(bool),
@@ -403,12 +479,14 @@ pub fn append_device_menus(
             let id = |item: usize| MENU_BASE + i * STRIDE + item;
             let _ = AppendMenuW(sub, MF_STRING | MF_GRAYED, 0, &hs(&format!("{} - {}", d.name, d.charge_text())));
             let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+            let only = battery_only(settings_key, &d.key);
             for (item, label, g) in [
                 (ITEM_DASHBOARD, n_("Dashboard..."), glyph::DASHBOARD),
                 (ITEM_HISTORY, n_("Battery history"), glyph::HISTORY),
                 (ITEM_STATS, n_("Statistics"), glyph::STATISTICS),
             ] {
-                let _ = AppendMenuW(sub, MF_STRING, id(item), &hs(&tr(label)));
+                let grey = if only && item != ITEM_DASHBOARD { MF_GRAYED } else { MF_ENABLED };
+                let _ = AppendMenuW(sub, MF_STRING | grey, id(item), &hs(&tr(label)));
                 icons.set(sub, id(item) as u32, false, g);
             }
             let _ = AppendMenuW(sub, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
@@ -468,6 +546,30 @@ pub fn append_device_menus(
             let check = if shown { MF_CHECKED } else { MF_UNCHECKED };
             let _ = AppendMenuW(sub, MF_STRING | check, id(ITEM_SHOW), &hs(&tr("Show on the taskbar")));
             icons.set(sub, id(ITEM_SHOW) as u32, false, glyph::VIEW);
+            // What hovering the device shows, and what its card holds.
+            if let Ok(hover) = CreatePopupMenu() {
+                let mode = hover_mode(settings_key, &d.key);
+                let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
+                for (item, label, m) in [
+                    (ITEM_HOVER_CARD, n_("Card with details"), HoverMode::Card),
+                    (ITEM_HOVER_TIP, n_("Only the name and level (tooltip)"), HoverMode::Tip),
+                    (ITEM_HOVER_OFF, n_("Nothing"), HoverMode::Off),
+                ] {
+                    let _ = AppendMenuW(hover, MF_STRING | check(mode == m), id(item), &hs(&tr(label)));
+                }
+                let _ = AppendMenuW(hover, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+                let card = if mode == HoverMode::Card && !only { MF_ENABLED } else { MF_GRAYED };
+                let chart = card_chart(settings_key, &d.key) && !only;
+                let time = card_time(settings_key, &d.key) && !only;
+                let _ = AppendMenuW(hover, MF_STRING | card | check(chart), id(ITEM_CARD_CHART), &hs(&tr("Battery chart on the card")));
+                let _ = AppendMenuW(hover, MF_STRING | card | check(time), id(ITEM_CARD_TIME), &hs(&tr("Time left on the card")));
+                let n = windows::Win32::UI::WindowsAndMessaging::GetMenuItemCount(Some(sub));
+                let _ = AppendMenuW(sub, MF_STRING | MF_POPUP, hover.0 as usize, &hs(&tr("On hover")));
+                icons.set(sub, n as u32, true, glyph::INFO);
+            }
+            let check = if only { MF_CHECKED } else { MF_UNCHECKED };
+            let _ = AppendMenuW(sub, MF_STRING | check, id(ITEM_BATTERY_ONLY), &hs(&tr("Battery only (no history, statistics or forecast)")));
+            icons.set(sub, id(ITEM_BATTERY_ONLY) as u32, false, glyph::STATISTICS);
             // Place on the strip (the devices can also be dragged there).
             let (back, on) = if vertical {
                 ((n_("Move up"), glyph::UP), (n_("Move down"), glyph::DOWN))
@@ -514,6 +616,12 @@ pub fn decode_menu_id(id: usize) -> Option<(usize, DeviceAction)> {
             DeviceAction::IconColor(IconColor::Rgb(r, g, b))
         }
         ITEM_SHOW => DeviceAction::ToggleShown,
+        ITEM_HOVER_CARD => DeviceAction::Hover(HoverMode::Card),
+        ITEM_HOVER_TIP => DeviceAction::Hover(HoverMode::Tip),
+        ITEM_HOVER_OFF => DeviceAction::Hover(HoverMode::Off),
+        ITEM_CARD_CHART => DeviceAction::ToggleCardChart,
+        ITEM_CARD_TIME => DeviceAction::ToggleCardTime,
+        ITEM_BATTERY_ONLY => DeviceAction::ToggleBatteryOnly,
         ITEM_MOVE_BACK => DeviceAction::Move(false),
         ITEM_MOVE_ON => DeviceAction::Move(true),
         ITEM_RESET_HISTORY => DeviceAction::ResetHistory,
@@ -542,6 +650,8 @@ mod tests {
             assert_eq!(decode_menu_id(MENU_BASE + dev * STRIDE + ITEM_SHOW), Some((dev, DeviceAction::ToggleShown)));
         }
         assert_eq!(decode_menu_id(3), None);
+        assert_eq!(decode_menu_id(MENU_BASE + 2 * STRIDE + ITEM_HOVER_TIP), Some((2, DeviceAction::Hover(HoverMode::Tip))));
+        assert_eq!(decode_menu_id(MENU_BASE + STRIDE + ITEM_BATTERY_ONLY), Some((1, DeviceAction::ToggleBatteryOnly)));
         assert_eq!(decode_menu_id(MENU_BASE + ITEM_RED_ICON), Some((0, DeviceAction::ToggleRedIcon)));
         assert_eq!(decode_menu_id(MENU_BASE + ITEM_THRESHOLD + THRESHOLDS.len()), None);
     }
