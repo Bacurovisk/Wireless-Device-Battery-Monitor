@@ -52,12 +52,16 @@ pub fn decode(r: &[u8]) -> Option<(i32, bool)> {
     (r.len() >= 10 && r[0] == 0xAA && r[1] == CMD_BATTERY && r[8] <= 100).then(|| (r[8] as i32, r[9] != 0))
 }
 
+fn freq_checksum(r: &[u8]) -> u8 {
+    r[4..].iter().fold(0u8, |a, &x| a.wrapping_add(x))
+}
+
 fn decode_freq_reply(r: &[u8]) -> Option<(i32, bool)> {
     if r.len() != 64
         || r[0] != 0xF0
         || r[1] != CMD_BATTERY
         || r[2] != 0xA5
-        || r[3] != 0x95
+        || r[3] != freq_checksum(r)
         || r[4] != 0x2E
         || r[5..8] != [0x01, 0x01, 0x01]
         || r[8] > 100
@@ -206,9 +210,10 @@ mod tests {
 
     fn freq_reply(percent: u8, charging: u8) -> Vec<u8> {
         let mut r = vec![0u8; 64];
-        r[..8].copy_from_slice(&[0xF0, 0x30, 0xA5, 0x95, 0x2E, 0x01, 0x01, 0x01]);
+        r[..8].copy_from_slice(&[0xF0, 0x30, 0xA5, 0x00, 0x2E, 0x01, 0x01, 0x01]);
         r[8] = percent;
         r[9] = charging;
+        r[3] = freq_checksum(&r);
         r
     }
 
