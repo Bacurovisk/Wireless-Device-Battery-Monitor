@@ -234,3 +234,6 @@ Pink = Рожевий
 Orange = Помаранчевий
 GitHub repository = Репозиторій на GitHub
 Release notes = Список змін
+Widget = Віджет
+Settings = Налаштування
+About = Про програму

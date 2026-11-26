@@ -234,3 +234,6 @@ Pink = Roze
 Orange = Oranje
 GitHub repository = GitHub-repository
 Release notes = Releaseopmerkingen
+Widget = Widget
+Settings = Instellingen
+About = Over

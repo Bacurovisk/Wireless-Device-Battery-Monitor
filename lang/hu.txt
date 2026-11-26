@@ -234,3 +234,6 @@ Pink = Rózsaszín
 Orange = Narancs
 GitHub repository = GitHub-tárház
 Release notes = Kiadási megjegyzések
+Widget = Widget
+Settings = Beállítások
+About = Névjegy

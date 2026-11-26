@@ -234,3 +234,6 @@ Pink = Růžová
 Orange = Oranžová
 GitHub repository = Repozitář na GitHubu
 Release notes = Poznámky k vydání
+Widget = Widget
+Settings = Nastavení
+About = O aplikaci

@@ -234,3 +234,6 @@ Pink = 粉紅色
 Orange = 橘色
 GitHub repository = GitHub 儲存庫
 Release notes = 更新日誌
+Widget = 小工具
+Settings = 設定
+About = 關於

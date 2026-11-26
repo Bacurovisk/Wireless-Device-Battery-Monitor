@@ -235,3 +235,6 @@ Pink = Pink
 Orange = Orange
 GitHub repository = GitHub repository
 Release notes = Release notes
+Widget = Widget
+Settings = Settings
+About = About

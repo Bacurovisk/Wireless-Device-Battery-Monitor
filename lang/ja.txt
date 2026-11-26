@@ -234,3 +234,6 @@ Pink = ピンク
 Orange = オレンジ
 GitHub repository = GitHub リポジトリ
 Release notes = リリースノート
+Widget = ウィジェット
+Settings = 設定
+About = バージョン情報

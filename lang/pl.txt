@@ -234,3 +234,6 @@ Pink = Różowy
 Orange = Pomarańczowy
 GitHub repository = Repozytorium GitHub
 Release notes = Informacje o wydaniu
+Widget = Widżet
+Settings = Ustawienia
+About = O programie

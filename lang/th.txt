@@ -234,3 +234,6 @@ Pink = ชมพู
 Orange = ส้ม
 GitHub repository = ที่เก็บโค้ด GitHub
 Release notes = บันทึกการอัปเดต
+Widget = วิดเจ็ต
+Settings = การตั้งค่า
+About = เกี่ยวกับ

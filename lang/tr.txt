@@ -234,3 +234,6 @@ Pink = Pembe
 Orange = Turuncu
 GitHub repository = GitHub deposu
 Release notes = Sürüm notları
+Widget = Araç
+Settings = Ayarlar
+About = Hakkında

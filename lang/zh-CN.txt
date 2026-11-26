@@ -234,3 +234,6 @@ Pink = 粉色
 Orange = 橙色
 GitHub repository = GitHub 仓库
 Release notes = 更新日志
+Widget = 小组件
+Settings = 设置
+About = 关于
