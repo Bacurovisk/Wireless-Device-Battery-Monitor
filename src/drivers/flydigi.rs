@@ -1,4 +1,5 @@
-//! Flydigi Apex 6 / Apex 6 Pro controllers (37D7:2502), on their 2.4 GHz dongle or USB cable.
+//! Flydigi Apex 6 / Apex 6 Pro controllers (37D7:2502) and the Vader 5 Pro (37D7:2401, issue #547),
+//! on their 2.4 GHz dongle or USB cable.
 //!
 //! Protocol as documented by SDL (zlib license, src/joystick/hidapi/SDL_hidapi_flydigi.c:
 //! USB_PRODUCT_FLYDIGI_V2_APEX6, GetReply, SendInfoRequest, HandleInfoResponse) and as used for the
@@ -11,7 +12,9 @@
 //!                                                  [11] = status << 4 | level
 //!   model id 149 Apex 6, 150 Apex 6 Pro, 152 Apex 6 Pro Phantom Blade Zero
 //!   connection: new architecture 0 = cable, 1 = 2.4 GHz; old 1 = cable, 2 = 2.4 GHz
-//!   status 0 = on battery, 1 = charging, 2 = full; Apex 6 level 0..10 = tens of percent
+//!   model id 130 Vader 5 Pro (HaloBattery, MIT, providers/flydigi.py, after SDL)
+//!   status 0 = on battery, 1 = charging, 2 = full; Apex 6 level 0..10 = tens of percent,
+//!   Vader level 0..5 = steps of 20 percent
 //!
 //! Only these two queries are sent (no "acquire controller", no settings). A reply counts only
 //! with the echoed command and a known Apex 6 model id. No reply = controller off (dongle present).
@@ -20,7 +23,7 @@ use crate::hid::{HidColl, HidDev};
 use crate::util::Deadline;
 
 const VID: u16 = 0x37D7;
-const PID: u16 = 0x2502;
+const PIDS: [u16; 2] = [0x2502, 0x2401];
 const CMD_ARCH: u8 = 0x07;
 const CMD_INFO: u8 = 0x01;
 
@@ -33,10 +36,12 @@ pub struct Reading {
     pub wireless: bool,
 }
 
-fn model(id: u8) -> Option<&'static str> {
+/// (name, percent per level step, highest step).
+fn model(id: u8) -> Option<(&'static str, i32, i32)> {
     match id {
-        149 => Some("Flydigi Apex 6"),
-        150 | 152 => Some("Flydigi Apex 6 Pro"),
+        149 => Some(("Flydigi Apex 6", 10, 10)),
+        150 | 152 => Some(("Flydigi Apex 6 Pro", 10, 10)),
+        130 => Some(("Flydigi Vader 5 Pro", 20, 5)),
         _ => None,
     }
 }
@@ -64,13 +69,13 @@ pub fn parse_info(r: &[u8], new_arch: bool) -> Option<Reading> {
     if !is_reply(r, CMD_INFO) || r.len() < 12 {
         return None;
     }
-    let name = model(r[5])?;
+    let (name, step, max) = model(r[5])?;
     let (status, level) = (r[11] >> 4, (r[11] & 0x0F) as i32);
-    if status > 2 || level > 10 {
+    if status > 2 || level > max {
         return None;
     }
     let wireless = if new_arch { r[6] == 1 } else { r[6] == 2 };
-    Some(Reading { name, percent: if status == 2 { 100 } else { level * 10 }, charging: status == 1, full: status == 2, wireless })
+    Some(Reading { name, percent: if status == 2 { 100 } else { level * step }, charging: status == 1, full: status == 2, wireless })
 }
 
 fn ask(d: &HidDev, cmd: u8, param: u8) -> Option<Vec<u8>> {
@@ -96,19 +101,25 @@ fn query(c: &HidColl) -> Option<Reading> {
 }
 
 pub fn poll(ctx: &mut PollContext) {
-    if ctx.is_claimed(VID, PID) {
+    for pid in PIDS {
+        poll_one(ctx, pid);
+    }
+}
+
+fn poll_one(ctx: &mut PollContext, pid: u16) {
+    if ctx.is_claimed(VID, pid) {
         return;
     }
-    let colls = ctx.find(VID, PID, |c| c.page() == 0xFFA0 && c.usage() == 0x0001 && c.in_len() >= 12 && c.out_len() >= 6);
+    let colls = ctx.find(VID, pid, |c| c.page() == 0xFFA0 && c.usage() == 0x0001 && c.in_len() >= 12 && c.out_len() >= 6);
     if colls.is_empty() {
         return;
     }
     let base = DeviceStatus {
-        key: "flydigi:2502".into(),
-        name: "Flydigi Apex 6".into(),
+        key: format!("flydigi:{}", crate::util::hex4(pid).to_lowercase()),
+        name: if pid == 0x2401 { "Flydigi Vader 5 Pro" } else { "Flydigi Apex 6" }.into(),
         kind: DeviceKind::Gamepad,
         via: "2.4 GHz receiver".into(),
-        hw: Some((VID, PID)),
+        hw: Some((VID, pid)),
         grace_sec: 60,
         ..Default::default()
     };
@@ -123,7 +134,7 @@ pub fn poll(ctx: &mut PollContext) {
         },
         None => DeviceStatus { connected: false, ..base },
     };
-    ctx.add(s, VID, PID);
+    ctx.add(s, VID, pid);
 }
 
 #[cfg(test)]
@@ -158,6 +169,10 @@ mod tests {
         assert_eq!(parse_info(&info(152, 1, 0x20), true).map(|r| (r.percent, r.full)), Some((100, true)));
         // Old architecture: 2 = wireless.
         assert!(parse_info(&info(149, 2, 0x05), false).unwrap().wireless);
+        // Vader 5 Pro: level steps of 20 %.
+        let r = parse_info(&info(130, 2, 0x04), false).unwrap();
+        assert_eq!((r.name, r.percent, r.wireless), ("Flydigi Vader 5 Pro", 80, true));
+        assert_eq!(parse_info(&info(130, 2, 0x06), false), None);
         // With the report id byte kept.
         let mut numbered = vec![0x03];
         numbered.extend(info(149, 1, 0x03));
