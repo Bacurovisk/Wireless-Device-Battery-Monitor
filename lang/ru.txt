@@ -260,3 +260,5 @@ The battery levels are shown as notification-area icons until there is room agai
 Widget = Виджет
 Settings = Настройки
 Next to the icons = Рядом со значками
+Battery only = Только батарея
+Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone. = Включить «Только батарея» для {name}?\n\nИстория батареи и статистика будут удалены, и с этого момента ничего не записывается и не рассчитывается: показывается только уровень заряда. Это нельзя отменить.

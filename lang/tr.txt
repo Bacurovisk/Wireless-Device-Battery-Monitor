@@ -260,3 +260,5 @@ The battery levels are shown as notification-area icons until there is room agai
 Widget = Araç
 Settings = Ayarlar
 Next to the icons = Simgelerin yanında
+Battery only = Yalnızca pil
+Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone. = {name} için Yalnızca pil kullanılsın mı?\n\nPil geçmişi ve istatistikleri silinir; bundan sonra hiçbir şey kaydedilmez veya hesaplanmaz: yalnızca seviyesi gösterilir. Bu işlem geri alınamaz.

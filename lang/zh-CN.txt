@@ -260,3 +260,5 @@ The battery levels are shown as notification-area icons until there is room agai
 Widget = 小组件
 Settings = 设置
 Next to the icons = 图标旁边
+Battery only = 仅电池
+Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone. = 对 {name} 使用“仅电池”?\n\n其电池历史和统计将被删除，此后不再记录或计算任何内容：只显示电量。此操作无法撤销。

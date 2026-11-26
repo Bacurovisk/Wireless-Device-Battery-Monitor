@@ -260,3 +260,5 @@ The battery levels are shown as notification-area icons until there is room agai
 Widget = Widget
 Settings = Einstellungen
 Next to the icons = Neben den Symbolen
+Battery only = Nur Akku
+Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone. = „Nur Akku“ für {name} verwenden?\n\nAkkuverlauf und Statistiken werden gelöscht, und ab jetzt wird nichts mehr aufgezeichnet oder berechnet: nur der Akkustand wird angezeigt. Dies kann nicht rückgängig gemacht werden.

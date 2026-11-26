@@ -90,6 +90,8 @@ const POP_MS: f32 = 260.0;
 const STAGGER_MS: u64 = 70;
 /// Key of the "no devices found" glyph on the strip.
 const NONE_KEY: &str = "\u{0}none";
+/// The refresh glyph's item while a refresh started from the menu runs.
+const REFRESH_KEY: &str = "\u{0}refresh";
 
 /// An item appearing on or leaving the strip.
 struct Presence {
@@ -1081,8 +1083,13 @@ impl App {
         let items = self.strip_items(&devices);
         for (i, it) in items.iter().enumerate() {
             let Some(d) = &it.dev else {
-                // Battery-unknown glyph, so there is always something to right-click.
-                pieces.push(Piece::new(Some(i), mask("\u{E996}", icons, light), fg, 110, 0));
+                if it.key == REFRESH_KEY {
+                    // Refresh started from the menu: a small refresh glyph until it finishes.
+                    pieces.push(Piece::new(Some(i), mask("\u{E72C}", bolt, light), fg, 170, 0));
+                } else {
+                    // Battery-unknown glyph, so there is always something to right-click.
+                    pieces.push(Piece::new(Some(i), mask("\u{E996}", icons, light), fg, 110, 0));
+                }
                 continue;
             };
             let alpha = if d.asleep { 120 } else { 255 };
@@ -1142,11 +1149,8 @@ impl App {
                 pieces.push(Piece::new(Some(i), mask("\u{E945}", bolt, light), c, alpha, 0));
             }
         }
-        // Refresh started from the menu: a small refresh glyph until it finishes.
-        let refresh = self.manual && self.polling;
-        if refresh {
-            pieces.push(Piece::new(None, mask("\u{E72C}", bolt, light), fg, 170, 0));
-        }
+        // The refresh glyph is an item of its own (strip_items): it pops in and out like a device.
+        let refresh = false;
         let mut tb = RECT::default();
         unsafe {
             let _ = GetClientRect(self.taskbar, &mut tb);
@@ -3481,6 +3485,9 @@ impl App {
         if self.loaded && devices.is_empty() && !self.hide_empty {
             want.push((NONE_KEY.into(), None));
         }
+        if self.manual && self.polling {
+            want.push((REFRESH_KEY.into(), None));
+        }
         let old = std::mem::take(&mut self.shown);
         // Gone since the last render: pops out.
         for (k, _) in &old {
@@ -4976,6 +4983,10 @@ fn set_offset_y(px: i32) {
 }
 
 /// "Reset measurements": asks first, then deletes the device's history.
+const BATTERY_ONLY_QUESTION: &str = n_(
+    "Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone."
+);
+
 fn confirm_reset(main: HWND, d: &DeviceStatus) {
     let text = batteryhub::dashboard::reset_question(&d.name);
     let answer = unsafe {
@@ -5029,8 +5040,29 @@ fn device_action(d: &DeviceStatus, action: settings::DeviceAction, devices: &[De
             with_app(|a| a.card_cache.clear());
         }
         DeviceAction::ToggleBatteryOnly => {
-            settings::set_battery_only(SETTINGS_KEY, &d.key, !settings::battery_only(SETTINGS_KEY, &d.key));
-            with_app(|a| a.card_cache.clear());
+            let on = !settings::battery_only(SETTINGS_KEY, &d.key);
+            // Turning it on deletes what was measured: asked first.
+            if on {
+                let Some(main) = with_app(|a| a.main) else { return };
+                let answer = unsafe {
+                    MessageBoxW(
+                        Some(main),
+                        &windows::core::HSTRING::from(trf(BATTERY_ONLY_QUESTION, &[("name", &d.name)])),
+                        &windows::core::HSTRING::from(tr("Battery only")),
+                        MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND,
+                    )
+                };
+                if answer != IDYES {
+                    return;
+                }
+            }
+            settings::set_battery_only(SETTINGS_KEY, &d.key, on);
+            with_app(|a| {
+                if on {
+                    a.reset_history(&d.key);
+                }
+                a.card_cache.clear();
+            });
         }
         DeviceAction::ToggleWarn5 => {
             settings::set_warn_critical(SETTINGS_KEY, &d.key, !settings::warn_critical(SETTINGS_KEY, &d.key));

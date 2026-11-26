@@ -260,3 +260,5 @@ The battery levels are shown as notification-area icons until there is room agai
 Widget = Tiện ích
 Settings = Cài đặt
 Next to the icons = Cạnh các biểu tượng
+Battery only = Chỉ pin
+Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone. = Dùng Chỉ pin cho {name}?\n\nLịch sử pin và thống kê sẽ bị xóa, và từ giờ không ghi lại hay tính toán gì: chỉ hiển thị mức pin. Không thể hoàn tác.

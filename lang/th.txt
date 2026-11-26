@@ -260,3 +260,5 @@ The battery levels are shown as notification-area icons until there is room agai
 Widget = วิดเจ็ต
 Settings = การตั้งค่า
 Next to the icons = ข้างไอคอน
+Battery only = เฉพาะแบตเตอรี่
+Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone. = ใช้โหมดเฉพาะแบตเตอรี่สำหรับ {name} หรือไม่?\n\nประวัติแบตเตอรี่และสถิติจะถูกลบ และต่อจากนี้จะไม่บันทึกหรือคำนวณอะไรเลย: แสดงเฉพาะระดับแบตเตอรี่ ไม่สามารถย้อนกลับได้
