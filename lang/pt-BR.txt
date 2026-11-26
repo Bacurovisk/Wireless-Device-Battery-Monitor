@@ -262,3 +262,4 @@ Settings = Configurações
 Next to the icons = Ao lado dos ícones
 Battery only = Somente bateria
 Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone. = Usar Somente bateria para {name}?\n\nO histórico de bateria e as estatísticas são excluídos e, a partir de agora, nada é registrado ou calculado: só o nível é mostrado. Não é possível desfazer.
+Rising level means charging (experimental) = Nível subindo = carregando (experimental)

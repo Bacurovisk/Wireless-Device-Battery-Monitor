@@ -262,3 +262,4 @@ Settings = Nastavení
 Next to the icons = Vedle ikon
 Battery only = Jen baterie
 Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone. = Použít „Jen baterie“ pro {name}?\n\nJeho historie baterie a statistiky se smažou a od teď se pro něj nic nezaznamenává ani nepočítá: zobrazí se jen úroveň baterie. Tuto akci nelze vrátit.
+Rising level means charging (experimental) = Rostoucí úroveň = nabíjení (experimentální)

@@ -263,3 +263,4 @@ Settings = Settings
 Next to the icons = Next to the icons
 Battery only = Battery only
 Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone. = Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone.
+Rising level means charging (experimental) = Rising level means charging (experimental)

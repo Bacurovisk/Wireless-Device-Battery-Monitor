@@ -262,3 +262,4 @@ Settings = Налаштування
 Next to the icons = Поруч зі значками
 Battery only = Лише батарея
 Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone. = Увімкнути «Лише батарея» для {name}?\n\nІсторію батареї та статистику буде видалено, і відтепер нічого не записується й не обчислюється: показується лише рівень заряду. Цю дію не можна скасувати.
+Rising level means charging (experimental) = Зростання рівня = заряджання (експериментально)

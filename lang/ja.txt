@@ -262,3 +262,4 @@ Settings = 設定
 Next to the icons = アイコンの隣
 Battery only = バッテリーのみ
 Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone. = {name} を「バッテリーのみ」にしますか?\n\nバッテリー履歴と統計が削除され、今後は何も記録・計算されず、残量だけが表示されます。元に戻せません。
+Rising level means charging (experimental) = 残量の増加を充電中とみなす (試験的)

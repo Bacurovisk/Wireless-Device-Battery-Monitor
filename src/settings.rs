@@ -173,6 +173,16 @@ pub fn set_battery_only(settings_key: &str, device_key: &str, on: bool) -> bool 
     set_dword(settings_key, "BatteryOnly", device_key, on as u32)
 }
 
+/// Phones, experimental: a rising level counts as charging (until it falls again), for phones
+/// whose charging state BatteryHub cannot read.
+pub fn rise_charging(settings_key: &str, device_key: &str) -> bool {
+    dword(settings_key, "RiseCharging", device_key).is_some_and(|v| v != 0)
+}
+
+pub fn set_rise_charging(settings_key: &str, device_key: &str, on: bool) -> bool {
+    set_dword(settings_key, "RiseCharging", device_key, on as u32)
+}
+
 // ---- "Icon colour" ---------------------------------------------------------------------------
 
 /// Colour of a device's icon on the taskbar.
@@ -331,8 +341,8 @@ pub fn with_new_first(saved: &[String], new: &[String]) -> Vec<String> {
 pub const FORGET_SECS: u64 = crate::history::KEEP_SECS;
 
 /// Per-device settings, by subkey (a value per device key).
-const DEVICE_SUBKEYS: [&str; 11] =
-    ["Order", "Names", "Hidden", "Thresholds", "Warn5", "RedIcon", "IconColor", "Hover", "CardChart", "CardTime", "BatteryOnly"];
+const DEVICE_SUBKEYS: [&str; 12] =
+    ["Order", "Names", "Hidden", "Thresholds", "Warn5", "RedIcon", "IconColor", "Hover", "CardChart", "CardTime", "BatteryOnly", "RiseCharging"];
 
 /// Deletes every setting BatteryHub keeps for one device (name, order, warning levels, colours,
 /// hover, when it was last seen and what it was): "Delete device" in the dashboard.
@@ -444,6 +454,7 @@ const ITEM_HOVER_OFF: usize = 34;
 const ITEM_CARD_CHART: usize = 35;
 const ITEM_CARD_TIME: usize = 36;
 const ITEM_BATTERY_ONLY: usize = 37;
+const ITEM_RISE_CHARGING: usize = 38;
 const _: () = assert!(ITEM_COLOR_PRESET + PRESETS.len() <= ITEM_HOVER_CARD && ITEM_BATTERY_ONLY < STRIDE);
 const _: () = assert!(ITEM_THRESHOLD + THRESHOLDS.len() <= ITEM_MOVE_BACK && ITEM_RESET_HISTORY < STRIDE);
 
@@ -464,6 +475,7 @@ pub enum DeviceAction {
     ToggleCardChart,
     ToggleCardTime,
     ToggleBatteryOnly,
+    ToggleRiseCharging,
     Threshold(i32),
     /// One place to the left (up on a vertical taskbar), or to the right (down).
     Move(bool),
@@ -581,6 +593,12 @@ pub fn append_device_menus(
             let check = if only { MF_CHECKED } else { MF_UNCHECKED };
             let _ = AppendMenuW(sub, MF_STRING | check, id(ITEM_BATTERY_ONLY), &hs(&tr("Battery only (no history, statistics or forecast)")));
             icons.set(sub, id(ITEM_BATTERY_ONLY) as u32, false, glyph::STATISTICS);
+            // Phones only: their charging state is often unknown.
+            if d.kind == DeviceKind::Phone {
+                let check = if rise_charging(settings_key, &d.key) { MF_CHECKED } else { MF_UNCHECKED };
+                let _ = AppendMenuW(sub, MF_STRING | check, id(ITEM_RISE_CHARGING), &hs(&tr("Rising level means charging (experimental)")));
+                icons.set(sub, id(ITEM_RISE_CHARGING) as u32, false, glyph::REFRESH);
+            }
             // Place on the strip (the devices can also be dragged there).
             let (back, on) = if vertical {
                 ((n_("Move up"), glyph::UP), (n_("Move down"), glyph::DOWN))
@@ -633,6 +651,7 @@ pub fn decode_menu_id(id: usize) -> Option<(usize, DeviceAction)> {
         ITEM_CARD_CHART => DeviceAction::ToggleCardChart,
         ITEM_CARD_TIME => DeviceAction::ToggleCardTime,
         ITEM_BATTERY_ONLY => DeviceAction::ToggleBatteryOnly,
+        ITEM_RISE_CHARGING => DeviceAction::ToggleRiseCharging,
         ITEM_MOVE_BACK => DeviceAction::Move(false),
         ITEM_MOVE_ON => DeviceAction::Move(true),
         ITEM_RESET_HISTORY => DeviceAction::ResetHistory,

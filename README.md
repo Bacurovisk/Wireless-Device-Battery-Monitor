@@ -326,7 +326,7 @@ The strip is a small layered window placed inside the taskbar, left of the notif
 | Sony | DualShock 4, DualSense, DualSense Edge (USB and Bluetooth); INZONE H5 (see below) |
 | Apple | AirPods and Beats, from BLE proximity broadcasts (L / R / case) |
 | Bluetooth | Any device Windows knows a battery level for, plus the Google Fast Pair L / R / case split |
-| Phones (Bluetooth), **experimental** | A connected phone: the level Windows has for it, or else the standard Bluetooth LE Battery Service (read only; iPhones and some Android phones offer it). The phone must be paired and connected in *Settings → Bluetooth & devices*. Without the Battery Service, the level is the one Windows has, which many phones only update when they reconnect, so it can stay old; no charging state |
+| Phones (Bluetooth), **experimental** | A connected phone: the level Windows has for it, or else the standard Bluetooth LE Battery Service (read only; iPhones and some Android phones offer it). The phone must be paired and connected in *Settings → Bluetooth & devices*. Without the Battery Service, the level is the one Windows has, which many phones only update when they reconnect, so it can stay old; no charging state, unless *Rising level means charging (experimental)* is turned on in the phone's menu: a rising level then counts as charging until it falls again |
 | Generic HID | Devices exposing the standard Battery Strength usage |
 | Xbox | Windows.Gaming.Input (exact %) and XInput (coarse levels) |
 | Logitech ASTRO A50 X | USB base station `046D:0B0B`; the same read-only battery request as the A50 Gen 5 (protocol from [TaskbarVitals](https://github.com/symNistaken/TaskbarVitals), GPL-3.0, tested on an A50 X there; untested here, [#105](../../issues/105)) |

@@ -418,6 +418,8 @@ struct App {
     rooms: RefCell<HashMap<isize, bool>>,
     /// No taskbar the widget is shown on has room: the levels are notification-area icons.
     crowded: bool,
+    /// Phones with "Rising level means charging": (last level, charging as worked out).
+    rising: HashMap<String, (i32, bool)>,
     /// When "not enough room" was last said (once per crowding, at most every 10 minutes).
     crowded_said: Option<Instant>,
     /// "SHELLHOOK" message: windows opening and closing.
@@ -3668,6 +3670,29 @@ impl App {
         dbg_log(&format!("measurements of {key} deleted"));
     }
 
+    /// Phones with "Rising level means charging" (experimental): a level above the last one marks
+    /// the phone as charging until a level below the last one (e.g. 15 % saved, then 21 %:
+    /// charging, until 82 % is followed by 81 %). The first level compared is the last one saved.
+    fn infer_charging(&mut self, fresh: &mut [DeviceStatus]) {
+        for s in fresh.iter_mut() {
+            if s.kind != DeviceKind::Phone || s.percent < 0 || !s.connected || !settings::rise_charging(SETTINGS_KEY, &s.key) {
+                continue;
+            }
+            let saved = self.history.latest(&s.key).map(|p| p.level as i32);
+            let st = self.rising.entry(s.key.clone()).or_insert((saved.unwrap_or(s.percent), false));
+            if s.percent > st.0 {
+                st.1 = true;
+            } else if s.percent < st.0 {
+                st.1 = false;
+            }
+            st.0 = s.percent;
+            if st.1 && !s.charging {
+                s.charging = true;
+                s.full = s.percent >= 100;
+            }
+        }
+    }
+
     /// "Delete device" in the dashboard: forgets a disconnected device altogether (measurements,
     /// settings and its entry). A device that is connected right now is left alone.
     fn delete_device(&mut self, key: &str) {
@@ -3811,6 +3836,7 @@ impl App {
 
     fn on_result(&mut self, mut fresh: Vec<DeviceStatus>) {
         fresh.extend(demo_devices());
+        self.infer_charging(&mut fresh);
         self.polling = false;
         self.loaded = true;
         self.manual = false;
@@ -5061,6 +5087,13 @@ fn device_action(d: &DeviceStatus, action: settings::DeviceAction, devices: &[De
                 if on {
                     a.reset_history(&d.key);
                 }
+                a.card_cache.clear();
+            });
+        }
+        DeviceAction::ToggleRiseCharging => {
+            settings::set_rise_charging(SETTINGS_KEY, &d.key, !settings::rise_charging(SETTINGS_KEY, &d.key));
+            with_app(|a| {
+                a.rising.remove(&d.key);
                 a.card_cache.clear();
             });
         }

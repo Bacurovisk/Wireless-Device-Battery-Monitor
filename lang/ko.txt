@@ -262,3 +262,4 @@ Settings = 설정
 Next to the icons = 아이콘 옆
 Battery only = 배터리만
 Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone. = {name}에 '배터리만'을 사용할까요?\n\n배터리 기록과 통계가 삭제되고, 이제부터 아무것도 기록하거나 계산하지 않으며 잔량만 표시됩니다. 되돌릴 수 없습니다.
+Rising level means charging (experimental) = 잔량 증가 = 충전 중 (실험적)

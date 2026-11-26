@@ -218,62 +218,116 @@ fn wait<T: windows::core::RuntimeType + 'static>(op: windows_future::IAsyncOpera
     }
 }
 
-/// When a phone did not answer: not asked again for this long (a phone out of range, or one
-/// without the Battery Service, would otherwise slow every read down).
+/// When a phone never answered: not asked again for this long (a phone out of range, or one
+/// without the Battery Service, would otherwise slow every read down). A phone that answered
+/// before is asked again sooner.
 const GATT_RETRY_SECS: u64 = 15 * 60;
+const GATT_RETRY_KNOWN_SECS: u64 = 60;
 
 fn gatt_failed() -> &'static Mutex<HashMap<u64, Instant>> {
     static M: OnceLock<Mutex<HashMap<u64, Instant>>> = OnceLock::new();
     M.get_or_init(Default::default)
 }
 
+/// A phone's Battery Level characteristic, kept between reads with a GATT session that keeps the
+/// Bluetooth LE link up. Without it the phone drops the link after a read, and Windows does not
+/// always bring it back for the next one, so the level stayed at its first value.
+struct Link {
+    _device: windows::Devices::Bluetooth::BluetoothLEDevice,
+    _session: Option<windows::Devices::Bluetooth::GenericAttributeProfile::GattSession>,
+    level: windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic,
+}
+
+fn links() -> &'static Mutex<HashMap<u64, Link>> {
+    static M: OnceLock<Mutex<HashMap<u64, Link>>> = OnceLock::new();
+    M.get_or_init(Default::default)
+}
+
+fn open_link(addr: u64) -> Option<Link> {
+    use windows::Devices::Bluetooth::BluetoothCacheMode;
+    use windows::Devices::Bluetooth::BluetoothLEDevice;
+    use windows::Devices::Bluetooth::GenericAttributeProfile::{GattCharacteristicUuids, GattCommunicationStatus, GattServiceUuids, GattSession};
+    let log = |m: &str| crate::util::debug_log(|| format!("phone {addr:012X}: {m}"));
+    let Some(device) = wait(BluetoothLEDevice::FromBluetoothAddressAsync(addr).ok()?, 4000) else {
+        log("no Bluetooth LE device");
+        return None;
+    };
+    // Keeps the link up between reads (the phone would drop it after a few seconds).
+    let session = device
+        .BluetoothDeviceId()
+        .ok()
+        .and_then(|id| GattSession::FromDeviceIdAsync(&id).ok())
+        .and_then(|op| wait(op, 4000));
+    if let Some(s) = &session {
+        let _ = s.SetMaintainConnection(true);
+    }
+    let services = wait(device.GetGattServicesForUuidWithCacheModeAsync(GattServiceUuids::Battery().ok()?, BluetoothCacheMode::Uncached).ok()?, 6000)?;
+    if services.Status().ok()? != GattCommunicationStatus::Success {
+        log(&format!("Battery Service: {:?}", services.Status().ok()));
+        return None;
+    }
+    let list = services.Services().ok()?;
+    let Some(svc) = (list.Size().ok()? > 0).then(|| list.GetAt(0).ok()).flatten() else {
+        log("no Battery Service");
+        return None;
+    };
+    let chars = wait(svc.GetCharacteristicsForUuidWithCacheModeAsync(GattCharacteristicUuids::BatteryLevel().ok()?, BluetoothCacheMode::Cached).ok()?, 4000)?;
+    let list = chars.Characteristics().ok()?;
+    let level = (list.Size().ok()? > 0).then(|| list.GetAt(0).ok()).flatten()?;
+    log(&format!("linked (session kept: {})", session.is_some()));
+    Some(Link { _device: device, _session: session, level })
+}
+
 /// Battery level from the standard Bluetooth LE Battery Service (0x180F, Battery Level 0x2A19)
-/// of a paired device, e.g. an iPhone. Only a read of a standard characteristic: nothing is
+/// of a paired device, e.g. an iPhone. Only reads of a standard characteristic: nothing is
 /// written. None when the device does not answer within a few seconds.
 pub fn read_gatt_battery(addr: u64) -> Option<u8> {
     use windows::Devices::Bluetooth::BluetoothCacheMode;
-    use windows::Devices::Bluetooth::BluetoothLEDevice;
-    use windows::Devices::Bluetooth::GenericAttributeProfile::{GattCharacteristicUuids, GattCommunicationStatus, GattServiceUuids};
-    if let Some(at) = gatt_failed().lock().ok()?.get(&addr)
+    use windows::Devices::Bluetooth::GenericAttributeProfile::GattCommunicationStatus;
+    let known = links().lock().ok()?.contains_key(&addr);
+    if !known
+        && let Some(at) = gatt_failed().lock().ok()?.get(&addr)
         && at.elapsed().as_secs() < GATT_RETRY_SECS
     {
         return None;
     }
-    let read = || -> Option<u8> {
-        let dev = wait(BluetoothLEDevice::FromBluetoothAddressAsync(addr).ok()?, 3000)?;
-        let level = (|| {
-            let services = wait(dev.GetGattServicesForUuidWithCacheModeAsync(GattServiceUuids::Battery().ok()?, BluetoothCacheMode::Uncached).ok()?, 4000)?;
-            if services.Status().ok()? != GattCommunicationStatus::Success {
-                return None;
-            }
-            let list = services.Services().ok()?;
-            let svc = (list.Size().ok()? > 0).then(|| list.GetAt(0).ok()).flatten()?;
-            let level = (|| {
-                let chars = wait(svc.GetCharacteristicsForUuidWithCacheModeAsync(GattCharacteristicUuids::BatteryLevel().ok()?, BluetoothCacheMode::Cached).ok()?, 3000)?;
-                let list = chars.Characteristics().ok()?;
-                let ch = (list.Size().ok()? > 0).then(|| list.GetAt(0).ok()).flatten()?;
-                let r = wait(ch.ReadValueWithCacheModeAsync(BluetoothCacheMode::Uncached).ok()?, 3000)?;
-                if r.Status().ok()? != GattCommunicationStatus::Success {
-                    return None;
-                }
-                buffer_bytes(&r.Value().ok()?)?.first().copied().filter(|&b| b <= 100)
-            })();
-            let _ = svc.Close();
-            level
-        })();
-        let _ = dev.Close();
-        level
-    };
-    let level = read();
-    if let Ok(mut m) = gatt_failed().lock() {
-        match level {
-            Some(_) => {
-                m.remove(&addr);
+    let mut m = links().lock().ok()?;
+    #[allow(clippy::map_entry)] // the lock is dropped before the failure is noted
+    if !m.contains_key(&addr) {
+        let link = open_link(addr);
+        match link {
+            Some(l) => {
+                m.insert(addr, l);
             }
             None => {
-                insert_bounded(&mut m, addr, Instant::now(), |t| *t, GATT_RETRY_SECS, 64);
+                drop(m);
+                if let Ok(mut f) = gatt_failed().lock() {
+                    insert_bounded(&mut f, addr, Instant::now(), |t| *t, GATT_RETRY_SECS, 64);
+                }
+                return None;
             }
         }
+    }
+    let read = |l: &Link| -> Option<u8> {
+        let r = wait(l.level.ReadValueWithCacheModeAsync(BluetoothCacheMode::Uncached).ok()?, 4000)?;
+        if r.Status().ok()? != GattCommunicationStatus::Success {
+            crate::util::debug_log(|| format!("phone {addr:012X}: read {:?}", r.Status().ok()));
+            return None;
+        }
+        buffer_bytes(&r.Value().ok()?)?.first().copied().filter(|&b| b <= 100)
+    };
+    let level = m.get(&addr).and_then(read);
+    crate::util::debug_log(|| format!("phone {addr:012X}: level {level:?}"));
+    if level.is_none() {
+        // Linked before: dropped, opened again at the next read (after a short pause).
+        m.remove(&addr);
+        drop(m);
+        if let Ok(mut f) = gatt_failed().lock() {
+            let back = Instant::now() - std::time::Duration::from_secs(GATT_RETRY_SECS - GATT_RETRY_KNOWN_SECS);
+            insert_bounded(&mut f, addr, back, |t| *t, GATT_RETRY_SECS, 64);
+        }
+    } else if let Ok(mut f) = gatt_failed().lock() {
+        f.remove(&addr);
     }
     level
 }

@@ -262,3 +262,4 @@ Settings = 設定
 Next to the icons = 圖示旁邊
 Battery only = 僅電池
 Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone. = 對 {name} 使用「僅電池」?\n\n其電池歷史與統計將被刪除，此後不再記錄或計算任何內容：只顯示電量。此操作無法復原。
+Rising level means charging (experimental) = 電量上升即視為充電 (實驗性)

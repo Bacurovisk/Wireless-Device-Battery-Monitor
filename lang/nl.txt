@@ -262,3 +262,4 @@ Settings = Instellingen
 Next to the icons = Naast de pictogrammen
 Battery only = Alleen batterij
 Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone. = Alleen batterij gebruiken voor {name}?\n\nDe batterijgeschiedenis en statistieken worden verwijderd, en vanaf nu wordt er niets meer vastgelegd of berekend: alleen het niveau wordt getoond. Dit kan niet ongedaan worden gemaakt.
+Rising level means charging (experimental) = Stijgend niveau = opladen (experimenteel)

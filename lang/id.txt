@@ -262,3 +262,4 @@ Settings = Pengaturan
 Next to the icons = Di samping ikon
 Battery only = Hanya baterai
 Use Battery only for {name}?\n\nIts battery history and statistics are deleted, and from now on nothing is recorded or worked out for it: only its level is shown. This cannot be undone. = Gunakan Hanya baterai untuk {name}?\n\nRiwayat baterai dan statistiknya dihapus, dan mulai sekarang tidak ada yang dicatat atau dihitung: hanya levelnya yang ditampilkan. Tidak dapat dibatalkan.
+Rising level means charging (experimental) = Level naik = mengisi daya (eksperimental)
