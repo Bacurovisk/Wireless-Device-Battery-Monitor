@@ -1,4 +1,4 @@
-﻿<p align="center"><img src="res/batteryhub.png" width="112" alt="BatteryHub icon"></p>
+<p align="center"><img src="res/batteryhub.png" width="112" alt="BatteryHub icon"></p>
 
 <h1 align="center">BatteryHub v1.8</h1>
 
