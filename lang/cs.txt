@@ -28,6 +28,7 @@ Average charging session = Průměrné nabíjení
 Average discharge rate = Průměrná rychlost vybíjení
 Average drop while on battery. = Průměrný pokles na baterii.
 Background behind taskbar text (for translucent taskbars) = Pozadí pod textem na hlavním panelu (pro průhledné panely)
+Icons above percentages (narrower) = Ikony nad procenty (užší zobrazení)
 Battery history = Historie baterie
 Battery level, last {range} = Stav baterie, posledních {range}
 Battery life = Výdrž baterie

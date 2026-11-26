@@ -28,6 +28,7 @@ Average charging session = 平均充電時間
 Average discharge rate = 平均放電速度
 Average drop while on battery. = バッテリー駆動中の平均低下。
 Background behind taskbar text (for translucent taskbars) = タスクバーの文字の背景 (半透明のタスクバー用)
+Icons above percentages (narrower) = アイコンをパーセント表示の上に配置（幅を縮小）
 Battery history = バッテリー履歴
 Battery level, last {range} = バッテリー残量、過去 {range}
 Battery life = バッテリー持続時間

@@ -185,6 +185,7 @@ const ID_SILENT_UPDATE: usize = 9;
 const ID_ICONS_MODE: usize = 10;
 const ID_VERSIONS: usize = 11;
 const ID_DASHBOARD: usize = 12;
+const ID_COMPACT: usize = 13;
 const _: () = assert!(ID_INTERVAL_BASE > ID_ON_CHANGE && ID_INTERVAL_BASE + INTERVALS.len() <= ID_MONITOR_ALL, "menu ids overlap");
 /// "Show widget on": all monitors, main monitor only, or ID_MONITOR_FIRST + i for one other monitor.
 const ID_MONITOR_ALL: usize = 40;
@@ -429,6 +430,7 @@ struct App {
     /// app's own notification-area icon (APP_UID) holds the menu.
     hide_empty: bool,
     app_icon: Option<HICON>,
+    compact: bool,
     /// Version the setup just updated from (shown once in "Update finished").
     updated_from: Option<String>,
     /// Names chosen with "Rename device" (device key -> name).
@@ -1142,7 +1144,9 @@ impl App {
         // Lay out: each item at its full width, taking only its share of it (the ones after it
         // follow at once), so a device appearing makes room before it pops in.
         let n = items.len();
+        let compact = self.compact && pieces.iter().all(|p| p.m.h * 2 + px(1.0) <= h);
         let mut xs = vec![0i32; pieces.len()];
+        let mut ys = vec![None; pieces.len()];
         let mut ranges: Vec<(i32, i32)> = vec![(0, 0); n];
         let mut x = pad;
         let mut k = 0;
@@ -1152,10 +1156,28 @@ impl App {
             }
             let start = x.round() as i32;
             let mut cx = 0;
+            let first = k;
             while k < pieces.len() && pieces[k].dev == Some(i) {
                 xs[k] = start + cx;
                 cx += pieces[k].m.w + if pieces.get(k + 1).is_some_and(|q| q.dev == Some(i)) { pieces[k].gap_after } else { 0 };
                 k += 1;
+            }
+            if compact {
+                if k > first + 1 {
+                    let icon = &pieces[first];
+                    let row_start = icon.m.w + icon.gap_after;
+                    let row_w = cx - row_start;
+                    let row_h = pieces[first + 1..k].iter().map(|p| p.m.h).max().unwrap_or(0);
+                    let gap = px(1.0);
+                    let y = (h - icon.m.h - gap - row_h) / 2;
+                    cx = icon.m.w.max(row_w);
+                    xs[first] = start + (cx - icon.m.w) / 2;
+                    ys[first] = Some(y);
+                    for j in first + 1..k {
+                        xs[j] += (cx - row_w) / 2 - row_start;
+                        ys[j] = Some(y + icon.m.h + gap + (row_h - pieces[j].m.h) / 2);
+                    }
+                }
             }
             ranges[i] = (start, start + cx);
             x += cx as f32 * items[i].f;
@@ -1188,12 +1210,12 @@ impl App {
         // The dragged device last, over the others.
         let held = |p: &Piece| p.dev.is_some_and(|i| moves[i].2 < 255);
         for pass in [false, true] {
-            for (p, &x) in pieces.iter().zip(&xs) {
+            for ((p, &x), &y) in pieces.iter().zip(&xs).zip(&ys) {
                 if held(p) != pass {
                     continue;
                 }
                 let (off, blur, alpha) = p.dev.map(|i| moves[i]).unwrap_or((0, 0, 255));
-                let y0 = ((h - p.m.h) / 2 + px(shift_y)).clamp(0, (h - p.m.h).max(0));
+                let y0 = (y.unwrap_or((h - p.m.h) / 2) + px(shift_y)).clamp(0, (h - p.m.h).max(0));
                 for (m, color) in p.layers() {
                     if let Some(i) = p.dev
                         && items[i].p < 1.0
@@ -3688,6 +3710,7 @@ impl App {
         self.offset_y = batteryhub::util::reg_get_dword(SETTINGS_KEY, "TaskbarOffsetY").unwrap_or(0) as i32;
         self.background = batteryhub::util::reg_get_dword(SETTINGS_KEY, "WidgetBackground").unwrap_or(0) != 0;
         self.icons_mode = batteryhub::util::reg_get_dword(SETTINGS_KEY, "NotificationIcons").unwrap_or(0) != 0;
+        self.compact = batteryhub::util::reg_get_dword(SETTINGS_KEY, "CompactWidget").unwrap_or(0) != 0;
         self.choice = widget_choice();
     }
 }
@@ -4318,8 +4341,8 @@ unsafe fn show_menu(from: Option<HWND>) {
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
             let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
             // Look of the widget: plate behind it, position, and which monitors show it.
-            let (choice, offset, background, offset_y, icons_mode, align_left, hide_empty, vertical_bar) =
-                with_app(|a| (a.choice.clone(), a.offset, a.background, a.offset_y, a.icons_mode, a.align_left, a.hide_empty, a.vertical)).unwrap_or_default();
+            let (choice, offset, background, offset_y, icons_mode, align_left, hide_empty, vertical_bar, compact) =
+                with_app(|a| (a.choice.clone(), a.offset, a.background, a.offset_y, a.icons_mode, a.align_left, a.hide_empty, a.vertical, a.compact)).unwrap_or_default();
             let _ = AppendMenuW(
                 menu,
                 MF_STRING | check(!hide_empty),
@@ -4349,6 +4372,12 @@ unsafe fn show_menu(from: Option<HWND>) {
                 let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &windows::core::HSTRING::from(tr("Widget position")));
                 icons.set(menu, n as u32, true, ui::glyph::SETTINGS);
             }
+            let _ = AppendMenuW(
+                menu,
+                MF_STRING | check(compact),
+                ID_COMPACT,
+                &windows::core::HSTRING::from(tr("Icons above percentages (narrower)")),
+            );
             if let Ok(sub) = CreatePopupMenu() {
                 let mut checked = ID_POSITION_CUSTOM;
                 for (i, px) in POSITION_OFFSETS.iter().enumerate() {
@@ -4602,6 +4631,14 @@ unsafe fn show_menu(from: Option<HWND>) {
                     if let Some((_, url)) = recent_releases().get(id - ID_HELP_RELEASE_FIRST) {
                         open_url(url);
                     }
+                }
+                ID_COMPACT => {
+                    with_app(|a| {
+                        a.compact = !a.compact;
+                        save_dword("CompactWidget", a.compact as u32);
+                        a.paint();
+                        a.tick();
+                    });
                 }
                 ID_BACKGROUND => {
                     with_app(|a| {

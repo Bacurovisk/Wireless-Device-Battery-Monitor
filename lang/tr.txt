@@ -28,6 +28,7 @@ Average charging session = Ortalama şarj oturumu
 Average discharge rate = Ortalama boşalma hızı
 Average drop while on battery. = Pildeyken ortalama düşüş.
 Background behind taskbar text (for translucent taskbars) = Görev çubuğu metninin arkasında arka plan (saydam görev çubukları için)
+Icons above percentages (narrower) = Yüzdelerin üzerinde simgeler (daha dar)
 Battery history = Pil geçmişi
 Battery level, last {range} = Pil seviyesi, son {range}
 Battery life = Pil ömrü

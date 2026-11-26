@@ -28,6 +28,7 @@ Average charging session = 平均充电时长
 Average discharge rate = 平均放电速度
 Average drop while on battery. = 使用电池时的平均下降。
 Background behind taskbar text (for translucent taskbars) = 任务栏文字背景（用于半透明任务栏）
+Icons above percentages (narrower) = 图标显示在百分比上方（更窄）
 Battery history = 电池历史
 Battery level, last {range} = 电量，最近 {range}
 Battery life = 续航

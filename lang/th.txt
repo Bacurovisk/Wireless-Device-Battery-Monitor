@@ -28,6 +28,7 @@ Average charging session = รอบการชาร์จเฉลี่ย
 Average discharge rate = อัตราการคายประจุเฉลี่ย
 Average drop while on battery. = ลดลงเฉลี่ยขณะใช้แบตเตอรี่
 Background behind taskbar text (for translucent taskbars) = พื้นหลังใต้ข้อความบนทาสก์บาร์ (สำหรับทาสก์บาร์โปร่งแสง)
+Icons above percentages (narrower) = ไอคอนเหนือเปอร์เซ็นต์ (แคบลง)
 Battery history = ประวัติแบตเตอรี่
 Battery level, last {range} = ระดับแบตเตอรี่ {range} ล่าสุด
 Battery life = อายุแบตเตอรี่

@@ -28,6 +28,7 @@ Average charging session = Rata-rata sesi pengisian
 Average discharge rate = Rata-rata kecepatan pengosongan
 Average drop while on battery. = Rata-rata penurunan saat memakai baterai.
 Background behind taskbar text (for translucent taskbars) = Latar di belakang teks taskbar (untuk taskbar transparan)
+Icons above percentages (narrower) = Ikon di atas persentase (lebih sempit)
 Battery history = Riwayat baterai
 Battery level, last {range} = Level baterai, {range} terakhir
 Battery life = Daya tahan baterai

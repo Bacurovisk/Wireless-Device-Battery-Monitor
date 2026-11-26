@@ -29,6 +29,7 @@ Average charging session = Average charging session
 Average discharge rate = Average discharge rate
 Average drop while on battery. = Average drop while on battery.
 Background behind taskbar text (for translucent taskbars) = Background behind taskbar text (for translucent taskbars)
+Icons above percentages (narrower) = Icons above percentages (narrower)
 Battery history = Battery history
 Battery level, last {range} = Battery level, last {range}
 Battery life = Battery life

@@ -28,6 +28,7 @@ Average charging session = Genomsnittlig laddning
 Average discharge rate = Genomsnittlig urladdningstakt
 Average drop while on battery. = Genomsnittlig minskning på batteri.
 Background behind taskbar text (for translucent taskbars) = Bakgrund bakom aktivitetsfältets text (för genomskinliga aktivitetsfält)
+Icons above percentages (narrower) = Ikoner ovanför procenttalen (smalare)
 Battery history = Batterihistorik
 Battery level, last {range} = Batterinivå, senaste {range}
 Battery life = Batteritid

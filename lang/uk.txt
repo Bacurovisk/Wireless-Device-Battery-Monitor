@@ -28,6 +28,7 @@ Average charging session = Середнє заряджання
 Average discharge rate = Середня швидкість розряджання
 Average drop while on battery. = Середнє зниження на батареї.
 Background behind taskbar text (for translucent taskbars) = Тло під текстом на панелі завдань (для прозорих панелей)
+Icons above percentages (narrower) = Значки над відсотками (вужчий вигляд)
 Battery history = Історія батареї
 Battery level, last {range} = Рівень батареї, останні {range}
 Battery life = Час роботи

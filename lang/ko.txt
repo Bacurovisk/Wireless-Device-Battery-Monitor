@@ -28,6 +28,7 @@ Average charging session = 평균 충전 세션
 Average discharge rate = 평균 방전 속도
 Average drop while on battery. = 배터리 사용 중 평균 감소량.
 Background behind taskbar text (for translucent taskbars) = 작업 표시줄 텍스트 뒤 배경(반투명 작업 표시줄용)
+Icons above percentages (narrower) = 아이콘을 백분율 위에 표시 (폭 줄이기)
 Battery history = 배터리 기록
 Battery level, last {range} = 배터리 잔량, 최근 {range}
 Battery life = 배터리 사용 시간
