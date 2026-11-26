@@ -4014,9 +4014,13 @@ fn recent_releases() -> Vec<(String, String)> {
     };
     if stale && !BUSY.swap(true, std::sync::atomic::Ordering::SeqCst) {
         std::thread::spawn(|| {
-            let list: Vec<(String, String)> = batteryhub::update::list_releases()
-                .map(|v| v.into_iter().filter(|r| !r.prerelease).take(HELP_RELEASES).map(|r| (r.version, r.page_url)).collect())
-                .unwrap_or_default();
+            let found = batteryhub::update::list_releases();
+            if let Err(e) = &found {
+                dbg_log(&format!("recent releases: {e}"));
+            }
+            let list: Vec<(String, String)> =
+                found.map(|v| v.into_iter().filter(|r| !r.prerelease).take(HELP_RELEASES).map(|r| (r.version, r.page_url)).collect()).unwrap_or_default();
+            dbg_log(&format!("recent releases: {} loaded", list.len()));
             *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), list));
             BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
         });
@@ -5784,6 +5788,9 @@ fn main() {
         if auto_update() {
             SetTimer(Some(main), TIMER_AUTO_UPDATE, AUTO_UPDATE_DELAY_MS, None);
         }
+        // The Help menu's latest releases, loaded in the background now, so they are there the
+        // first time the menu opens (not "Loading...").
+        let _ = recent_releases();
         // Started by the setup after a new installation: say once that BatteryHub is free (people
         // were found selling it). Its own thread, so the strip keeps working while it is open.
         if batteryhub::util::reg_get_string(SETTINGS_KEY, "FreeNotice").is_some() {
