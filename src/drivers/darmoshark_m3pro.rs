@@ -189,7 +189,6 @@ mod tests {
             feature_len: 0,
             n_input_value_caps: 1,
             n_feature_value_caps: 0,
-            ..Default::default()
         };
         assert!(matching(&coll(0xFF0A, 1, 65, 65)));
         assert!(!matching(&coll(0xFF0A, 1, 64, 65)));
