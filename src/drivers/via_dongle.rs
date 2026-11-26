@@ -217,7 +217,9 @@ fn poll_cable(ctx: &mut PollContext, pid: u16) -> bool {
     if !with_state(pid, |st| due(st)) {
         return false;
     }
-    let found = colls.iter().find_map(|c| HidDev::open(c).and_then(|d| pmo_query(&d)));
+    // A level of 0 on the cable is no battery at all: other wired keyboards share these ids (e.g.
+    // the TMKB T68E on 36B0:3009, issue #434) and answer 0; a PMO keyboard charges on its cable.
+    let found = colls.iter().find_map(|c| HidDev::open(c).and_then(|d| pmo_query(&d))).filter(|(level, _)| *level > 0);
     let Some((level, _)) = found else {
         with_state(pid, missed);
         return false;
