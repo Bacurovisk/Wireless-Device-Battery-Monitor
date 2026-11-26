@@ -190,9 +190,40 @@ pub fn last_item_end(items: &[(i32, i32)], bar_left: i32, limit: i32, exclude: &
 /// Start, search, widgets...): Some(false) when the widget would cover one of them. None until the
 /// first answer. Checked again after `max_age`, and after `left_refresh_soon` (a window opened or
 /// closed). Horizontal taskbars only.
-pub fn room(bar: HWND, bar_rect: RECT, x0: i32, x1: i32, notify: HWND, msg: u32, max_age: Duration) -> Option<bool> {
-    items(bar, bar_rect, notify, msg, max_age).map(|v| has_room(&v, x0, x1))
+///
+/// `shown`: the widget is on this taskbar now. It is then hidden only on a fresh answer: an
+/// older one is checked again first (the widget got wider, or an item was there only for a
+/// moment), and the widget stays meanwhile, instead of being hidden until `max_age` is up.
+#[allow(clippy::too_many_arguments)]
+pub fn room(bar: HWND, bar_rect: RECT, x0: i32, x1: i32, notify: HWND, msg: u32, max_age: Duration, shown: bool) -> Option<bool> {
+    let v = items(bar, bar_rect, notify, msg, max_age)?;
+    if has_room(&v, x0, x1) {
+        return Some(true);
+    }
+    let blockers: Vec<_> = v.iter().filter(|&&(l, r)| l < x1 && r > x0).collect();
+    if shown {
+        let key = bar.0 as isize;
+        let generation = LEFT_GEN.load(Ordering::SeqCst);
+        let checked = LEFT.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(&key)).map(|e| (e.at.elapsed(), e.generation));
+        if let Some((age, g)) = checked
+            && (age > ROOM_CONFIRM || g != generation)
+        {
+            if g == generation {
+                crate::util::debug_log(|| format!("room {x0}..{x1}: covers {blockers:?} ({}s old), checking again", age.as_secs()));
+                left_refresh_soon();
+                let _ = items(bar, bar_rect, notify, msg, max_age);
+            }
+            return Some(true);
+        }
+    }
+    if shown {
+        crate::util::debug_log(|| format!("room {x0}..{x1}: no room, covers {blockers:?}"));
+    }
+    Some(false)
 }
+
+/// How recent a "no room" answer must be to hide a widget that is shown (see `room`).
+const ROOM_CONFIRM: Duration = Duration::from_secs(3);
 
 /// No item overlaps `x0..x1`.
 pub fn has_room(items: &[(i32, i32)], x0: i32, x1: i32) -> bool {

@@ -2058,7 +2058,7 @@ impl App {
             let mut x0 = POINT { x: left, y: top };
             let _ = ClientToScreen(bar, &mut x0);
             let age = if self.align_left { ROOM_LEFT_AGE } else { ROOM_AGE };
-            let room = batteryhub::tray_probe::room(bar, br, x0.x, x0.x + self.size.cx, self.main, WM_TRAY_PROBED, age).is_none_or(|r| r)
+            let room = batteryhub::tray_probe::room(bar, br, x0.x, x0.x + self.size.cx, self.main, WM_TRAY_PROBED, age, IsWindowVisible(strip).as_bool()).is_none_or(|r| r)
                 && x0.x + self.size.cx <= right;
             self.rooms.borrow_mut().insert(bar.0 as isize, room);
             if !room {
@@ -2298,7 +2298,7 @@ impl App {
             let mut x0 = POINT { x: left, y: top };
             let _ = ClientToScreen(self.taskbar, &mut x0);
             let age = if self.align_left { ROOM_LEFT_AGE } else { ROOM_AGE };
-            let room = batteryhub::tray_probe::room(self.taskbar, bar, x0.x, x0.x + self.size.cx, self.main, WM_TRAY_PROBED, age).is_none_or(|r| r)
+            let room = batteryhub::tray_probe::room(self.taskbar, bar, x0.x, x0.x + self.size.cx, self.main, WM_TRAY_PROBED, age, IsWindowVisible(self.strip).as_bool()).is_none_or(|r| r)
                 && x0.x + self.size.cx <= tr.left;
             self.rooms.borrow_mut().insert(self.taskbar.0 as isize, room);
             if !room {
