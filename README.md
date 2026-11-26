@@ -1,6 +1,6 @@
 <p align="center"><img src="res/batteryhub.png" width="112" alt="BatteryHub icon"></p>
 
-<h1 align="center">BatteryHub v1.7.6</h1>
+<h1 align="center">BatteryHub v1.8</h1>
 
 <p align="center">
 <b>An ultra-lightweight Rust implementation of BatteryHub for Windows.</b><br>
@@ -49,7 +49,7 @@ in about <b>0.2 MB of RAM</b>.
 
 ## Download
 
-Get **`BatteryHub-Taskbar-Setup-v1.7.6.exe`** from the [**latest release**](../../releases/latest), run it and click **Install**.
+Get **`BatteryHub-Taskbar-Setup-v1.8.exe`** from the [**latest release**](../../releases/latest), run it and click **Install**.
 
 - No administrator rights needed (per-user install).
 - Already installed? Use *Check for updates...* in the right-click menu, or run the new setup and click **Update**.
@@ -548,7 +548,7 @@ Requirements: Rust 1.99 or newer (stable, MSVC toolchain; the crates use the 202
 .\build-release.ps1
 ```
 
-This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.7.6.exe` and `SHA256SUMS.txt`. The version comes from the `VERSION` file (up to four parts, e.g. `1.0.1.1`).
+This builds the program, then the setup with the program embedded (`installer/`, `BH_PAYLOAD_DIR`), and writes `release\BatteryHub-Taskbar-Setup-v1.8.exe` and `SHA256SUMS.txt`. The version comes from the `VERSION` file (up to four parts, e.g. `1.0.1.1`).
 
 | Path | Contents |
 |---|---|
@@ -573,12 +573,22 @@ BatteryHub is not made by one person alone. Thank you to everyone who helped!
 - **[@NeroHole](https://github.com/NeroHole)**: SinoWealth receivers, Redragon M602-KS (#111).
 - **[@Bacurovisk](https://github.com/Bacurovisk)**: Logitech G321 LIGHTSPEED (#107), Portuguese (Brazil) and translatable connection names (#222, #237), decimal separator per language (#255).
 - **[@denwir](https://github.com/denwir)**: GameSir G7 Pro 8K, tested on hardware (#238).
-- **[@elcio96](https://github.com/elcio96)**: Smailwolf RS6, tested on hardware (#233).
+- **[@elcio96](https://github.com/elcio96)**: Smailwolf RS6, tested on hardware (#233), its checksum below 100 % (#494).
 - **[@PromiseTzZ](https://github.com/PromiseTzZ)**: VGN Dragonfly 3 Pro, tested on hardware (#272).
 - **[@adskiykrik](https://github.com/adskiykrik)**: HyperX Cloud Stinger 3 Wireless, tested on hardware (#313).
 - **[@estebannoemr](https://github.com/estebannoemr)**: HyperX Cloud Flight, tested on hardware (#93).
 - **[@Jere2201](https://github.com/Jere2201)**: FNATIC BOLT (#48).
 - **[@NanoBitrin](https://github.com/NanoBitrin)**: Logi Bolt pairing registers, so sleeping Bolt devices stay listed (#361, #363).
+- **[@DopleZZ](https://github.com/DopleZZ)**: Logitech G435 on the older dongle, read only while its audio is silent; the 0ADF fix (#481).
+- **[@stanzeman](https://github.com/stanzeman)**: HyperX Pulsefire Saga Pro, tested on hardware (#553).
+- **[@4679](https://github.com/4679)**: Darmoshark M3 PRO, tested on hardware (#511).
+- **[@TIGamingTV](https://github.com/TIGamingTV)**: ROG OMNI receiver (#452), Logitech G733 battery curve (#478).
+- **[@basziee](https://github.com/basziee)**: JBL Quantum 800, tested on hardware (#443).
+- **[@Dyzson](https://github.com/Dyzson)**: Hitscan Hyperlight X driver (#427), the Audeze Maxwell read (#412).
+- **[@iMulo](https://github.com/iMulo)**: BEITONG KP70 battery read, measured on hardware (#212).
+- **[@AlanRooMJ](https://github.com/AlanRooMJ)**: MEETION mice on `249A:5C2F` (#216).
+- **[@karim-kss](https://github.com/karim-kss)**: VGN DragonFly F2 Pro Max, checked on hardware (#524).
+- **[@AzukiPann](https://github.com/AzukiPann)**: Sony INZONE H5, tested on hardware (#328).
 
 **Device requests, dumps and testing.** Every new device comes from someone who asked for it, sent a dump or tested a version. Thank you to all of them:
 

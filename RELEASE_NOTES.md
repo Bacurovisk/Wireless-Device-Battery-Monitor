@@ -1,4 +1,4 @@
-# BatteryHub v1.7.7 (Rust)
+# BatteryHub v1.8 (Rust)
 
 An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of [krisgfx9/Wireless-Device-Battery-Monitor](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor). All credit for the original idea, look and device protocols goes to the original project.
 
@@ -6,15 +6,20 @@ An ultra-lightweight Rust implementation of BatteryHub for Windows, a recode of 
 
 | File | |
 |---|---|
-| `BatteryHub-Taskbar-Setup-v1.7.7.exe` | Setup: Install / Update / Uninstall |
+| `BatteryHub-Taskbar-Setup-v1.8.exe` | Setup: Install / Update / Uninstall |
 | `SHA256SUMS.txt` | Checksum |
 
 Already installed? Use *Check for updates...* in the right-click menu (v1.1 and later), or run the new setup and click **Update**. Your settings and autostart choice are kept.
 
-## New in v1.7.7
+## New in v1.8
 
-- **Logitech G435, older dongle (`046D:0ACB`):** the battery is now read through the dongle's bootloader bridge (protocol from [logitech-g435-battery](https://github.com/deddroid/logitech-g435-battery), MIT, verified on hardware). A bridge session pauses the dongle's own audio for about 0.6 s, so it runs only while the dongle's playback *and* microphone are silent - checked over WASAPI meters right before it, at most every 15 minutes; while sound flows the last known level keeps showing. GET_BATTERY never goes first, dongles in remote mode 0 get the mode switched, and the bridge is always left again (retried on a fresh handle if the exit is not acknowledged).
-- **Fixed:** the newer G435 dongle (`046D:0ADF`) never appeared - its id was still on the never-touch list after its driver was added.
+- **BatteryHub is free, and will stay free.** Nobody should pay for it; if you did, ask for a refund. Shown once after a new installation, and in *Help*.
+- **Per device:** *On hover* shows the card, only a short tooltip, or nothing; the card's chart and time left can be turned off; *Battery only* records nothing for the device.
+- **Phones over Bluetooth:** the standard Bluetooth LE Battery Service is read when Windows has no level (e.g. iPhones).
+- **Widget position** *Left* or *Right*; the widget glides to its new place, also on other monitors. *Help* menu with the GitHub page, Discord and the latest releases. The tray icon can hide when no device is connected.
+- **New devices:** Logitech G435 on the older dongle (by [DopleZZ](https://github.com/DopleZZ), #481), HyperX Pulsefire Saga Pro (by [stanzeman](https://github.com/stanzeman), #553), Darmoshark M3 PRO (by [4679](https://github.com/4679), #511), ROG OMNI receiver (by [TIGamingTV](https://github.com/TIGamingTV), #452), JBL Quantum 800 (by [basziee](https://github.com/basziee), #443), Hitscan Hyperlight X (by [Dyzson](https://github.com/Dyzson), #427) and Hyperlight, Sony INZONE H5, G-Wolves mice, BEITONG KP70, Flydigi Vader 5 Pro, more ASUS ROG / TUF mice, VGN Dragonfly 4K and F2 Pro Max, AJAZZ 8K receiver, MEETION mice.
+- **Fixed:** G435 newer dongle never read; Audeze Maxwell; G733 level (by [TIGamingTV](https://github.com/TIGamingTV), #478); Smailwolf / AJAZZ `A8A5:2255` below 100 % (by [elcio96](https://github.com/elcio96), #494).
+- Updates are also looked for under `ferloom/battery-hub`, in case the repository is renamed.
 
 ## New in v1.7.6
 
