@@ -288,7 +288,7 @@ fn acb_parse_mv(f: &[u8]) -> Option<i32> {
 fn acb_battery(d: &HidDev) -> Option<i32> {
     let end = Deadline::in_ms(1500);
     loop {
-        let Some(f) = bridge_frame(d, end.left_ms() as u64) else { return None };
+        let f = bridge_frame(d, end.left_ms() as u64)?;
         if let Some(mv) = acb_parse_mv(&f) {
             return Some(mv);
         }
@@ -307,7 +307,7 @@ fn acb_session(d: &HidDev) -> Option<Option<i32>> {
     }
     let end = Deadline::in_ms(1500);
     let connected = loop {
-        let Some(f) = bridge_frame(d, end.left_ms() as u64) else { return None };
+        let f = bridge_frame(d, end.left_ms() as u64)?;
         if let Some(i) = find(&f, &[0x02, 0x00, 0xE3]) {
             break f.get(i + 3).copied().unwrap_or(0) != 0;
         }
