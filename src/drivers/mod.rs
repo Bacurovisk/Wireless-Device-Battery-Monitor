@@ -1,6 +1,7 @@
 //! Device drivers. Each looks at the enumerated HID collections (or Windows' Bluetooth / gaming
 //! APIs), talks to the devices it recognises and appends what it finds to the PollContext.
 pub mod airpods;
+pub mod ajazz_8k;
 pub mod ajazz_aj139;
 pub mod ajazz_aj179;
 pub mod areson;
@@ -80,6 +81,7 @@ pub mod sinowealth;
 pub mod sonix;
 pub mod steelseries;
 pub mod via_dongle;
+pub mod hitscan;
 pub mod wlmouse;
 pub mod xinput;
 pub mod zowie;

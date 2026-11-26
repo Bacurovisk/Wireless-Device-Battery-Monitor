@@ -46,7 +46,7 @@ const fn p(vid: u16, pid: u16, name: &'static str, group: &'static str, cable: b
     Product { vid, pid, name, group, cable }
 }
 
-const PRODUCTS: [Product; 18] = [
+const PRODUCTS: [Product; 23] = [
     p(0x3554, 0xF508, "Pulsar mouse", "pulsar1k", false),
     p(0x3554, 0xF509, "Pulsar mouse", "pulsar4k", false),
     p(0x3554, 0xF507, "Pulsar mouse", "pulsar-cable", true),
@@ -75,6 +75,17 @@ const PRODUCTS: [Product; 18] = [
     // github.com/pixelinterest/AS-R11Ultra-Battery-Tray, protocol.md).
     p(0x3554, 0xFB44, "Attack Shark R11 Ultra", "r11ultra", false),
     p(0x3554, 0xFB43, "Attack Shark R11 Ultra", "r11ultra", true),
+    // VGN Dragonfly 4K receiver and cable (the VXE R1 Pro on it), from HaloBattery
+    // (providers/pulsar.py, its issue #323); the same FF02:0002 17-byte collection (issues #435, #506).
+    p(0x3554, 0xF505, "VGN Dragonfly", "vgn4k", false),
+    p(0x3554, 0xF506, "VGN Dragonfly", "vgn4k", true),
+    // Hitscan Hyperlight: 1K receiver 0200, cable 0100 and the older 8K dongle 0300 with this
+    // layout, mapped from USB captures of Hitscan Utility by sopparus/hitscan-battery and listed by
+    // HaloBattery (providers/pulsar.py, verified in its #158). The newer 8K dongle has no FF02:0002
+    // collection and is read by hitscan.rs.
+    p(0x3770, 0x0200, "Hitscan Hyperlight", "hitscan", false),
+    p(0x3770, 0x0300, "Hitscan Hyperlight", "hitscan", false),
+    p(0x3770, 0x0100, "Hitscan Hyperlight", "hitscan", true),
 ];
 
 pub fn checksum(b: &[u8]) -> u8 {
