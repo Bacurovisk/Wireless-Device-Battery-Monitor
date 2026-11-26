@@ -232,3 +232,5 @@ Cyan = Sian
 Purple = Ungu
 Pink = Merah muda
 Orange = Oranye
+GitHub repository = Repositori GitHub
+Release notes = Catatan rilis

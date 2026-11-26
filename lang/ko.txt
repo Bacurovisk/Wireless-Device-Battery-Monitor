@@ -232,3 +232,5 @@ Cyan = 청록
 Purple = 보라
 Pink = 분홍
 Orange = 주황
+GitHub repository = GitHub 저장소
+Release notes = 릴리스 노트

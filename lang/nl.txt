@@ -232,3 +232,5 @@ Cyan = Cyaan
 Purple = Paars
 Pink = Roze
 Orange = Oranje
+GitHub repository = GitHub-repository
+Release notes = Releaseopmerkingen

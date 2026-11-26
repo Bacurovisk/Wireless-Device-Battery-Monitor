@@ -232,3 +232,5 @@ Cyan = Lục lam
 Purple = Tím
 Pink = Hồng
 Orange = Cam
+GitHub repository = Kho lưu trữ GitHub
+Release notes = Ghi chú phát hành

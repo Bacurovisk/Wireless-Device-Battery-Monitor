@@ -175,6 +175,8 @@ const ID_SILENT_UPDATE: usize = 9;
 const ID_ICONS_MODE: usize = 10;
 const ID_VERSIONS: usize = 11;
 const ID_DASHBOARD: usize = 12;
+const ID_GITHUB: usize = 13;
+const ID_RELEASE_NOTES: usize = 14;
 const _: () = assert!(ID_INTERVAL_BASE > ID_ON_CHANGE && ID_INTERVAL_BASE + INTERVALS.len() <= ID_MONITOR_ALL, "menu ids overlap");
 /// "Show widget on": all monitors, main monitor only, or ID_MONITOR_FIRST + i for one other monitor.
 const ID_MONITOR_ALL: usize = 40;
@@ -4099,6 +4101,10 @@ unsafe fn show_menu(from: Option<HWND>) {
             icons.set(menu, ID_CHECK_UPDATES as u32, false, ui::glyph::DOWNLOAD);
             let _ = AppendMenuW(menu, MF_STRING, ID_VERSIONS, &windows::core::HSTRING::from(tr("Install another version...")));
             icons.set(menu, ID_VERSIONS as u32, false, ui::glyph::HISTORY);
+            let _ = AppendMenuW(menu, MF_STRING, ID_RELEASE_NOTES, &windows::core::HSTRING::from(tr("Release notes")));
+            icons.set(menu, ID_RELEASE_NOTES as u32, false, ui::glyph::INFO);
+            let _ = AppendMenuW(menu, MF_STRING, ID_GITHUB, &windows::core::HSTRING::from(tr("GitHub repository")));
+            icons.set(menu, ID_GITHUB as u32, false, ui::glyph::LANGUAGE);
             let _ = AppendMenuW(menu, MF_STRING, ID_EXIT, &windows::core::HSTRING::from(tr("Exit")));
             icons.set(menu, ID_EXIT as u32, false, ui::glyph::EXIT);
             let mut pt = POINT::default();
@@ -4150,6 +4156,28 @@ unsafe fn show_menu(from: Option<HWND>) {
                 }
                 ID_CHECK_UPDATES => check_for_updates(main, false),
                 ID_VERSIONS => open_version_list(main),
+                ID_RELEASE_NOTES => {
+                    let url = format!("https://github.com/{}/blob/main/RELEASE_NOTES.md", batteryhub::update::REPO);
+                    let _ = windows::Win32::UI::Shell::ShellExecuteW(
+                        None,
+                        w!("open"),
+                        &windows::core::HSTRING::from(url),
+                        None,
+                        None,
+                        windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+                    );
+                }
+                ID_GITHUB => {
+                    let url = format!("https://github.com/{}", batteryhub::update::REPO);
+                    let _ = windows::Win32::UI::Shell::ShellExecuteW(
+                        None,
+                        w!("open"),
+                        &windows::core::HSTRING::from(url),
+                        None,
+                        None,
+                        windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+                    );
+                }
                 ID_ICONS_MODE => {
                     let on = with_app(|a| {
                         a.icons_mode = !a.icons_mode;

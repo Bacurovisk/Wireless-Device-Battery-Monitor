@@ -232,3 +232,5 @@ Cyan = Turkusowy
 Purple = Fioletowy
 Pink = Różowy
 Orange = Pomarańczowy
+GitHub repository = Repozytorium GitHub
+Release notes = Informacje o wydaniu

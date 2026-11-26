@@ -232,3 +232,5 @@ Cyan = Ciano
 Purple = Viola
 Pink = Rosa
 Orange = Arancione
+GitHub repository = Repository GitHub
+Release notes = Note di rilascio

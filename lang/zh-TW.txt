@@ -232,3 +232,5 @@ Cyan = 青色
 Purple = 紫色
 Pink = 粉紅色
 Orange = 橘色
+GitHub repository = GitHub 儲存庫
+Release notes = 更新日誌

@@ -232,3 +232,5 @@ Cyan = Cyan
 Purple = Lila
 Pink = Rosa
 Orange = Orange
+GitHub repository = GitHub-arkiv
+Release notes = Versionsfakta

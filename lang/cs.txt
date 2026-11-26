@@ -232,3 +232,5 @@ Cyan = Azurová
 Purple = Fialová
 Pink = Růžová
 Orange = Oranžová
+GitHub repository = Repozitář na GitHubu
+Release notes = Poznámky k vydání

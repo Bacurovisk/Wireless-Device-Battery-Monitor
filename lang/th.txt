@@ -232,3 +232,5 @@ Cyan = ฟ้าอมเขียว
 Purple = ม่วง
 Pink = ชมพู
 Orange = ส้ม
+GitHub repository = ที่เก็บโค้ด GitHub
+Release notes = บันทึกการอัปเดต

@@ -232,3 +232,5 @@ Cyan = Ciánkék
 Purple = Lila
 Pink = Rózsaszín
 Orange = Narancs
+GitHub repository = GitHub-tárház
+Release notes = Kiadási megjegyzések
